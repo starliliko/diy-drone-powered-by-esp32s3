@@ -42,13 +42,13 @@
 #include "config.h"
 #include "system.h"
 #include "platform.h"
-//#include "storage.h"
+// #include "storage.h"
 #include "configblock.h"
 #include "worker.h"
 #include "freeRTOSdebug.h"
-//#include "uart_syslink.h"
-//#include "uart1.h"
-//#include "uart2.h"
+// #include "uart_syslink.h"
+// #include "uart1.h"
+// #include "uart2.h"
 #include "wifi_esp32.h"
 #include "comm.h"
 #include "stabilizer.h"
@@ -56,21 +56,21 @@
 #include "console.h"
 #include "wifilink.h"
 #include "mem.h"
-//#include "proximity.h"
-//#include "watchdog.h"
+// #include "proximity.h"
+// #include "watchdog.h"
 #include "queuemonitor.h"
 #include "buzzer.h"
 #include "sound.h"
 #include "sysload.h"
 #include "estimator_kalman.h"
-//#include "deck.h"
-//#include "extrx.h"
+// #include "deck.h"
+// #include "extrx.h"
 #include "app.h"
 #include "stm32_legacy.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
 #include "static_mem.h"
-//#include "peer_localization.h"
+// #include "peer_localization.h"
 #include "cfassert.h"
 
 #ifndef START_DISARMED
@@ -99,12 +99,13 @@ static void systemTask(void *arg);
 void systemLaunch(void)
 {
   STATIC_MEM_TASK_CREATE(systemTask, systemTask, SYSTEM_TASK_NAME, NULL, SYSTEM_TASK_PRI);
+  // 启动系统任务
 }
 
 // This must be the first module to be initialized!
 void systemInit(void)
 {
-  if(isInit)
+  if (isInit)
     return;
 
   DEBUG_PRINT_LOCAL("----------------------------\n");
@@ -135,13 +136,13 @@ void systemInit(void)
               *((int*)(MCU_ID_ADDRESS+0)), *((short*)(MCU_FLASH_SIZE_ADDRESS)));*/
 
   configblockInit();
-  //storageInit();
+  // storageInit();
   workerInit();
   adcInit();
   ledseqInit();
   pmInit();
   buzzerInit();
-//  peerLocalizationInit();
+  //  peerLocalizationInit();
 
 #ifdef APP_ENABLED
   appInit();
@@ -152,7 +153,7 @@ void systemInit(void)
 
 bool systemTest()
 {
-  bool pass=isInit;
+  bool pass = isInit;
 
   pass &= ledseqTest();
   pass &= pmTest();
@@ -185,20 +186,20 @@ void systemTask(void *arg)
   uart2Init(115200);
 #endif
 
-  //Init the high-levels modules
+  // Init the high-levels modules
   systemInit();
   commInit();
   commanderInit();
 
   StateEstimatorType estimator = anyEstimator;
   estimatorKalmanTaskInit();
-  //deckInit();
-  //estimator = deckGetRequiredEstimator();
+  // deckInit();
+  // estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator);
-  //if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
+  // if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
   //{
-  //  platformSetLowInterferenceRadioMode();
-  //}
+  //   platformSetLowInterferenceRadioMode();
+  // }
   soundInit();
   memInit();
 
@@ -206,14 +207,14 @@ void systemTask(void *arg)
   proximityInit();
 #endif
 
-	/* Test each modules */
+  /* Test each modules */
   pass &= wifiTest();
   DEBUG_PRINTI("wifilinkTest = %d ", pass);
   pass &= systemTest();
   DEBUG_PRINTI("systemTest = %d ", pass);
   pass &= configblockTest();
   DEBUG_PRINTI("configblockTest = %d ", pass);
-  //pass &= storageTest();
+  // pass &= storageTest();
   pass &= commTest();
   DEBUG_PRINTI("commTest = %d ", pass);
   pass &= commanderTest();
@@ -222,17 +223,17 @@ void systemTask(void *arg)
   DEBUG_PRINTI("stabilizerTest = %d ", pass);
   pass &= estimatorKalmanTaskTest();
   DEBUG_PRINTI("estimatorKalmanTaskTest = %d ", pass);
-  //pass &= deckTest();
+  // pass &= deckTest();
   pass &= soundTest();
   DEBUG_PRINTI("soundTest = %d ", pass);
   pass &= memTest();
   DEBUG_PRINTI("memTest = %d ", pass);
-  //pass &= watchdogNormalStartTest();
+  // pass &= watchdogNormalStartTest();
   pass &= cfAssertNormalStartTest();
-//  pass &= peerLocalizationTest();
+  //  pass &= peerLocalizationTest();
 
-  //Start the firmware
-  if(pass)
+  // Start the firmware
+  if (pass)
   {
     selftestPassed = 1;
     systemStart();
@@ -246,14 +247,14 @@ void systemTask(void *arg)
     selftestPassed = 0;
     if (systemTest())
     {
-      while(1)
+      while (1)
       {
         ledseqRun(&seq_testFailed);
         vTaskDelay(M2T(2000));
         // System can be forced to start by setting the param to 1 from the cfclient
         if (selftestPassed)
         {
-	        DEBUG_PRINT("Start forced.\n");
+          DEBUG_PRINT("Start forced.\n");
           systemStart();
           break;
         }
@@ -265,12 +266,12 @@ void systemTask(void *arg)
       ledSet(SYS_LED, true);
     }
   }
-  DEBUG_PRINT("Free heap: %"PRIu32" bytes\n", xPortGetFreeHeapSize());
+  DEBUG_PRINT("Free heap: %" PRIu32 " bytes\n", xPortGetFreeHeapSize());
 
   workerLoop();
 
-  //Should never reach this point!
-  while(1)
+  // Should never reach this point!
+  while (1)
     vTaskDelay(portMAX_DELAY);
 }
 
@@ -279,15 +280,15 @@ void systemStart()
 {
   xSemaphoreGive(canStartMutex);
 #ifndef DEBUG_EP2
-  //watchdogInit();
+  // watchdogInit();
 #endif
 }
 
 void systemWaitStart(void)
 {
-  //This permits to guarantee that the system task is initialized before other
-  //tasks waits for the start event.
-  while(!isInit)
+  // This permits to guarantee that the system task is initialized before other
+  // tasks waits for the start event.
+  while (!isInit)
     vTaskDelay(2);
 
   xSemaphoreTake(canStartMutex, portMAX_DELAY);

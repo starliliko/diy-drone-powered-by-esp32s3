@@ -1,5 +1,5 @@
 /**
-*
+ *
  * ESP-Drone Firmware
  *
  * Copyright 2019-2020  Espressif Systems (Shanghai)
@@ -28,9 +28,11 @@
 
 #define PLATFORM_DEVICE_TYPE_STRING_MAX_LEN (32 + 1)
 #define PLATFORM_DEVICE_TYPE_MAX_LEN (4 + 1)
+
 #define SENSOR_INCLUDED_MPU6050_HMC5883L_MS5611
 
-typedef enum {
+typedef enum
+{
 #ifdef SENSOR_INCLUDED_BMI088_BMP388
     SensorImplementation_bmi088_bmp388,
 #endif
@@ -54,7 +56,8 @@ typedef enum {
     SensorImplementation_COUNT,
 } SensorImplementation_t;
 
-typedef struct {
+typedef struct
+{
     char deviceType[PLATFORM_DEVICE_TYPE_MAX_LEN];
     char deviceTypeName[20];
     SensorImplementation_t sensorImplementation;
@@ -74,7 +77,6 @@ int platformInitConfiguration(const platformConfig_t *configs, const int nrOfCon
 // Implemented in platform specific files
 const platformConfig_t *platformGetListOfConfigurations(int *nrOfConfigs);
 bool platformInitHardware();
-
 
 void platformSetLowInterferenceRadioMode(void);
 

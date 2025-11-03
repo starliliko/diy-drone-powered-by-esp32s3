@@ -2,7 +2,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "string.h" // 添加 memcpy 函数所需的头文件
+#include "string.h"
+#include "i2cdev.h"
+#include "i2c_drv.h"
 
 static const char *TAG = "JY901_DRIVER";
 
@@ -16,12 +18,8 @@ void jy901_get_default_config(jy901_config_t *config)
     if (config == NULL)
         return;
 
-    config->i2c_port = I2C_NUM_0;
     config->device_addr = JY901_DEFAULT_ADDR;
-    config->sda_pin = GPIO_NUM_5;
-    config->scl_pin = GPIO_NUM_4;
-    config->i2c_freq = JY901_I2C_FREQ; // 400kHz
-    config->timeout_ms = JY901_TIMEOUT_MS;
+    config->timeout_ms = 1000;
 }
 
 int jy901_init(jy901_handle_t *handle, const jy901_config_t *config)
@@ -35,38 +33,16 @@ int jy901_init(jy901_handle_t *handle, const jy901_config_t *config)
     // 复制配置
     memcpy(&handle->config, config, sizeof(jy901_config_t));
     handle->initialized = false;
-    handle->height_offset = 0;         // 初始化高度偏移量
-    handle->height_calibrated = false; // 初始化校准标志
+    handle->height_offset = 0;
+    handle->height_calibrated = false;
 
-    // 配置I2C
-    i2c_config_t i2c_config = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = config->sda_pin,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = config->scl_pin,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = config->i2c_freq,
-    };
-
-    esp_err_t ret = i2c_param_config(config->i2c_port, &i2c_config);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "I2C param config failed");
-        return JY901_ERROR;
-    }
-
-    ret = i2c_driver_install(config->i2c_port, i2c_config.mode, 0, 0, 0);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "I2C driver install failed");
-        return JY901_ERROR;
-    }
+    // 使用 esp-drone 的 I2C 驱动初始化
+    handle->i2c_dev = &sensorsBus; // 使用现有的传感器总线
 
     // 检查设备连接
     if (jy901_check_connection(handle) != JY901_OK)
     {
         ESP_LOGE(TAG, "Device not found at address 0x%02X", config->device_addr);
-        i2c_driver_delete(config->i2c_port);
         return JY901_NOT_FOUND;
     }
 
@@ -82,41 +58,9 @@ int jy901_deinit(jy901_handle_t *handle)
         return JY901_ERROR;
     }
 
-    esp_err_t ret = i2c_driver_delete(handle->config.i2c_port);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "I2C driver delete failed");
-        return JY901_ERROR;
-    }
-
     handle->initialized = false;
     ESP_LOGI(TAG, "JY901 deinitialized");
     return JY901_OK;
-}
-
-int jy901_auto_scan(jy901_handle_t *handle)
-{
-    if (handle == NULL)
-    {
-        return JY901_ERROR;
-    }
-
-    ESP_LOGI(TAG, "Scanning for JY901 device...");
-
-    for (uint8_t addr = 0x01; addr < 0x7F; addr++)
-    {
-        handle->config.device_addr = addr;
-
-        if (jy901_check_connection(handle) == JY901_OK)
-        {
-            ESP_LOGI(TAG, "Found JY901 device at address 0x%02X", addr);
-            return JY901_OK;
-        }
-        jy901_delay_ms(1);
-    }
-
-    ESP_LOGE(TAG, "No JY901 device found");
-    return JY901_NOT_FOUND;
 }
 
 int jy901_check_connection(jy901_handle_t *handle)
@@ -596,7 +540,7 @@ int jy901_read_all_raw_data(jy901_handle_t *handle)
     return JY901_OK;
 }
 
-// 内部函数实现
+// 内部函数实现 - 使用 esp-drone 的 I2C 接口
 static int jy901_i2c_read_reg(jy901_handle_t *handle, uint8_t reg, uint8_t *data, uint8_t len)
 {
     if (handle == NULL || data == NULL || len == 0)
@@ -604,36 +548,8 @@ static int jy901_i2c_read_reg(jy901_handle_t *handle, uint8_t reg, uint8_t *data
         return JY901_ERROR;
     }
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-
-    // 写寄存器地址
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (handle->config.device_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-
-    // 读取数据
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (handle->config.device_addr << 1) | I2C_MASTER_READ, true);
-
-    for (int i = 0; i < len; i++)
-    {
-        if (i == len - 1)
-        {
-            i2c_master_read_byte(cmd, &data[i], I2C_MASTER_NACK);
-        }
-        else
-        {
-            i2c_master_read_byte(cmd, &data[i], I2C_MASTER_ACK);
-        }
-    }
-
-    i2c_master_stop(cmd);
-
-    esp_err_t ret = i2c_master_cmd_begin(handle->config.i2c_port, cmd,
-                                         handle->config.timeout_ms / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-
-    return (ret == ESP_OK) ? JY901_OK : JY901_ERROR;
+    bool ret = i2cdevReadReg8(handle->i2c_dev, handle->config.device_addr, reg, len, data);
+    return ret ? JY901_OK : JY901_ERROR;
 }
 
 static int jy901_i2c_write_reg(jy901_handle_t *handle, uint8_t reg, uint16_t data)
@@ -644,20 +560,8 @@ static int jy901_i2c_write_reg(jy901_handle_t *handle, uint8_t reg, uint16_t dat
     }
 
     uint8_t write_data[2] = {data & 0xFF, (data >> 8) & 0xFF};
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (handle->config.device_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, write_data[0], true);
-    i2c_master_write_byte(cmd, write_data[1], true);
-    i2c_master_stop(cmd);
-
-    esp_err_t ret = i2c_master_cmd_begin(handle->config.i2c_port, cmd,
-                                         handle->config.timeout_ms / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-
-    return (ret == ESP_OK) ? JY901_OK : JY901_ERROR;
+    bool ret = i2cdevWriteReg8(handle->i2c_dev, handle->config.device_addr, reg, 2, write_data);
+    return ret ? JY901_OK : JY901_ERROR;
 }
 
 static void jy901_delay_ms(uint32_t ms)
