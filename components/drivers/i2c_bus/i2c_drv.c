@@ -76,6 +76,10 @@ I2cDrv deckBus = {
     .def = &deckBusDef,
 };
 
+/*
+封装两个I2C接口 deckBus sensorsBus
+*/
+
 static void i2cdrvInitBus(I2cDrv *i2c)
 {
     if (isinit_i2cPort[i2c->def->i2cPort])
