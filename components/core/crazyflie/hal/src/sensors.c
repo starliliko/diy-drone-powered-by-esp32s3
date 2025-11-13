@@ -203,7 +203,7 @@ bool sensorsAreCalibrated(void)
 
 bool sensorsManufacturingTest(void)
 {
-  return activeImplementation->manufacturingTest;
+  return activeImplementation->manufacturingTest(); // 修复函数调用
 }
 
 void sensorsAcquire(sensorData_t *sensors, const uint32_t tick)

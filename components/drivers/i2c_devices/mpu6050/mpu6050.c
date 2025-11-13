@@ -48,21 +48,22 @@ static bool isInit;
  */
 void mpu6050Init(I2C_Dev *i2cPort)
 {
-    if (isInit) {
+    if (isInit)
+    {
         return;
     }
 
     I2Cx = i2cPort;
     devAddr = MPU6050_ADDRESS_AD0_LOW;
     isInit = true;
-
 }
 
 bool mpu6050Test(void)
 {
     bool testStatus;
 
-    if (!isInit) {
+    if (!isInit)
+    {
         return false;
     }
 
@@ -102,7 +103,8 @@ bool mpu6050SelfTest()
     gRange = mpu6050GetFullScaleGyroDPL();
 
     // First values after startup can be read as zero. Scrap a couple to be sure.
-    for (scrap = 0; scrap < 5; scrap++) {
+    for (scrap = 0; scrap < 5; scrap++)
+    {
         mpu6050GetMotion6(&axi16, &ayi16, &azi16, &gxi16, &gyi16, &gzi16);
         vTaskDelay(M2T(2));
     }
@@ -124,7 +126,7 @@ bool mpu6050SelfTest()
     mpu6050SetAccelZSelfTest(true);
 
     // Wait for self test to take effect
-    vTaskDelay(1000 / portTICK_PERIOD_MS);//vTaskDelay(M2T(MPU6050_SELF_TEST_DELAY_MS));
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // vTaskDelay(M2T(MPU6050_SELF_TEST_DELAY_MS));
     // Take second measurement
     mpu6050GetMotion6(&axi16, &ayi16, &azi16, &gxi16, &gyi16, &gzi16);
     gxfTst = gxi16 * gRange;
@@ -142,16 +144,16 @@ bool mpu6050SelfTest()
     mpu6050SetAccelYSelfTest(false);
     mpu6050SetAccelZSelfTest(false);
 
-// Read factory values
-//  i2cdevReadByte(I2Cx, devAddr, 0x00, (uint8_t *)&gxfi8);
-//  i2cdevReadByte(I2Cx, devAddr, 0x01, (uint8_t *)&gyfi8);
-//  i2cdevReadByte(I2Cx, devAddr, 0x02, (uint8_t *)&gzfi8);
-//  i2cdevReadByte(I2Cx, devAddr, 0x0D, (uint8_t *)&axfi8);
-//  i2cdevReadByte(I2Cx, devAddr, 0x0E, (uint8_t *)&ayfi8);
-//  i2cdevReadByte(I2Cx, devAddr, 0x0F, (uint8_t *)&azfi8);
+    // Read factory values
+    //  i2cdevReadByte(I2Cx, devAddr, 0x00, (uint8_t *)&gxfi8);
+    //  i2cdevReadByte(I2Cx, devAddr, 0x01, (uint8_t *)&gyfi8);
+    //  i2cdevReadByte(I2Cx, devAddr, 0x02, (uint8_t *)&gzfi8);
+    //  i2cdevReadByte(I2Cx, devAddr, 0x0D, (uint8_t *)&axfi8);
+    //  i2cdevReadByte(I2Cx, devAddr, 0x0E, (uint8_t *)&ayfi8);
+    //  i2cdevReadByte(I2Cx, devAddr, 0x0F, (uint8_t *)&azfi8);
 
-//  fprintf("gxf:%i, gyf:%i, gzf:%i, axf:%i, ayf:%i, azf:%i\n",
-//             (int)gxfi8, (int)gyfi8, (int)gzfi8, (int)axfi8, (int)ayfi8, (int)azfi8);
+    //  fprintf("gxf:%i, gyf:%i, gzf:%i, axf:%i, ayf:%i, azf:%i\n",
+    //             (int)gxfi8, (int)gyfi8, (int)gzfi8, (int)axfi8, (int)ayfi8, (int)azfi8);
 
     // Calculate difference
     gxfDiff = gxfTst - gxf;
@@ -163,13 +165,16 @@ bool mpu6050SelfTest()
 
     // Check result
     if (mpu6050EvaluateSelfTest(MPU6050_ST_GYRO_LOW, MPU6050_ST_GYRO_HIGH, gxfDiff, "gyro X") &&
-            mpu6050EvaluateSelfTest(-MPU6050_ST_GYRO_HIGH, -MPU6050_ST_GYRO_LOW, gyfDiff, "gyro Y") &&
-            mpu6050EvaluateSelfTest(MPU6050_ST_GYRO_LOW, MPU6050_ST_GYRO_HIGH, gzfDiff, "gyro Z") &&
-            mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, axfDiff, "acc X") &&
-            mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, ayfDiff, "acc Y") &&
-            mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, azfDiff, "acc Z")) {
+        mpu6050EvaluateSelfTest(-MPU6050_ST_GYRO_HIGH, -MPU6050_ST_GYRO_LOW, gyfDiff, "gyro Y") &&
+        mpu6050EvaluateSelfTest(MPU6050_ST_GYRO_LOW, MPU6050_ST_GYRO_HIGH, gzfDiff, "gyro Z") &&
+        mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, axfDiff, "acc X") &&
+        mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, ayfDiff, "acc Y") &&
+        mpu6050EvaluateSelfTest(MPU6050_ST_ACCEL_LOW, MPU6050_ST_ACCEL_HIGH, azfDiff, "acc Z"))
+    {
         DEBUG_PRINTD("mpu6050 Self test [OK].\n");
-    } else {
+    }
+    else
+    {
         testStatus = false;
     }
 
@@ -185,7 +190,8 @@ bool mpu6050SelfTest()
  */
 bool mpu6050EvaluateSelfTest(float low, float high, float value, char *string)
 {
-    if (value < low || value > high) {
+    if (value < low || value > high)
+    {
         DEBUG_PRINTD("Self test %s [FAIL]. low: %0.2f, high: %0.2f, measured: %0.2f\n",
                      string, (double)low, (double)high, (double)value);
         return false;
@@ -390,26 +396,27 @@ float mpu6050GetFullScaleGyroDPL()
 
     rangeId = mpu6050GetFullScaleGyroRangeId();
 
-    switch (rangeId) {
-        case MPU6050_GYRO_FS_250:
-            range = MPU6050_DEG_PER_LSB_250;
-            break;
+    switch (rangeId)
+    {
+    case MPU6050_GYRO_FS_250:
+        range = MPU6050_DEG_PER_LSB_250;
+        break;
 
-        case MPU6050_GYRO_FS_500:
-            range = MPU6050_DEG_PER_LSB_500;
-            break;
+    case MPU6050_GYRO_FS_500:
+        range = MPU6050_DEG_PER_LSB_500;
+        break;
 
-        case MPU6050_GYRO_FS_1000:
-            range = MPU6050_DEG_PER_LSB_1000;
-            break;
+    case MPU6050_GYRO_FS_1000:
+        range = MPU6050_DEG_PER_LSB_1000;
+        break;
 
-        case MPU6050_GYRO_FS_2000:
-            range = MPU6050_DEG_PER_LSB_2000;
-            break;
+    case MPU6050_GYRO_FS_2000:
+        range = MPU6050_DEG_PER_LSB_2000;
+        break;
 
-        default:
-            range = MPU6050_DEG_PER_LSB_1000;
-            break;
+    default:
+        range = MPU6050_DEG_PER_LSB_1000;
+        break;
     }
 
     return range;
@@ -536,26 +543,27 @@ float mpu6050GetFullScaleAccelGPL()
 
     rangeId = mpu6050GetFullScaleAccelRangeId();
 
-    switch (rangeId) {
-        case MPU6050_ACCEL_FS_2:
-            range = MPU6050_G_PER_LSB_2;
-            break;
+    switch (rangeId)
+    {
+    case MPU6050_ACCEL_FS_2:
+        range = MPU6050_G_PER_LSB_2;
+        break;
 
-        case MPU6050_ACCEL_FS_4:
-            range = MPU6050_G_PER_LSB_4;
-            break;
+    case MPU6050_ACCEL_FS_4:
+        range = MPU6050_G_PER_LSB_4;
+        break;
 
-        case MPU6050_ACCEL_FS_8:
-            range = MPU6050_G_PER_LSB_8;
-            break;
+    case MPU6050_ACCEL_FS_8:
+        range = MPU6050_G_PER_LSB_8;
+        break;
 
-        case MPU6050_ACCEL_FS_16:
-            range = MPU6050_G_PER_LSB_16;
-            break;
+    case MPU6050_ACCEL_FS_16:
+        range = MPU6050_G_PER_LSB_16;
+        break;
 
-        default:
-            range = MPU6050_DEG_PER_LSB_1000;
-            break;
+    default:
+        range = MPU6050_DEG_PER_LSB_1000;
+        break;
     }
 
     return range;
@@ -1186,7 +1194,8 @@ void mpu6050SetMasterClockSpeed(uint8_t speed)
  */
 uint8_t mpu6050GetSlaveAddress(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1201,7 +1210,8 @@ uint8_t mpu6050GetSlaveAddress(uint8_t num)
  */
 void mpu6050SetSlaveAddress(uint8_t num, uint8_t address)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1220,7 +1230,8 @@ void mpu6050SetSlaveAddress(uint8_t num, uint8_t address)
  */
 uint8_t mpu6050GetSlaveRegister(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1235,7 +1246,8 @@ uint8_t mpu6050GetSlaveRegister(uint8_t num)
  */
 void mpu6050SetSlaveRegister(uint8_t num, uint8_t reg)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1250,7 +1262,8 @@ void mpu6050SetSlaveRegister(uint8_t num, uint8_t reg)
  */
 bool mpu6050GetSlaveEnabled(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1265,7 +1278,8 @@ bool mpu6050GetSlaveEnabled(uint8_t num)
  */
 void mpu6050SetSlaveEnabled(uint8_t num, bool enabled)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1285,7 +1299,8 @@ void mpu6050SetSlaveEnabled(uint8_t num, bool enabled)
  */
 bool mpu6050GetSlaveWordByteSwap(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1301,7 +1316,8 @@ bool mpu6050GetSlaveWordByteSwap(uint8_t num)
  */
 void mpu6050SetSlaveWordByteSwap(uint8_t num, bool enabled)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1320,7 +1336,8 @@ void mpu6050SetSlaveWordByteSwap(uint8_t num, bool enabled)
  */
 bool mpu6050GetSlaveWriteMode(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1336,7 +1353,8 @@ bool mpu6050GetSlaveWriteMode(uint8_t num)
  */
 void mpu6050SetSlaveWriteMode(uint8_t num, bool mode)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1356,7 +1374,8 @@ void mpu6050SetSlaveWriteMode(uint8_t num, bool mode)
  */
 bool mpu6050GetSlaveWordGroupOffset(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1371,7 +1390,8 @@ bool mpu6050GetSlaveWordGroupOffset(uint8_t num)
  */
 void mpu6050SetSlaveWordGroupOffset(uint8_t num, bool enabled)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -1387,7 +1407,8 @@ void mpu6050SetSlaveWordGroupOffset(uint8_t num, bool enabled)
  */
 uint8_t mpu6050GetSlaveDataLength(uint8_t num)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return 0;
     }
 
@@ -1403,7 +1424,8 @@ uint8_t mpu6050GetSlaveDataLength(uint8_t num)
  */
 void mpu6050SetSlaveDataLength(uint8_t num, uint8_t length)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -2147,12 +2169,12 @@ void mpu6050GetMotion9(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16
 void mpu6050GetMotion6(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t *gy, int16_t *gz)
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ACCEL_XOUT_H, 14, buffer);
-    *ax = (((int16_t) buffer[0]) << 8) | buffer[1];
-    *ay = (((int16_t) buffer[2]) << 8) | buffer[3];
-    *az = (((int16_t) buffer[4]) << 8) | buffer[5];
-    *gx = (((int16_t) buffer[8]) << 8) | buffer[9];
-    *gy = (((int16_t) buffer[10]) << 8) | buffer[11];
-    *gz = (((int16_t) buffer[12]) << 8) | buffer[13];
+    *ax = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *ay = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *az = (((int16_t)buffer[4]) << 8) | buffer[5];
+    *gx = (((int16_t)buffer[8]) << 8) | buffer[9];
+    *gy = (((int16_t)buffer[10]) << 8) | buffer[11];
+    *gz = (((int16_t)buffer[12]) << 8) | buffer[13];
 }
 /** Get 3-axis accelerometer readings.
  * These registers store the most recent accelerometer measurements.
@@ -2193,9 +2215,9 @@ void mpu6050GetMotion6(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16
 void mpu6050GetAcceleration(int16_t *x, int16_t *y, int16_t *z)
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ACCEL_XOUT_H, 6, buffer);
-    *x = (((int16_t) buffer[0]) << 8) | buffer[1];
-    *y = (((int16_t) buffer[2]) << 8) | buffer[3];
-    *z = (((int16_t) buffer[4]) << 8) | buffer[5];
+    *x = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *y = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *z = (((int16_t)buffer[4]) << 8) | buffer[5];
 }
 /** Get X-axis accelerometer reading.
  * @return X-axis acceleration measurement in 16-bit 2's complement format
@@ -2205,7 +2227,7 @@ void mpu6050GetAcceleration(int16_t *x, int16_t *y, int16_t *z)
 int16_t mpu6050GetAccelerationX()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ACCEL_XOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 /** Get Y-axis accelerometer reading.
  * @return Y-axis acceleration measurement in 16-bit 2's complement format
@@ -2215,7 +2237,7 @@ int16_t mpu6050GetAccelerationX()
 int16_t mpu6050GetAccelerationY()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ACCEL_YOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 /** Get Z-axis accelerometer reading.
  * @return Z-axis acceleration measurement in 16-bit 2's complement format
@@ -2225,7 +2247,7 @@ int16_t mpu6050GetAccelerationY()
 int16_t mpu6050GetAccelerationZ()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ACCEL_ZOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 
 // TEMP_OUT_* registers
@@ -2237,7 +2259,7 @@ int16_t mpu6050GetAccelerationZ()
 int16_t mpu6050GetTemperature()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_TEMP_OUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 
 // GYRO_*OUT_* registers
@@ -2277,9 +2299,9 @@ int16_t mpu6050GetTemperature()
 void mpu6050GetRotation(int16_t *x, int16_t *y, int16_t *z)
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_GYRO_XOUT_H, 6, buffer);
-    *x = (((int16_t) buffer[0]) << 8) | buffer[1];
-    *y = (((int16_t) buffer[2]) << 8) | buffer[3];
-    *z = (((int16_t) buffer[4]) << 8) | buffer[5];
+    *x = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *y = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *z = (((int16_t)buffer[4]) << 8) | buffer[5];
 }
 /** Get X-axis gyroscope reading.
  * @return X-axis rotation measurement in 16-bit 2's complement format
@@ -2289,7 +2311,7 @@ void mpu6050GetRotation(int16_t *x, int16_t *y, int16_t *z)
 int16_t mpu6050GetRotationX()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_GYRO_XOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 /** Get Y-axis gyroscope reading.
  * @return Y-axis rotation measurement in 16-bit 2's complement format
@@ -2299,7 +2321,7 @@ int16_t mpu6050GetRotationX()
 int16_t mpu6050GetRotationY()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_GYRO_YOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 /** Get Z-axis gyroscope reading.
  * @return Z-axis rotation measurement in 16-bit 2's complement format
@@ -2309,7 +2331,7 @@ int16_t mpu6050GetRotationY()
 int16_t mpu6050GetRotationZ()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_GYRO_ZOUT_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 
 // EXT_SENS_DATA_* registers
@@ -2401,7 +2423,7 @@ uint8_t mpu6050GetExternalSensorByte(int position)
 uint16_t mpu6050GetExternalSensorWord(int position)
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_EXT_SENS_DATA_00 + position, 2, buffer);
-    return (((uint16_t) buffer[0]) << 8) | buffer[1];
+    return (((uint16_t)buffer[0]) << 8) | buffer[1];
 }
 /** Read double word (4 bytes) from external sensor data registers.
  * @param position Starting position (0-20)
@@ -2411,8 +2433,7 @@ uint16_t mpu6050GetExternalSensorWord(int position)
 uint32_t mpu6050GetExternalSensorDWord(int position)
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_EXT_SENS_DATA_00 + position, 4, buffer);
-    return (((uint32_t) buffer[0]) << 24) | (((uint32_t) buffer[1]) << 16)
-           | (((uint16_t) buffer[2]) << 8) | buffer[3];
+    return (((uint32_t)buffer[0]) << 24) | (((uint32_t)buffer[1]) << 16) | (((uint16_t)buffer[2]) << 8) | buffer[3];
 }
 
 // MOT_DETECT_STATUS register
@@ -2500,7 +2521,8 @@ bool mpu6050GetZeroMotionDetected()
  */
 void mpu6050SetSlaveOutputByte(uint8_t num, uint8_t data)
 {
-    if (num > 3) {
+    if (num > 3)
+    {
         return;
     }
 
@@ -2555,7 +2577,8 @@ void mpu6050SetExternalShadowDelayEnabled(bool enabled)
 bool mpu6050GetSlaveDelayEnabled(uint8_t num)
 {
     // MPU6050_DELAYCTRL_I2C_SLV4_DLY_EN_BIT is 4, SLV3 is 3, etc.
-    if (num > 4) {
+    if (num > 4)
+    {
         return 0;
     }
 
@@ -3138,7 +3161,7 @@ void mpu6050SetStandbyZGyroEnabled(bool enabled)
 uint16_t mpu6050GetFIFOCount()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_FIFO_COUNTH, 2, buffer);
-    return (((uint16_t) buffer[0]) << 8) | buffer[1];
+    return (((uint16_t)buffer[0]) << 8) | buffer[1];
 }
 
 // FIFO_R_W register
@@ -3310,7 +3333,7 @@ void mpu6050SetZFineGain(int8_t gain)
 int16_t mpu6050GetXAccelOffset()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_XA_OFFS_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetXAccelOffset(int16_t offset)
 {
@@ -3322,7 +3345,7 @@ void mpu6050SetXAccelOffset(int16_t offset)
 int16_t mpu6050GetYAccelOffset()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_YA_OFFS_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetYAccelOffset(int16_t offset)
 {
@@ -3334,7 +3357,7 @@ void mpu6050SetYAccelOffset(int16_t offset)
 int16_t mpu6050GetZAccelOffset()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ZA_OFFS_H, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetZAccelOffset(int16_t offset)
 {
@@ -3346,7 +3369,7 @@ void mpu6050SetZAccelOffset(int16_t offset)
 int16_t mpu6050GetXGyroOffsetUser()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_XG_OFFS_USRH, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetXGyroOffsetUser(int16_t offset)
 {
@@ -3358,7 +3381,7 @@ void mpu6050SetXGyroOffsetUser(int16_t offset)
 int16_t mpu6050GetYGyroOffsetUser()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_YG_OFFS_USRH, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetYGyroOffsetUser(int16_t offset)
 {
@@ -3370,7 +3393,7 @@ void mpu6050SetYGyroOffsetUser(int16_t offset)
 int16_t mpu6050GetZGyroOffsetUser()
 {
     i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_ZG_OFFS_USRH, 2, buffer);
-    return (((int16_t) buffer[0]) << 8) | buffer[1];
+    return (((int16_t)buffer[0]) << 8) | buffer[1];
 }
 void mpu6050SetZGyroOffsetUser(int16_t offset)
 {
@@ -3466,11 +3489,13 @@ void mpu6050SetMemoryBank(uint8_t bank, bool prefetchEnabled, bool userBank)
 {
     bank &= 0x1F;
 
-    if (userBank) {
+    if (userBank)
+    {
         bank |= 0x20;
     }
 
-    if (prefetchEnabled) {
+    if (prefetchEnabled)
+    {
         bank |= 0x40;
     }
 
@@ -3502,17 +3527,20 @@ void mpu6050ReadMemoryBlock(uint8_t *data, uint16_t dataSize, uint8_t bank, uint
     uint8_t chunkSize;
     uint16_t i;
 
-    for (i = 0; i < dataSize;) {
+    for (i = 0; i < dataSize;)
+    {
         // determine correct chunk size according to bank position and data size
         chunkSize = MPU6050_DMP_MEMORY_CHUNK_SIZE;
 
         // make sure we don't go past the data size
-        if (i + chunkSize > dataSize) {
+        if (i + chunkSize > dataSize)
+        {
             chunkSize = dataSize - i;
         }
 
         // make sure this chunk doesn't go past the bank boundary (256 bytes)
-        if (chunkSize > 256 - address) {
+        if (chunkSize > 256 - address)
+        {
             chunkSize = 256 - address;
         }
 
@@ -3526,8 +3554,10 @@ void mpu6050ReadMemoryBlock(uint8_t *data, uint16_t dataSize, uint8_t bank, uint
         address += chunkSize;
 
         // if we aren't done, update bank (if necessary) and address
-        if (i < dataSize) {
-            if (address == 0) {
+        if (i < dataSize)
+        {
+            if (address == 0)
+            {
                 bank++;
             }
 
@@ -3547,34 +3577,40 @@ bool mpu6050WriteMemoryBlock(const uint8_t *data, uint16_t dataSize, uint8_t ban
     mpu6050SetMemoryBank(bank, true, true);
     mpu6050SetMemoryStartAddress(address);
 
-    for (i = 0; i < dataSize;) {
+    for (i = 0; i < dataSize;)
+    {
         // determine correct chunk size according to bank position and data size
         chunkSize = MPU6050_DMP_MEMORY_CHUNK_SIZE;
 
         // make sure we don't go past the data size
-        if (i + chunkSize > dataSize) {
+        if (i + chunkSize > dataSize)
+        {
             chunkSize = dataSize - i;
         }
 
         // make sure this chunk doesn't go past the bank boundary (256 bytes)
-        if (chunkSize > 256 - address) {
+        if (chunkSize > 256 - address)
+        {
             chunkSize = 256 - address;
         }
 
         // write the chunk of data as specified
-        progBuffer = (uint8_t *) data + i;
+        progBuffer = (uint8_t *)data + i;
 
         i2cdevWriteReg8(I2Cx, devAddr, MPU6050_RA_MEM_R_W, chunkSize, progBuffer);
 
         // verify data if needed
-        if (verify) {
+        if (verify)
+        {
             uint32_t j;
             mpu6050SetMemoryBank(bank, true, true);
             mpu6050SetMemoryStartAddress(address);
             i2cdevReadReg8(I2Cx, devAddr, MPU6050_RA_MEM_R_W, chunkSize, verifyBuffer);
 
-            for (j = 0; j < chunkSize; j++) {
-                if (progBuffer[j] != verifyBuffer[j]) {
+            for (j = 0; j < chunkSize; j++)
+            {
+                if (progBuffer[j] != verifyBuffer[j])
+                {
                     /*Serial.print("Block write verification error, bank ");
                      Serial.print(bank, DEC);
                      Serial.print(", address ");
@@ -3604,8 +3640,10 @@ bool mpu6050WriteMemoryBlock(const uint8_t *data, uint16_t dataSize, uint8_t ban
         address += chunkSize;
 
         // if we aren't done, update bank (if necessary) and address
-        if (i < dataSize) {
-            if (address == 0) {
+        if (i < dataSize)
+        {
+            if (address == 0)
+            {
                 bank++;
             }
 
@@ -3633,14 +3671,16 @@ bool mpu6050WriteDMPConfigurationSet(const uint8_t *data, uint16_t dataSize)
     uint8_t offset = 0;
     uint8_t length = 0;
 
-    for (i = 0; i < dataSize;) {
+    for (i = 0; i < dataSize;)
+    {
         bank = data[i++];
         offset = data[i++];
         length = data[i++];
     }
 
     // write data or perform special action
-    if (length > 0) {
+    if (length > 0)
+    {
         // regular block of data to write
         /*Serial.print("Writing config block to bank ");
          Serial.print(bank);
@@ -3648,10 +3688,12 @@ bool mpu6050WriteDMPConfigurationSet(const uint8_t *data, uint16_t dataSize)
          Serial.print(offset);
          Serial.print(", length=");
          Serial.println(length);*/
-        progBuffer = (uint8_t *) data + i;
+        progBuffer = (uint8_t *)data + i;
         success = mpu6050WriteMemoryBlock(progBuffer, length, bank, offset, true);
         i += length;
-    } else {
+    }
+    else
+    {
         // special instruction
         // NOTE: this kind of behavior (what and when to do certain things)
         // is totally undocumented. This code is in here based on observed
@@ -3662,20 +3704,24 @@ bool mpu6050WriteDMPConfigurationSet(const uint8_t *data, uint16_t dataSize)
         /*Serial.print("Special command code ");
          Serial.print(special, HEX);
          Serial.println(" found...");*/
-        if (special == 0x01) {
+        if (special == 0x01)
+        {
             // enable DMP-related interrupts
             mpu6050SetIntZeroMotionEnabled(true);
             mpu6050SetIntFIFOBufferOverflowEnabled(true);
             mpu6050SetIntDMPEnabled(true);
-            //i2cdevWriteByte(I2Cx, devAddr, MPU6050_RA_INT_ENABLE, 0x32);
+            // i2cdevWriteByte(I2Cx, devAddr, MPU6050_RA_INT_ENABLE, 0x32);
             success = true;
-        } else {
+        }
+        else
+        {
             // unknown special command
             success = false;
         }
     }
 
-    if (!success) {
+    if (!success)
+    {
         return false; // uh oh
     }
 
