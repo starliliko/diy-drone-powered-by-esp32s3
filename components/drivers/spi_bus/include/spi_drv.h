@@ -24,7 +24,8 @@ extern "C"
 #define SPI_BAUDRATE_8MHZ 8000000
 #define SPI_BAUDRATE_10MHZ 10000000
 #define SPI_BAUDRATE_20MHZ 20000000
-#define SPI_BAUDRATE_40MHZ 40000000 // ESP32S3最大支持
+#define SPI_BAUDRATE_40MHZ 40000000
+#define SPI_BAUDRATE_80MHZ 80000000
 
 // SPI 模式定义
 #define SPI_MODE_0 0 // CPOL=0, CPHA=0
@@ -32,9 +33,10 @@ extern "C"
 #define SPI_MODE_2 2 // CPOL=1, CPHA=0
 #define SPI_MODE_3 3 // CPOL=1, CPHA=1
 
-// ESP32S3 SPI主机定义 - 只使用SPI2和SPI3
-#define SPI_DRV_HOST_DEFAULT SPI2_HOST // 默认使用SPI2
-#define SPI_DRV_HOST_MAX SPI3_HOST     // 备选SPI3
+// ESP32S3 SPI主机定义
+#define SPI_DRV_HOST_PRIMARY SPI2_HOST   // 首选：独立DMA通道
+#define SPI_DRV_HOST_SECONDARY SPI3_HOST // 备选：共享DMA通道
+#define SPI_DRV_HOST_DEFAULT SPI_DRV_HOST_PRIMARY
 
 // ESP32S3最大传输大小
 #define SPI_DRV_MAX_TRANSFER_SIZE (SOC_SPI_MAXIMUM_BUFFER_SIZE)
@@ -95,10 +97,6 @@ extern "C"
     bool spiDrvReadReg(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data, size_t length);
     bool spiDrvWriteByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t data);
     bool spiDrvReadByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data);
-
-    // ESP32S3特定优化函数
-    bool spiDrvGetMaxFreq(spi_host_device_t host_id, uint32_t *max_freq);
-    bool spiDrvValidatePin(int pin, const char *pin_name);
 
 #ifdef __cplusplus
 }

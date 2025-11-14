@@ -20,7 +20,6 @@ SemaphoreHandle_t g_spi_bus_mutex = NULL;
 // 内部函数声明
 static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config);
 static esp_err_t spi_drv_device_initialize(spi_drv_t *spi);
-static bool spi_drv_validate_pins(spi_drv_bus_config_t *bus_config);
 
 bool spiDrvBusInit(spi_drv_bus_config_t *bus_config)
 {
@@ -34,13 +33,6 @@ bool spiDrvBusInit(spi_drv_bus_config_t *bus_config)
     {
         DEBUG_PRINT("SPI bus already initialized\n");
         return true;
-    }
-
-    // ESP32S3引脚验证
-    if (!spi_drv_validate_pins(bus_config))
-    {
-        DEBUG_PRINT("Invalid pin configuration for ESP32S3\n");
-        return false;
     }
 
     // 创建全局总线互斥锁（如果还没创建）
@@ -63,7 +55,7 @@ bool spiDrvBusInit(spi_drv_bus_config_t *bus_config)
     }
 
     bus_config->is_bus_initialized = true;
-    DEBUG_PRINT("SPI bus initialized successfully on ESP32S3\n");
+    DEBUG_PRINT("SPI bus initialized successfully\n");
     return true;
 }
 
@@ -91,7 +83,7 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     spi->bus_config = bus_config;
     memcpy(&spi->device_config, device_config, sizeof(spi_drv_device_config_t));
 
-    // 创建设备级互斥锁（可选）
+    // 创建设备级互斥锁
     spi->mutex = xSemaphoreCreateMutex();
     if (!spi->mutex)
     {
@@ -131,7 +123,7 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     }
 
     spi->is_initialized = true;
-    DEBUG_PRINT("SPI device initialized successfully on ESP32S3\n");
+    DEBUG_PRINT("SPI device initialized successfully\n");
     return true;
 }
 
@@ -166,13 +158,6 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
         return true;
     }
 
-    // ESP32S3传输大小限制检查
-    if (transfer->length > SPI_DRV_MAX_TRANSFER_SIZE)
-    {
-        DEBUG_PRINT("Transfer size too large for ESP32S3: %d\n", transfer->length);
-        return false;
-    }
-
     // 获取总线级互斥锁
     if (xSemaphoreTake(g_spi_bus_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
     {
@@ -202,7 +187,7 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
     if (spi->device_config.cs_pin >= 0)
     {
         gpio_set_level(spi->device_config.cs_pin, 0); // CS低电平（选中）
-        esp_rom_delay_us(1);                          // ESP32S3更精确的延时控制
+        esp_rom_delay_us(1);
     }
 
     // 执行传输 - ESP32S3优化
@@ -297,75 +282,6 @@ void spiDrvSetCS(spi_drv_t *spi, bool level)
     }
 }
 
-// ESP32S3特定函数
-bool spiDrvGetMaxFreq(spi_host_device_t host_id, uint32_t *max_freq)
-{
-    if (!max_freq)
-    {
-        return false;
-    }
-
-    // ESP32S3的SPI最大频率
-    switch (host_id)
-    {
-    case SPI2_HOST:
-        *max_freq = 80000000; // 80MHz - 独立DMA，性能最优
-        break;
-    case SPI3_HOST:
-        *max_freq = 60000000; // 60MHz - 共享DMA，适当降低
-        break;
-    default:
-        *max_freq = 0;
-        return false;
-    }
-
-    return true;
-}
-
-// 验证引脚是否适合SPI使用
-bool spiDrvValidatePin(int pin, const char *pin_name)
-{
-    // 检查是否为有效GPIO
-    if (!GPIO_IS_VALID_GPIO(pin))
-    {
-        DEBUG_PRINT("Invalid %s pin %d\n", pin_name, pin);
-        return false;
-    }
-
-    // ESP32S3严格限制：GPIO26-37专用于SPI0/SPI1(Flash/PSRAM)
-    if (pin >= 26 && pin <= 37)
-    {
-        DEBUG_PRINT("Error: %s pin %d is reserved for SPI0/SPI1 (Flash/PSRAM)\n", pin_name, pin);
-        return false;
-    }
-
-    // 其他特殊引脚检查
-    const struct
-    {
-        int pin;
-        const char *warning;
-    } special_pins[] = {
-        {0, "Boot mode control"},
-        {3, "JTAG functionality"},
-        {19, "USB D- (conflicts with USB)"},
-        {20, "USB D+ (conflicts with USB)"},
-        {43, "UART download mode"},
-        {44, "UART download mode"},
-        {45, "Crystal oscillator"},
-        {46, "Crystal oscillator"}};
-
-    for (int i = 0; i < sizeof(special_pins) / sizeof(special_pins[0]); i++)
-    {
-        if (pin == special_pins[i].pin)
-        {
-            DEBUG_PRINT("Warning: %s pin %d - %s\n", pin_name, pin, special_pins[i].warning);
-            break;
-        }
-    }
-
-    return true;
-}
-
 // 内部函数实现
 static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
 {
@@ -380,7 +296,6 @@ static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
         .isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO,
     };
 
-    // ESP32S3始终使用自动DMA通道选择
     return spi_bus_initialize(bus_config->host_id, &esp_bus_config,
                               bus_config->use_dma ? SPI_DMA_CH_AUTO : SPI_DMA_DISABLED);
 }
@@ -395,65 +310,12 @@ static esp_err_t spi_drv_device_initialize(spi_drv_t *spi)
         .command_bits = 0,
         .address_bits = 0,
         .dummy_bits = 0,
-        .duty_cycle_pos = 128, // ESP32S3默认占空比
+        .duty_cycle_pos = 128,
         .cs_ena_pretrans = 0,
         .cs_ena_posttrans = 0,
         .input_delay_ns = 0,
-        .flags = SPI_DEVICE_HALFDUPLEX, // ESP32S3支持半双工优化
+        .flags = SPI_DEVICE_HALFDUPLEX,
     };
 
     return spi_bus_add_device(spi->bus_config->host_id, &dev_config, &spi->device);
-}
-
-static bool spi_drv_validate_pins(spi_drv_bus_config_t *bus_config)
-{
-    bool valid = true;
-
-    // 验证所有SPI总线引脚
-    if (bus_config->miso_pin >= 0)
-    {
-        valid &= spiDrvValidatePin(bus_config->miso_pin, "MISO");
-    }
-
-    if (bus_config->mosi_pin >= 0)
-    {
-        valid &= spiDrvValidatePin(bus_config->mosi_pin, "MOSI");
-    }
-
-    if (bus_config->sclk_pin >= 0)
-    {
-        valid &= spiDrvValidatePin(bus_config->sclk_pin, "SCLK");
-    }
-
-    // 检查引脚冲突
-    int pins[] = {bus_config->miso_pin, bus_config->mosi_pin, bus_config->sclk_pin};
-    for (int i = 0; i < 3; i++)
-    {
-        for (int j = i + 1; j < 3; j++)
-        {
-            if (pins[i] >= 0 && pins[i] == pins[j])
-            {
-                DEBUG_PRINT("Pin conflict: GPIO%d used multiple times\n", pins[i]);
-                valid = false;
-            }
-        }
-    }
-
-    // 强制检查是否使用了SPI0/SPI1专用引脚范围
-    for (int i = 0; i < 3; i++)
-    {
-        if (pins[i] >= 26 && pins[i] <= 37)
-        {
-            DEBUG_PRINT("Error: GPIO%d is reserved for Flash/PSRAM, cannot be used for external SPI\n", pins[i]);
-            valid = false;
-        }
-    }
-
-    // 打印引脚映射
-    if (valid)
-    {
-        spiDrvPrintPinMapping(bus_config);
-    }
-
-    return valid;
 }
