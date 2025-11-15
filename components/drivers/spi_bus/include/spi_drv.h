@@ -34,17 +34,13 @@ extern "C"
 #define SPI_MODE_3 3 // CPOL=1, CPHA=1
 
 // ESP32S3 SPI主机定义
-#define SPI_DRV_HOST_PRIMARY SPI2_HOST   // 首选：独立DMA通道
-#define SPI_DRV_HOST_SECONDARY SPI3_HOST // 备选：共享DMA通道
-#define SPI_DRV_HOST_DEFAULT SPI_DRV_HOST_PRIMARY
-
-// ESP32S3最大传输大小
+#define SPI_DRV_HOST_DEFAULT SPI2_HOST
 #define SPI_DRV_MAX_TRANSFER_SIZE (SOC_SPI_MAXIMUM_BUFFER_SIZE)
 
     // SPI 总线配置（共享的硬件资源）
     typedef struct
     {
-        spi_host_device_t host_id; // SPI主机ID (SPI2_HOST 或 SPI3_HOST)
+        spi_host_device_t host_id; // SPI主机ID
         int miso_pin;              // MISO引脚
         int mosi_pin;              // MOSI引脚
         int sclk_pin;              // 时钟引脚
@@ -68,7 +64,7 @@ extern "C"
         spi_drv_bus_config_t *bus_config;      // 总线配置（共享）
         spi_drv_device_config_t device_config; // 设备配置（独有）
         spi_device_handle_t device;            // SPI设备句柄
-        SemaphoreHandle_t mutex;               // 互斥锁（可选，用于设备级保护）
+        SemaphoreHandle_t mutex;               // 互斥锁
         bool is_initialized;                   // 初始化标志
     } spi_drv_t;
 
@@ -90,13 +86,10 @@ extern "C"
     bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const spi_drv_device_config_t *device_config);
     bool spiDrvDeinit(spi_drv_t *spi);
     bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer);
-    void spiDrvSetCS(spi_drv_t *spi, bool level);
 
-    // 通用寄存器读写函数
+    // 寄存器读写函数（保留最常用的）
     bool spiDrvWriteReg(spi_drv_t *spi, uint8_t reg_addr, const uint8_t *data, size_t length);
     bool spiDrvReadReg(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data, size_t length);
-    bool spiDrvWriteByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t data);
-    bool spiDrvReadByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data);
 
 #ifdef __cplusplus
 }

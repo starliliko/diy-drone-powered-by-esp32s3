@@ -1,4 +1,5 @@
 #include "bmi088_spi.h"
+#include "bmi088_config.h" // 添加这个头文件包含
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -70,25 +71,25 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         return false;
     }
 
-    // 设置默认配置
-    bmi088_config_t default_config = {
-        .acc_range = BMI088_ACC_RANGE_6G,
-        .acc_odr = BMI088_ACC_ODR_800_HZ,
-        .acc_bwp = BMI088_ACC_BWP_NORMAL,
-        .acc_power = BMI088_ACC_PWR_ACTIVE,
-        .gyro_range = BMI088_GYRO_RANGE_1000_DPS,
-        .gyro_bw = BMI088_GYRO_BW_116_ODR_1000_HZ,
-        .gyro_power = BMI088_GYRO_PWR_NORMAL};
+    // 设置传感器配置
+    bmi088_config_t sensor_config = {
+        .acc_range = BMI088_CONFIG_ACC_RANGE,
+        .acc_odr = BMI088_CONFIG_ACC_ODR,
+        .acc_bwp = BMI088_CONFIG_ACC_BWP,
+        .acc_power = BMI088_CONFIG_ACC_POWER,
+        .gyro_range = BMI088_CONFIG_GYRO_RANGE,
+        .gyro_bw = BMI088_CONFIG_GYRO_BW,
+        .gyro_power = BMI088_CONFIG_GYRO_POWER};
 
-    if (!bmi088_spi_configure(dev, &default_config))
+    if (!bmi088_spi_configure(dev, &sensor_config))
     {
-        ESP_LOGE(TAG, "Default configuration failed");
+        ESP_LOGE(TAG, "Sensor configuration failed");
         bmi088_spi_deinit(dev);
         return false;
     }
 
     dev->is_initialized = true;
-    ESP_LOGI(TAG, "BMI088 SPI initialization successful");
+    ESP_LOGI(TAG, "BMI088 SPI initialization successful with centralized config");
     return true;
 }
 

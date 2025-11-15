@@ -264,24 +264,6 @@ bool spiDrvReadReg(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data, size_t lengt
     return false;
 }
 
-bool spiDrvWriteByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t data)
-{
-    return spiDrvWriteReg(spi, reg_addr, &data, 1);
-}
-
-bool spiDrvReadByte(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data)
-{
-    return spiDrvReadReg(spi, reg_addr, data, 1);
-}
-
-void spiDrvSetCS(spi_drv_t *spi, bool level)
-{
-    if (spi && spi->device_config.cs_pin >= 0)
-    {
-        gpio_set_level(spi->device_config.cs_pin, level ? 1 : 0);
-    }
-}
-
 // 内部函数实现
 static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
 {

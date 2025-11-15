@@ -10,7 +10,6 @@ static const char *TAG = "BMI088";
 static bmi088_dev_t g_bmi088_dev;
 static bool g_is_initialized = false;
 
-// 兼容现有API的包装函数
 bool bmi088_init(void)
 {
     if (g_is_initialized)
@@ -18,8 +17,7 @@ bool bmi088_init(void)
         return true;
     }
 
-    // 使用默认配置初始化
-    if (!bmi088_init_default(&g_bmi088_dev))
+    if (!bmi088_init_with_default_config(&g_bmi088_dev))
     {
         ESP_LOGE(TAG, "BMI088 initialization failed");
         return false;
@@ -119,30 +117,6 @@ float bmi088_get_temperature(void)
     return temperature;
 }
 
-// 配置相关函数
-bool bmi088_set_accel_range(bmi088_acc_range_t range)
-{
-    if (!g_is_initialized)
-    {
-        return false;
-    }
-
-    return bmi088_spi_set_acc_config(&g_bmi088_dev, range,
-                                     g_bmi088_dev.config.acc_odr,
-                                     g_bmi088_dev.config.acc_bwp);
-}
-
-bool bmi088_set_gyro_range(bmi088_gyro_range_t range)
-{
-    if (!g_is_initialized)
-    {
-        return false;
-    }
-
-    return bmi088_spi_set_gyro_config(&g_bmi088_dev, range,
-                                      g_bmi088_dev.config.gyro_bw);
-}
-
 // 获取量程转换因子
 float bmi088_get_accel_scale(void)
 {
@@ -167,20 +141,7 @@ float bmi088_get_gyro_scale(void)
 // 调试和诊断函数
 void bmi088_print_config(void)
 {
-    if (!g_is_initialized)
-    {
-        ESP_LOGW(TAG, "BMI088 not initialized");
-        return;
-    }
-
-    bmi088_full_config_t full_config;
-    // 重新构建完整配置用于显示
-    full_config.bus_config = *g_bmi088_dev.acc_spi.bus_config;
-    full_config.acc_device_config = g_bmi088_dev.acc_spi.device_config;
-    full_config.gyro_device_config = g_bmi088_dev.gyro_spi.device_config;
-    full_config.sensor_config = g_bmi088_dev.config;
-
-    bmi088_config_print(&full_config);
+    bmi088_print_device_config(&g_bmi088_dev);
 }
 
 bool bmi088_soft_reset(void)

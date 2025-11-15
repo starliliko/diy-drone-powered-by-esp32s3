@@ -10,6 +10,7 @@ extern "C"
 {
 #endif
 
+// ======================== BMI088寄存器地址定义 ========================
 // BMI088加速度计寄存器地址
 #define BMI088_ACC_CHIP_ID_REG 0x00
 #define BMI088_ACC_ERR_REG 0x02
@@ -55,6 +56,7 @@ extern "C"
 #define BMI088_ACC_CHIP_ID_VALUE 0x1E
 #define BMI088_GYRO_CHIP_ID_VALUE 0x0F
 
+    // ======================== BMI088传感器参数枚举 ========================
     // 加速度计量程配置
     typedef enum
     {
@@ -64,17 +66,17 @@ extern "C"
         BMI088_ACC_RANGE_24G = 0x03
     } bmi088_acc_range_t;
 
-    // 加速度计输出数据率配置
+    // 加速度计输出数据率配置选项
     typedef enum
     {
-        BMI088_ACC_ODR_12_5_HZ = 0x05,
-        BMI088_ACC_ODR_25_HZ = 0x06,
-        BMI088_ACC_ODR_50_HZ = 0x07,
-        BMI088_ACC_ODR_100_HZ = 0x08,
-        BMI088_ACC_ODR_200_HZ = 0x09,
-        BMI088_ACC_ODR_400_HZ = 0x0A,
-        BMI088_ACC_ODR_800_HZ = 0x0B,
-        BMI088_ACC_ODR_1600_HZ = 0x0C
+        BMI088_ACC_ODR_12_5_HZ = 0x05, // 12.5Hz
+        BMI088_ACC_ODR_25_HZ = 0x06,   // 25Hz
+        BMI088_ACC_ODR_50_HZ = 0x07,   // 50Hz
+        BMI088_ACC_ODR_100_HZ = 0x08,  // 100Hz
+        BMI088_ACC_ODR_200_HZ = 0x09,  // 200Hz
+        BMI088_ACC_ODR_400_HZ = 0x0A,  // 400Hz
+        BMI088_ACC_ODR_800_HZ = 0x0B,  // 800Hz ← 当前配置
+        BMI088_ACC_ODR_1600_HZ = 0x0C  // 1600Hz
     } bmi088_acc_odr_t;
 
     // 加速度计带宽配置
@@ -95,17 +97,17 @@ extern "C"
         BMI088_GYRO_RANGE_125_DPS = 0x04
     } bmi088_gyro_range_t;
 
-    // 陀螺仪输出数据率和带宽配置
+    // 陀螺仪输出数据率和带宽配置选项
     typedef enum
     {
-        BMI088_GYRO_BW_532_ODR_2000_HZ = 0x00,
-        BMI088_GYRO_BW_230_ODR_2000_HZ = 0x01,
-        BMI088_GYRO_BW_116_ODR_1000_HZ = 0x02,
-        BMI088_GYRO_BW_47_ODR_400_HZ = 0x03,
-        BMI088_GYRO_BW_23_ODR_200_HZ = 0x04,
-        BMI088_GYRO_BW_12_ODR_100_HZ = 0x05,
-        BMI088_GYRO_BW_64_ODR_200_HZ = 0x06,
-        BMI088_GYRO_BW_32_ODR_100_HZ = 0x07
+        BMI088_GYRO_BW_532_ODR_2000_HZ = 0x00, // 2000Hz
+        BMI088_GYRO_BW_230_ODR_2000_HZ = 0x01, // 2000Hz
+        BMI088_GYRO_BW_116_ODR_1000_HZ = 0x02, // 1000Hz ← 当前配置
+        BMI088_GYRO_BW_47_ODR_400_HZ = 0x03,   // 400Hz
+        BMI088_GYRO_BW_23_ODR_200_HZ = 0x04,   // 200Hz
+        BMI088_GYRO_BW_12_ODR_100_HZ = 0x05,   // 100Hz
+        BMI088_GYRO_BW_64_ODR_200_HZ = 0x06,   // 200Hz
+        BMI088_GYRO_BW_32_ODR_100_HZ = 0x07    // 100Hz
     } bmi088_gyro_bw_t;
 
     // 电源模式
@@ -122,6 +124,7 @@ extern "C"
         BMI088_GYRO_PWR_DEEP_SUSPEND = 0x20
     } bmi088_gyro_power_t;
 
+    // ======================== BMI088数据结构 ========================
     // BMI088传感器数据结构
     typedef struct
     {
@@ -130,7 +133,7 @@ extern "C"
         int16_t z;
     } bmi088_sensor_data_t;
 
-    // BMI088配置结构
+    // BMI088传感器配置结构
     typedef struct
     {
         // 加速度计配置
@@ -154,7 +157,8 @@ extern "C"
         bool is_initialized;    // 初始化标志
     } bmi088_dev_t;
 
-    // BMI088驱动函数声明
+    // ======================== BMI088驱动函数声明 ========================
+    // 基础驱动函数
     bool bmi088_spi_init(bmi088_dev_t *dev,
                          spi_drv_bus_config_t *bus_config,
                          const spi_drv_device_config_t *acc_device_config,
