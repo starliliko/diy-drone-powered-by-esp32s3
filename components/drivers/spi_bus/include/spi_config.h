@@ -9,7 +9,7 @@ extern "C"
 #endif
 
 // ======================== SPI总线引脚配置 ========================
-// ESP32S3 SPI2总线引脚配置（推荐用于外设）
+// SPI2总线引脚配置（推荐用于外设）
 #define SPI_BUS_SCLK_PIN 12 // GPIO12 - 时钟线
 #define SPI_BUS_MOSI_PIN 13 // GPIO13 - 主机输出
 #define SPI_BUS_MISO_PIN 11 // GPIO11 - 主机输入

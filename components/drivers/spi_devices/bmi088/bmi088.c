@@ -138,12 +138,6 @@ float bmi088_get_gyro_scale(void)
     return bmi088_spi_get_gyro_scale(g_bmi088_dev.config.gyro_range);
 }
 
-// 调试和诊断函数
-void bmi088_print_config(void)
-{
-    bmi088_print_device_config(&g_bmi088_dev);
-}
-
 bool bmi088_soft_reset(void)
 {
     if (!g_is_initialized)

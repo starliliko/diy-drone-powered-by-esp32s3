@@ -14,7 +14,7 @@ extern "C"
 {
 #endif
 
-// ESP32S3 SPI 波特率定义
+// SPI 波特率定义
 #define SPI_BAUDRATE_125KHZ 125000
 #define SPI_BAUDRATE_250KHZ 250000
 #define SPI_BAUDRATE_500KHZ 500000
@@ -33,7 +33,7 @@ extern "C"
 #define SPI_MODE_2 2 // CPOL=1, CPHA=0
 #define SPI_MODE_3 3 // CPOL=1, CPHA=1
 
-// ESP32S3 SPI主机定义
+// SPI主机定义
 #define SPI_DRV_HOST_DEFAULT SPI2_HOST
 #define SPI_DRV_MAX_TRANSFER_SIZE (SOC_SPI_MAXIMUM_BUFFER_SIZE)
 

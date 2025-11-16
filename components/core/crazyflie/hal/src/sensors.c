@@ -32,7 +32,6 @@
 #include "platform.h"
 #include "debug_cf.h"
 
-// https://gcc.gnu.org/onlinedocs/cpp/Stringizing.html
 #define xstr(s) str(s)
 #define str(s) #s
 
@@ -54,6 +53,10 @@
 
 #ifdef SENSOR_INCLUDED_MPU6050_HMC5883L_MS5611
 #include "sensors_mpu6050_hm5883L_ms5611.h"
+#endif
+
+#ifdef SERONSOR_INCLUDED_BMI088_SPI_MS5611
+#include "sensors_bmi088_spi_ms5611.h"
 #endif
 
 typedef struct
@@ -161,6 +164,23 @@ static const sensorsImplementation_t sensorImplementations[SensorImplementation_
         .readMag = sensorsBoschReadMag,
         .readBaro = sensorsBoschReadBaro,
         .setAccMode = sensorsBoschSetAccMode,
+        .dataAvailableCallback = nullFunction,
+    },
+#endif
+#ifdef SENSOR_INCLUDED_BMI088_SPI_MS5611
+    {
+        .implements = SensorImplementation_bmi088_spi_ms5611,
+        .init = sensorsBmi088SpiMs5611Init,
+        .test = sensorsBmi088SpiMs5611Test,
+        .areCalibrated = sensorsBmi088SpiMs5611AreCalibrated,
+        .manufacturingTest = sensorsBmi088SpiMs5611ManufacturingTest,
+        .acquire = sensorsBmi088SpiMs5611Acquire,
+        .waitDataReady = sensorsBmi088SpiMs5611WaitDataReady,
+        .readGyro = sensorsBmi088SpiMs5611ReadGyro,
+        .readAcc = sensorsBmi088SpiMs5611ReadAcc,
+        .readMag = sensorsBmi088SpiMs5611ReadMag,
+        .readBaro = sensorsBmi088SpiMs5611ReadBaro,
+        .setAccMode = sensorsBmi088SpiMs5611SetAccMode,
         .dataAvailableCallback = nullFunction,
     },
 #endif

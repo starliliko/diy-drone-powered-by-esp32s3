@@ -75,7 +75,7 @@ extern "C"
         BMI088_ACC_ODR_100_HZ = 0x08,  // 100Hz
         BMI088_ACC_ODR_200_HZ = 0x09,  // 200Hz
         BMI088_ACC_ODR_400_HZ = 0x0A,  // 400Hz
-        BMI088_ACC_ODR_800_HZ = 0x0B,  // 800Hz ← 当前配置
+        BMI088_ACC_ODR_800_HZ = 0x0B,  // 800Hz
         BMI088_ACC_ODR_1600_HZ = 0x0C  // 1600Hz
     } bmi088_acc_odr_t;
 

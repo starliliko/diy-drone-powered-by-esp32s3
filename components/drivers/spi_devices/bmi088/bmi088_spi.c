@@ -55,7 +55,7 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         return false;
     }
 
-    // 软复位
+    // 步骤1: 软复位
     if (!bmi088_spi_soft_reset(dev))
     {
         ESP_LOGE(TAG, "Soft reset failed");
@@ -63,7 +63,9 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         return false;
     }
 
-    // 检查芯片ID
+    BMI088_DELAY_MS(50); // 等待IMU完全就绪 30ms以上
+
+    // 步骤2: 检查芯片ID
     if (!bmi088_spi_check_chip_id(dev))
     {
         ESP_LOGE(TAG, "Chip ID verification failed");
@@ -71,7 +73,7 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         return false;
     }
 
-    // 设置传感器配置
+    // 步骤3: 设置电源模式
     bmi088_config_t sensor_config = {
         .acc_range = BMI088_CONFIG_ACC_RANGE,
         .acc_odr = BMI088_CONFIG_ACC_ODR,
@@ -81,12 +83,23 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         .gyro_bw = BMI088_CONFIG_GYRO_BW,
         .gyro_power = BMI088_CONFIG_GYRO_POWER};
 
+    if (!bmi088_spi_set_power_mode(dev, sensor_config.acc_power, sensor_config.gyro_power))
+    {
+        ESP_LOGE(TAG, "Power mode configuration failed");
+        bmi088_spi_deinit(dev);
+        return false;
+    }
+
+    // 步骤4: 设置传感器配置（量程、ODR等）
     if (!bmi088_spi_configure(dev, &sensor_config))
     {
         ESP_LOGE(TAG, "Sensor configuration failed");
         bmi088_spi_deinit(dev);
         return false;
     }
+
+    // 步骤5: 等待数据采集稳定
+    BMI088_DELAY_MS(50);
 
     dev->is_initialized = true;
     ESP_LOGI(TAG, "BMI088 SPI initialization successful with centralized config");
@@ -189,14 +202,6 @@ bool bmi088_spi_configure(bmi088_dev_t *dev, const bmi088_config_t *config)
         return false;
     }
 
-    // 设置电源模式
-    if (!bmi088_spi_set_power_mode(dev, config->acc_power, config->gyro_power))
-    {
-        return false;
-    }
-
-    BMI088_DELAY_MS(10); // 等待配置生效
-
     ESP_LOGI(TAG, "BMI088 configuration completed");
     return true;
 }
@@ -215,8 +220,7 @@ bool bmi088_spi_set_acc_config(bmi088_dev_t *dev, bmi088_acc_range_t range,
     {
         return false;
     }
-
-    BMI088_DELAY_MS(1);
+    BMI088_DELAY_MS(2); // 确保写入间隔
 
     // 设置ODR和带宽
     uint8_t conf_val = ((uint8_t)odr << 0) | ((uint8_t)bwp << 4);
@@ -224,8 +228,7 @@ bool bmi088_spi_set_acc_config(bmi088_dev_t *dev, bmi088_acc_range_t range,
     {
         return false;
     }
-
-    BMI088_DELAY_MS(1);
+    BMI088_DELAY_MS(2); // 确保写入间隔
 
     dev->config.acc_range = range;
     dev->config.acc_odr = odr;
@@ -247,8 +250,7 @@ bool bmi088_spi_set_gyro_config(bmi088_dev_t *dev, bmi088_gyro_range_t range, bm
     {
         return false;
     }
-
-    BMI088_DELAY_MS(1);
+    BMI088_DELAY_MS(2); // 确保写入间隔
 
     // 设置带宽
     uint8_t bw_val = (uint8_t)bw;
@@ -256,8 +258,7 @@ bool bmi088_spi_set_gyro_config(bmi088_dev_t *dev, bmi088_gyro_range_t range, bm
     {
         return false;
     }
-
-    BMI088_DELAY_MS(1);
+    BMI088_DELAY_MS(2); // 确保写入间隔
 
     dev->config.gyro_range = range;
     dev->config.gyro_bw = bw;
@@ -272,35 +273,34 @@ bool bmi088_spi_set_power_mode(bmi088_dev_t *dev, bmi088_acc_power_t acc_power, 
         return false;
     }
 
-    // 配置加速度计电源
-    uint8_t acc_pwr_ctrl = 0x04; // 启用加速度计
+    // 配置加速度计电源 - 先启用加速度计
+    uint8_t acc_pwr_ctrl = 0x04;
     if (!bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &acc_pwr_ctrl, 1))
     {
         return false;
     }
+    BMI088_DELAY_MS(50); // 等待50ms让加速度计启动
 
-    BMI088_DELAY_MS(5);
-
+    // 设置加速度计电源模式
     uint8_t acc_pwr_conf = (uint8_t)acc_power;
     if (!bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &acc_pwr_conf, 1))
     {
         return false;
     }
+    BMI088_DELAY_MS(50); // 等待电源模式切换
 
-    BMI088_DELAY_MS(5);
-
-    // 配置陀螺仪电源
+    // 配置陀螺仪电源模式
     uint8_t gyro_pwr = (uint8_t)gyro_power;
     if (!bmi088_gyro_write_reg(dev, BMI088_GYRO_LPM1_REG, &gyro_pwr, 1))
     {
         return false;
     }
-
-    BMI088_DELAY_MS(30);
+    BMI088_DELAY_MS(30); // 等待陀螺仪电源模式切换
 
     dev->config.acc_power = acc_power;
     dev->config.gyro_power = gyro_power;
 
+    ESP_LOGI(TAG, "Power mode configured - ACC: 0x%02X, GYRO: 0x%02X", acc_power, gyro_power);
     return true;
 }
 
@@ -411,8 +411,7 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
-
-    BMI088_DELAY_MS(50);
+    BMI088_DELAY_MS(1);
 
     // 软复位陀螺仪
     uint8_t gyro_reset_cmd = 0xB6;
@@ -420,8 +419,6 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
-
-    BMI088_DELAY_MS(50);
 
     ESP_LOGI(TAG, "BMI088 soft reset completed");
     return true;
