@@ -128,11 +128,17 @@ static void applyAxis3fLpf(lpf2pData *data, Axis3f *in);
 
 STATIC_MEM_TASK_ALLOC(sensorsTask, SENSORS_TASK_STACKSIZE);
 
-static void sensorsScaleBaro(baro_t *baroScaled, float pressure, float temperature)
+static void sensorsScaleBaro(baro_t *baroScaled)
 {
-    baroScaled->pressure = pressure * 0.01f;
+    float pressure, temperature, asl;
+    ms5611GetData(&pressure, &temperature, &asl);
+    // ms5611GetData 返回的单位：
+    // pressure: mbar (即 hPa)
+    // temperature: 摄氏度
+    // asl: 米
+    baroScaled->pressure = pressure;
     baroScaled->temperature = temperature;
-    baroScaled->asl = ((powf((1015.7f / baroScaled->pressure), 0.1902630958f) - 1.0f) * (25.0f + 273.15f)) / 0.0065f;
+    baroScaled->asl = asl;
 }
 
 bool sensorsBmi088SpiMs5611ReadGyro(Axis3f *gyro)
@@ -172,6 +178,8 @@ bool sensorsBmi088SpiMs5611AreCalibrated(void)
 static void sensorsTask(void *param)
 {
     systemWaitStart();
+
+    vTaskDelay(M2T(200)); // 200ms等待系统稳定
 
     Axis3f accScaled;
 
@@ -213,9 +221,7 @@ static void sensorsTask(void *param)
             static uint8_t baroMeasDelay = SENSORS_DELAY_BARO;
             if (--baroMeasDelay == 0)
             {
-                float pressure, temperature, asl;
-                ms5611GetData(&pressure, &temperature, &asl);
-                sensorsScaleBaro(&sensorData.baro, pressure, temperature);
+                sensorsScaleBaro(&sensorData.baro); // 不再需要传入 pressure 和 temperature
                 baroMeasDelay = baroMeasDelayMin;
             }
         }
@@ -302,32 +308,6 @@ static void sensorsTaskInit(void)
     barometerDataQueue = STATIC_MEM_QUEUE_CREATE(barometerDataQueue);
 
     STATIC_MEM_TASK_CREATE(sensorsTask, sensorsTask, SENSORS_TASK_NAME, NULL, SENSORS_TASK_PRI);
-}
-
-static void sensorsInterruptInit(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-    EXTI_InitTypeDef EXTI_InitStructure;
-
-    sensorsDataReady = xSemaphoreCreateBinaryStatic(&sensorsDataReadyBuffer);
-    dataReady = xSemaphoreCreateBinaryStatic(&dataReadyBuffer);
-
-    // Enable the interrupt on PC14
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_14;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOC, &GPIO_InitStructure);
-
-    SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOC, EXTI_PinSource14);
-
-    EXTI_InitStructure.EXTI_Line = EXTI_Line14;
-    EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
-    EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
-    EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-    portDISABLE_INTERRUPTS();
-    EXTI_Init(&EXTI_InitStructure);
-    EXTI_ClearITPendingBit(EXTI_Line14);
-    portENABLE_INTERRUPTS();
 }
 
 void sensorsBmi088SpiMs5611Init(void)
