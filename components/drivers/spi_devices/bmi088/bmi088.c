@@ -2,9 +2,9 @@
 #include "bmi088_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 
-static const char *TAG = "BMI088";
+#define DEBUG_MODULE "BMI088"
+#include "debug_cf.h"
 
 // 全局BMI088设备实例
 static bmi088_dev_t g_bmi088_dev;
@@ -17,14 +17,15 @@ bool bmi088_init(void)
         return true;
     }
 
+    // 使用初始化接口
     if (!bmi088_init_with_default_config(&g_bmi088_dev))
     {
-        ESP_LOGE(TAG, "BMI088 initialization failed");
+        DEBUG_PRINTE("BMI088 initialization failed");
         return false;
     }
 
     g_is_initialized = true;
-    ESP_LOGI(TAG, "BMI088 initialized successfully");
+    DEBUG_PRINTI("BMI088 initialized successfully");
     return true;
 }
 
@@ -32,7 +33,7 @@ bool bmi088_test(void)
 {
     if (!g_is_initialized)
     {
-        ESP_LOGE(TAG, "BMI088 not initialized");
+        DEBUG_PRINTE("BMI088 not initialized");
         return false;
     }
 
@@ -154,6 +155,6 @@ void bmi088_deinit(void)
     {
         bmi088_spi_deinit(&g_bmi088_dev);
         g_is_initialized = false;
-        ESP_LOGI(TAG, "BMI088 deinitialized");
+        DEBUG_PRINTI("BMI088 deinitialized");
     }
 }

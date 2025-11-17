@@ -157,7 +157,7 @@ static const platformConfig_t platformConfigs[] = {
     {
         .deviceType = "EP20",
         .deviceTypeName = "ESP-Drone EP20",
-        .sensorImplementation = SensorImplementation_mpu6050_HMC5883L_MS5611,
+        .sensorImplementation = SensorImplementation_COUNT, // SensorImplementation_mpu6050_HMC5883L_MS5611,
         .physicalLayoutAntennasAreClose = false,
         .motorMap = NULL, // 根据实际情况填写
     },

@@ -56,13 +56,29 @@ typedef enum
 #define TRUE 1
 #endif
 
+#ifndef pdFALSE
 #define pdFALSE ((BaseType_t)0)
-#define pdTRUE ((BaseType_t)1)
+#endif
 
+#ifndef pdTRUE
+#define pdTRUE ((BaseType_t)1)
+#endif
+
+#ifndef pdPASS
 #define pdPASS (pdTRUE)
+#endif
+
+#ifndef pdFAIL
 #define pdFAIL (pdFALSE)
+#endif
+
+#ifndef errQUEUE_EMPTY
 #define errQUEUE_EMPTY ((BaseType_t)0)
+#endif
+
+#ifndef errQUEUE_FULL
 #define errQUEUE_FULL ((BaseType_t)0)
+#endif
 
 #define M2T(X) ((unsigned int)(X) / portTICK_PERIOD_MS)     // ms to tick
 #define F2T(X) ((unsigned int)((configTICK_RATE_HZ / (X)))) // Hz to tick

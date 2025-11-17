@@ -33,8 +33,8 @@
 
 typedef I2cDrv I2C_Dev; // 别名
 // 两个I2C设备接口
-#define I2C1_DEV &deckBus
-#define I2C0_DEV &sensorsBus
+#define I2C1_DEV &deckBus    // 舵机和扩展板接口
+#define I2C0_DEV &sensorsBus // 传感器接口
 
 // For compatibility
 #define i2cdevWrite16 i2cdevWriteReg16

@@ -81,6 +81,8 @@ extern "C"
     // 全局总线管理
     extern SemaphoreHandle_t g_spi_bus_mutex; // 全局总线互斥锁
 
+    // SPI 驱动初始化函数
+    bool spiDrvInit(spi_host_device_t host_id);
     // 基础SPI驱动函数
     bool spiDrvBusInit(spi_drv_bus_config_t *bus_config);
     bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const spi_drv_device_config_t *device_config);

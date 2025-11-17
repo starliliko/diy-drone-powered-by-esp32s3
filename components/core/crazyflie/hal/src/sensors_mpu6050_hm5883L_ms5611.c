@@ -563,7 +563,6 @@ static void sensorsDeviceInit(void)
     }
     else
     {
-        // TODO: Should sensor test fail hard if no connection
         DEBUG_PRINTW("PMW3901 SPI connection [FAIL].\n");
     }
 #endif
@@ -578,7 +577,7 @@ static void sensorsDeviceInit(void)
     // sinRoll = sinf(configblockGetCalibRoll() * (float)M_PI / 180);
     cosPitch = cosf(PITCH_CALIB * (float)M_PI / 180);
     sinPitch = sinf(PITCH_CALIB * (float)M_PI / 180);
-    cosRoll = cosf(c * (float)M_PI / 180);
+    cosRoll = cosf(ROLL_CALIB * (float)M_PI / 180);
     sinRoll = sinf(ROLL_CALIB * (float)M_PI / 180);
     DEBUG_PRINTI("pitch_calib = %f,roll_calib = %f", PITCH_CALIB, ROLL_CALIB);
 }
@@ -679,6 +678,7 @@ static void sensorsInterruptInit(void)
     gpio_config_t io_conf = {
     // interrupt of rising edge
 #if ESP_IDF_VERSION_MAJOR > 4
+
         .intr_type = GPIO_INTR_POSEDGE,
 #else
         .intr_type = GPIO_PIN_INTR_POSEDGE,

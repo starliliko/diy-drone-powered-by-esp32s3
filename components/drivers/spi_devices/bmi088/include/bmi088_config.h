@@ -14,7 +14,7 @@ extern "C"
 
 // BMI088传感器配置参数
 #define BMI088_CONFIG_ACC_RANGE BMI088_ACC_RANGE_6G   // 6G量程：精度最高
-#define BMI088_CONFIG_ACC_ODR BMI088_ACC_ODR_800_HZ   // 800Hz：与主控制环路匹配
+#define BMI088_CONFIG_ACC_ODR BMI088_ACC_ODR_800_HZ   // 800Hz
 #define BMI088_CONFIG_ACC_BWP BMI088_ACC_BWP_NORMAL   // 正常带宽
 #define BMI088_CONFIG_ACC_POWER BMI088_ACC_PWR_ACTIVE // 激活模式
 
@@ -22,8 +22,6 @@ extern "C"
 #define BMI088_CONFIG_GYRO_RANGE BMI088_GYRO_RANGE_1000_DPS  // 1000DPS：足够平稳飞行
 #define BMI088_CONFIG_GYRO_BW BMI088_GYRO_BW_116_ODR_1000_HZ // 1000Hz ODR，116Hz滤波
 #define BMI088_CONFIG_GYRO_POWER BMI088_GYRO_PWR_NORMAL      // 正常功耗模式
-
-    // 配置初始化BMI088设备
     bool bmi088_init_with_default_config(bmi088_dev_t *dev);
 
 #ifdef __cplusplus

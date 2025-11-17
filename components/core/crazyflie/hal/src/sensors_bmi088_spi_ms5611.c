@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include "sensors_bmi088_spi_ms5611.h"
+#include "debug_cf.h"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -12,20 +13,26 @@
 #include "configblock.h"
 #include "param.h"
 #include "log.h"
-#include "debug.h"
 #include "imu.h"
 #include "nvicconf.h"
 #include "ledseq.h"
 #include "sound.h"
 #include "filter.h"
+#include "config.h"
 #include "i2cdev.h"
-#include "bmi088.h"
 #include "ms5611.h"
 #include "static_mem.h"
+#include "bmi088_spi.h"
+#include "bmi088_config.h"
+#include "bmi088.h"
 
 #define GYRO_ADD_RAW_AND_VARIANCE_LOG_VALUES // 启用陀螺仪原始值和方差日志记录
 
-#define SENSORS_READ_RATE_HZ 1000                                        // 传感器读取频率
+#define SENSORS_READ_RATE_HZ 800 // 传感器读取频率
+/*
+通过硬件中断同步，已经实现IMU数据对齐与时间同步
+*/
+
 #define SENSORS_STARTUP_TIME_MS 2000                                     // 传感器启动时间
 #define SENSORS_READ_BARO_HZ 50                                          // 气压计读取频率
 #define SENSORS_DELAY_BARO (SENSORS_READ_RATE_HZ / SENSORS_READ_BARO_HZ) // 气压计读取延迟
@@ -40,10 +47,10 @@
 #define SENSORS_BMI088_1G_IN_LSB (65536.0f / (2.0f * SENSORS_BMI088_ACCEL_G))     // 1G对应的LSB值
 
 #define GYRO_NBR_OF_AXES 3                     // 陀螺仪轴数
-#define GYRO_MIN_BIAS_TIMEOUT_MS M2T(1 * 1000) // 陀螺仪最小偏置超时时间
+#define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000) // 陀螺仪最小偏置超时时间
 #define SENSORS_NBR_OF_BIAS_SAMPLES 512        // 偏置样本数量
 
-#define GYRO_VARIANCE_BASE 20000                       // 陀螺仪方差基准值 ±4.3°/s过校准
+#define GYRO_VARIANCE_BASE 10000                       // 陀螺仪方差基准值
 #define GYRO_VARIANCE_THRESHOLD_X (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值X
 #define GYRO_VARIANCE_THRESHOLD_Y (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Y
 #define GYRO_VARIANCE_THRESHOLD_Z (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Z
@@ -53,6 +60,8 @@
 // 参数适合平稳飞行
 #define GYRO_LPF_CUTOFF_FREQ 50  // 陀螺仪低通滤波器截止频率
 #define ACCEL_LPF_CUTOFF_FREQ 20 // 加速度计低通滤波器截止频率
+
+#define ESP_INTR_FLAG_DEFAULT 0 // 默认中断优先级
 
 typedef struct
 {
@@ -66,19 +75,19 @@ typedef struct
 } BiasObj;
 
 // 静态内存分配队列和信号量
-static xQueueHandle accelerometerDataQueue;
+static QueueHandle_t accelerometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(accelerometerDataQueue, 1, sizeof(Axis3f));
-static xQueueHandle gyroDataQueue;
+static QueueHandle_t gyroDataQueue;
 STATIC_MEM_QUEUE_ALLOC(gyroDataQueue, 1, sizeof(Axis3f));
-static xQueueHandle magnetometerDataQueue;
+static QueueHandle_t magnetometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(magnetometerDataQueue, 1, sizeof(Axis3f));
-static xQueueHandle barometerDataQueue;
+static QueueHandle_t barometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(barometerDataQueue, 1, sizeof(baro_t));
 
 // 静态内存分配信号量
-static xSemaphoreHandle sensorsDataReady;        // 传感器数据就绪
+static SemaphoreHandle_t sensorsDataReady;       // 传感器数据就绪
 static StaticSemaphore_t sensorsDataReadyBuffer; // 分配缓冲区
-static xSemaphoreHandle dataReady;               // 数据处理就绪
+static SemaphoreHandle_t dataReady;              // 数据处理就绪
 static StaticSemaphore_t dataReadyBuffer;        // 分配缓冲区
 
 static bool isInit = false; // 初始化标志
@@ -108,6 +117,10 @@ static lpf2pData gyroLpf[3]; // 陀螺仪低通滤波器数据
 static bool isBarometerPresent = false;               // 气压计存在标志
 static uint8_t baroMeasDelayMin = SENSORS_DELAY_BARO; // 气压计最小测量延迟
 
+// 数据就绪标志
+static volatile bool bmi088AccDataReady = false;
+static volatile bool bmi088GyroDataReady = false;
+
 // IMU安装角度
 static float cosPitch;
 static float sinPitch;
@@ -125,21 +138,11 @@ static void sensorsAddBiasValue(BiasObj *bias, int16_t x, int16_t y, int16_t z);
 static bool sensorsFindBiasValue(BiasObj *bias);
 static void sensorsAccAlignToGravity(Axis3f *in, Axis3f *out);
 static void applyAxis3fLpf(lpf2pData *data, Axis3f *in);
+static void sensorsDeviceInit(void);
+static void sensorsInterruptInit(void);
+static void sensorsScaleBaro(baro_t *baroScaled);
 
-STATIC_MEM_TASK_ALLOC(sensorsTask, SENSORS_TASK_STACKSIZE);
-
-static void sensorsScaleBaro(baro_t *baroScaled)
-{
-    float pressure, temperature, asl;
-    ms5611GetData(&pressure, &temperature, &asl);
-    // ms5611GetData 返回的单位：
-    // pressure: mbar (即 hPa)
-    // temperature: 摄氏度
-    // asl: 米
-    baroScaled->pressure = pressure;
-    baroScaled->temperature = temperature;
-    baroScaled->asl = asl;
-}
+STATIC_MEM_TASK_ALLOC(sensorsTask, SENSORS_TASK_STACKSIZE); // 静态内存分配任务
 
 bool sensorsBmi088SpiMs5611ReadGyro(Axis3f *gyro)
 {
@@ -160,7 +163,10 @@ bool sensorsBmi088SpiMs5611ReadBaro(baro_t *baro)
 {
     return (pdTRUE == xQueueReceive(barometerDataQueue, baro, 0));
 }
-
+/* 传感器数据获取函数
+   从各个传感器读取数据并存储到传感器数据结构体中
+*/
+// 底层仍然是调用xQueueReceive
 void sensorsBmi088SpiMs5611Acquire(sensorData_t *sensors, const uint32_t tick)
 {
     sensorsReadGyro(&sensors->gyro);
@@ -170,7 +176,7 @@ void sensorsBmi088SpiMs5611Acquire(sensorData_t *sensors, const uint32_t tick)
     sensors->interruptTimestamp = sensorData.interruptTimestamp;
 }
 
-bool sensorsBmi088SpiMs5611AreCalibrated(void)
+bool sensorsBmi088SpiMs5611AreCalibrated(void) // 传感器校准状态检查函数
 {
     return gyroBiasFound;
 }
@@ -180,6 +186,8 @@ static void sensorsTask(void *param)
     systemWaitStart();
 
     vTaskDelay(M2T(200)); // 200ms等待系统稳定
+
+    sensorsDeviceInit(); // 传感器设备初始化
 
     Axis3f accScaled;
 
@@ -221,7 +229,7 @@ static void sensorsTask(void *param)
             static uint8_t baroMeasDelay = SENSORS_DELAY_BARO;
             if (--baroMeasDelay == 0)
             {
-                sensorsScaleBaro(&sensorData.baro); // 不再需要传入 pressure 和 temperature
+                sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
             }
         }
@@ -247,17 +255,18 @@ static void sensorsDeviceInit(void)
     if (isInit)
         return;
 
+    spiDrvInit(SPI_DRV_HOST_DEFAULT); // 初始化SPI
+    i2cdevInit(I2C0_DEV);             // 初始化I2C
+
     // 等待传感器启动
-    vTaskDelay(M2T(SENSORS_STARTUP_TIME_MS)); // 1秒
+    vTaskDelay(M2T(SENSORS_STARTUP_TIME_MS)); // 2秒
 
     // 初始化BMI088 (SPI)
     if (!bmi088_init())
     {
-#ifndef SENSORS_IGNORE_IMU_FAIL
         DEBUG_PRINT("BMI088 SPI init [FAIL]\n");
         isInit = false;
         return;
-#endif
     }
     else
     {
@@ -265,7 +274,7 @@ static void sensorsDeviceInit(void)
     }
 
     // 初始化MS5611 (I2C)
-    if (ms5611Init(I2C3_DEV))
+    if (ms5611Init(I2C0_DEV))
     {
         isBarometerPresent = true;
         DEBUG_PRINT("MS5611 I2C init [OK]\n");
@@ -273,11 +282,9 @@ static void sensorsDeviceInit(void)
     }
     else
     {
-#ifndef SENSORS_IGNORE_BAROMETER_FAIL
         DEBUG_PRINT("MS5611 I2C init [FAIL]\n");
         isInit = false;
         return;
-#endif
     }
 
     // 初始化低通滤波器
@@ -293,7 +300,7 @@ static void sensorsDeviceInit(void)
     // sinRoll = sinf(configblockGetCalibRoll() * (float)M_PI / 180);
     cosPitch = cosf(PITCH_CALIB * (float)M_PI / 180);
     sinPitch = sinf(PITCH_CALIB * (float)M_PI / 180);
-    cosRoll = cosf(c * (float)M_PI / 180);
+    cosRoll = cosf(ROLL_CALIB * (float)M_PI / 180);
     sinRoll = sinf(ROLL_CALIB * (float)M_PI / 180);
     DEBUG_PRINTI("pitch_calib = %f,roll_calib = %f", PITCH_CALIB, ROLL_CALIB);
 
@@ -317,12 +324,106 @@ void sensorsBmi088SpiMs5611Init(void)
         return;
     }
 
-    i2cdevInit(I2C3_DEV);
-
     sensorsBiasObjInit(&gyroBiasRunning);
     sensorsDeviceInit();
-    sensorsInterruptInit();
+    sensorsInterruptInit(); // 添加中断初始化
     sensorsTaskInit();
+
+    isInit = true;
+}
+
+// 加速度计中断处理
+static void IRAM_ATTR bmi088_acc_int_handler(void *arg)
+{
+    bmi088AccDataReady = true;
+
+    // 当两个传感器数据都就绪时,唤醒传感器任务
+    if (bmi088AccDataReady && bmi088GyroDataReady)
+    {
+        portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+        imuIntTimestamp = usecTimestamp();
+        xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
+
+        // 清除标志
+        bmi088AccDataReady = false;
+        bmi088GyroDataReady = false;
+
+        if (xHigherPriorityTaskWoken)
+        {
+            portYIELD_FROM_ISR();
+        }
+    }
+}
+
+// 陀螺仪中断处理
+static void IRAM_ATTR bmi088_gyro_int_handler(void *arg)
+{
+    bmi088GyroDataReady = true;
+
+    // 当两个传感器数据都就绪时,唤醒传感器任务
+    if (bmi088AccDataReady && bmi088GyroDataReady)
+    {
+        portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+        imuIntTimestamp = usecTimestamp();
+        xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
+
+        // 清除标志
+        bmi088AccDataReady = false;
+        bmi088GyroDataReady = false;
+
+        if (xHigherPriorityTaskWoken)
+        {
+            portYIELD_FROM_ISR();
+        }
+    }
+}
+
+static void sensorsInterruptInit(void)
+{
+    DEBUG_PRINT("BMI088 interrupt init\n");
+
+    // 配置加速度计中断引脚(INT1) - 下降沿触发
+    gpio_config_t acc_int_conf = {
+#if ESP_IDF_VERSION_MAJOR > 4
+        .intr_type = GPIO_INTR_NEGEDGE, // 下降沿触发(低电平有效)
+#else
+        .intr_type = GPIO_PIN_INTR_NEGEDGE,
+#endif
+        .pin_bit_mask = (1ULL << BMI088_INT1_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE, // 使能上拉,保证空闲时为高电平
+    };
+    gpio_config(&acc_int_conf);
+
+    // 配置陀螺仪中断引脚(INT3) - 下降沿触发
+    gpio_config_t gyro_int_conf = {
+#if ESP_IDF_VERSION_MAJOR > 4
+        .intr_type = GPIO_INTR_NEGEDGE, // 下降沿触发(低电平有效)
+#else
+        .intr_type = GPIO_PIN_INTR_NEGEDGE,
+#endif
+        .pin_bit_mask = (1ULL << BMI088_INT3_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE, // 使能上拉,保证空闲时为高电平
+    };
+    gpio_config(&gyro_int_conf);
+
+    // 创建二值信号量
+    sensorsDataReady = xSemaphoreCreateBinaryStatic(&sensorsDataReadyBuffer);
+    dataReady = xSemaphoreCreateBinaryStatic(&dataReadyBuffer);
+
+    // 安装GPIO中断服务
+    gpio_set_intr_type(BMI088_INT1_PIN, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(BMI088_INT3_PIN, GPIO_INTR_NEGEDGE);
+    gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+
+    // 绑定中断处理函数
+    gpio_isr_handler_add(BMI088_INT1_PIN, bmi088_acc_int_handler, NULL);
+    gpio_isr_handler_add(BMI088_INT3_PIN, bmi088_gyro_int_handler, NULL);
+
+    DEBUG_PRINT("BMI088 interrupt init done (active low mode)\n");
 }
 
 bool sensorsBmi088SpiMs5611Test(void)
@@ -520,16 +621,17 @@ static void applyAxis3fLpf(lpf2pData *data, Axis3f *in)
     }
 }
 
-void sensorsBmi088SpiMs5611DataAvailableCallback(void)
+static void sensorsScaleBaro(baro_t *baroScaled) // 气压计读取
 {
-    portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
-    imuIntTimestamp = usecTimestamp();
-    xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
-
-    if (xHigherPriorityTaskWoken)
-    {
-        portYIELD();
-    }
+    float pressure, temperature, asl;
+    ms5611GetData(&pressure, &temperature, &asl);
+    // ms5611GetData 返回的单位：
+    // pressure: mbar (即 hPa)
+    // temperature: 摄氏度
+    // asl: 米
+    baroScaled->pressure = pressure;
+    baroScaled->temperature = temperature;
+    baroScaled->asl = asl;
 }
 
 #ifdef GYRO_ADD_RAW_AND_VARIANCE_LOG_VALUES

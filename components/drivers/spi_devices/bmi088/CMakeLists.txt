@@ -2,6 +2,7 @@ idf_component_register(
     SRCS 
         "bmi088.c"
         "bmi088_spi.c"
+        "bmi088_config.c"
     INCLUDE_DIRS 
         "include"
     REQUIRES

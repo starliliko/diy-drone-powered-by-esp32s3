@@ -29,8 +29,8 @@ extern "C"
 #define BMI088_ACC_TEMP_LSB_REG 0x23
 #define BMI088_ACC_CONF_REG 0x40
 #define BMI088_ACC_RANGE_REG 0x41
-#define BMI088_ACC_INT1_IO_CTRL_REG 0x53
-#define BMI088_ACC_INT_MAP_DATA_REG 0x58
+#define BMI088_ACC_INT1_IO_CONF_REG 0x53       // INT1引脚配置
+#define BMI088_ACC_INT1_INT2_MAP_DATA_REG 0x58 // 数据就绪中断映射
 #define BMI088_ACC_PWR_CONF_REG 0x7C
 #define BMI088_ACC_PWR_CTRL_REG 0x7D
 #define BMI088_ACC_SOFTRESET_REG 0x7E
@@ -49,12 +49,28 @@ extern "C"
 #define BMI088_GYRO_LPM1_REG 0x11
 #define BMI088_GYRO_SOFTRESET_REG 0x14
 #define BMI088_GYRO_INT_CTRL_REG 0x15
-#define BMI088_GYRO_INT3_INT4_IO_CONF_REG 0x16
-#define BMI088_GYRO_INT3_INT4_IO_MAP_REG 0x18
+#define BMI088_GYRO_INT3_INT4_IO_CONF_REG 0x16 // INT3/INT4引脚配置
+#define BMI088_GYRO_INT3_INT4_IO_MAP_REG 0x18  // 数据就绪中断映射
 
 // 芯片ID值
 #define BMI088_ACC_CHIP_ID_VALUE 0x1E
 #define BMI088_GYRO_CHIP_ID_VALUE 0x0F
+
+// ======================== 中断配置位定义 ========================
+// 加速度计INT1_IO_CONF寄存器位
+#define BMI088_ACC_INT1_OUTPUT_EN (1 << 3)   // 输出使能
+#define BMI088_ACC_INT1_OPEN_DRAIN (1 << 2)  // 开漏模式(0=推挽)
+#define BMI088_ACC_INT1_ACTIVE_HIGH (1 << 1) // 高电平有效(0=低电平有效)
+
+// 加速度计INT1_INT2_MAP_DATA寄存器位
+#define BMI088_ACC_DRDY_INT1 (1 << 2) // 数据就绪映射到INT1
+
+// 陀螺仪INT3_INT4_IO_CONF寄存器位
+#define BMI088_GYRO_INT3_ACTIVE_HIGH (1 << 0) // INT3高电平有效(0=低电平有效)
+#define BMI088_GYRO_INT3_PUSH_PULL (0 << 1)   // INT3推挽输出
+
+// 陀螺仪INT3_INT4_IO_MAP寄存器位
+#define BMI088_GYRO_DRDY_INT3 (1 << 0) // 数据就绪映射到INT3
 
     // ======================== BMI088传感器参数枚举 ========================
     // 加速度计量程配置

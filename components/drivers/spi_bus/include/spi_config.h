@@ -30,45 +30,51 @@ extern "C"
 #define BMI088_SPI_MODE SPI_MODE_0
 #define BMI088_SPI_QUEUE_SIZE 8
 
-    // ======================== 预定义SPI配置结构 ========================
-    // SPI总线配置实例
-    static spi_drv_bus_config_t g_spi_bus_config = {
-        .host_id = SPI_BUS_HOST_ID,
-        .miso_pin = SPI_BUS_MISO_PIN,
-        .mosi_pin = SPI_BUS_MOSI_PIN,
-        .sclk_pin = SPI_BUS_SCLK_PIN,
-        .use_dma = SPI_BUS_USE_DMA,
-        .max_transfer_sz = SPI_BUS_MAX_TRANSFER,
-        .is_bus_initialized = false};
-
-    // BMI088加速度计SPI设备配置
-    static const spi_drv_device_config_t bmi088_accel_spi_config = {
-        .cs_pin = BMI088_ACCEL_CS_PIN,
-        .clock_speed_hz = BMI088_SPI_FREQ_HZ,
-        .mode = BMI088_SPI_MODE,
-        .queue_size = BMI088_SPI_QUEUE_SIZE};
-
-    // BMI088陀螺仪SPI设备配置
-    static const spi_drv_device_config_t bmi088_gyro_spi_config = {
-        .cs_pin = BMI088_GYRO_CS_PIN,
-        .clock_speed_hz = BMI088_SPI_FREQ_HZ,
-        .mode = BMI088_SPI_MODE,
-        .queue_size = BMI088_SPI_QUEUE_SIZE};
-
     // ======================== 配置获取函数 ========================
+    /**
+     * @brief 获取SPI总线配置
+     * @return SPI总线配置指针
+     * @note 使用静态变量避免多次初始化
+     */
     static inline spi_drv_bus_config_t *get_spi_bus_config(void)
     {
-        return &g_spi_bus_config;
+        static spi_drv_bus_config_t config = {
+            .host_id = SPI_BUS_HOST_ID,
+            .miso_pin = SPI_BUS_MISO_PIN,
+            .mosi_pin = SPI_BUS_MOSI_PIN,
+            .sclk_pin = SPI_BUS_SCLK_PIN,
+            .use_dma = SPI_BUS_USE_DMA,
+            .max_transfer_sz = SPI_BUS_MAX_TRANSFER,
+            .is_bus_initialized = false};
+        return &config;
     }
 
+    /**
+     * @brief 获取BMI088加速度计SPI设备配置
+     * @return 设备配置指针
+     */
     static inline const spi_drv_device_config_t *get_bmi088_accel_spi_config(void)
     {
-        return &bmi088_accel_spi_config;
+        static const spi_drv_device_config_t config = {
+            .cs_pin = BMI088_ACCEL_CS_PIN,
+            .clock_speed_hz = BMI088_SPI_FREQ_HZ,
+            .mode = BMI088_SPI_MODE,
+            .queue_size = BMI088_SPI_QUEUE_SIZE};
+        return &config;
     }
 
+    /**
+     * @brief 获取BMI088陀螺仪SPI设备配置
+     * @return 设备配置指针
+     */
     static inline const spi_drv_device_config_t *get_bmi088_gyro_spi_config(void)
     {
-        return &bmi088_gyro_spi_config;
+        static const spi_drv_device_config_t config = {
+            .cs_pin = BMI088_GYRO_CS_PIN,
+            .clock_speed_hz = BMI088_SPI_FREQ_HZ,
+            .mode = BMI088_SPI_MODE,
+            .queue_size = BMI088_SPI_QUEUE_SIZE};
+        return &config;
     }
 
 #ifdef __cplusplus

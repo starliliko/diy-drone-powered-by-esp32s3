@@ -55,7 +55,7 @@
 #include "sensors_mpu6050_hm5883L_ms5611.h"
 #endif
 
-#ifdef SERONSOR_INCLUDED_BMI088_SPI_MS5611
+#ifdef SENSOR_INCLUDED_BMI088_SPI_MS5611
 #include "sensors_bmi088_spi_ms5611.h"
 #endif
 

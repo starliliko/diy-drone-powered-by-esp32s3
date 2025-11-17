@@ -1,4 +1,5 @@
 #include "spi_drv.h"
+#include "spi_config.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -59,9 +60,39 @@ bool spiDrvBusInit(spi_drv_bus_config_t *bus_config)
     return true;
 }
 
+// 全局初始化函数
+bool spiDrvInit(spi_host_device_t host_id)
+{
+    // 从配置中心获取总线配置
+    spi_drv_bus_config_t *bus_config = get_spi_bus_config();
+    if (!bus_config)
+    {
+        DEBUG_PRINT("Failed to get SPI bus config\n");
+        return false;
+    }
+
+    // 检查是否已初始化
+    if (bus_config->is_bus_initialized && bus_config->host_id == host_id)
+    {
+        DEBUG_PRINT("SPI bus already initialized\n");
+        return true;
+    }
+
+    // 设置host_id（可能与默认配置不同）
+    bus_config->host_id = host_id;
+
+    if (!spiDrvBusInit(bus_config))
+    {
+        return false;
+    }
+
+    DEBUG_PRINT("SPI bus initialized (host: %d)\n", host_id);
+    return true;
+}
+
 bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const spi_drv_device_config_t *device_config)
 {
-    if (!spi || !bus_config || !device_config)
+    if (!spi || !device_config)
     {
         DEBUG_PRINT("Invalid parameters\n");
         return false;
@@ -71,6 +102,18 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     {
         DEBUG_PRINT("SPI device already initialized\n");
         return true;
+    }
+
+    // 如果没有提供总线配置，全局设置
+    // 如果有提供总线配置，单独设置
+    if (!bus_config)
+    {
+        bus_config = get_spi_bus_config(); // 获取全局配置
+        if (!bus_config || !bus_config->is_bus_initialized)
+        {
+            DEBUG_PRINT("No SPI bus initialized, call spiDrvInit first\n");
+            return false;
+        }
     }
 
     // 确保总线已初始化
@@ -127,7 +170,7 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     return true;
 }
 
-bool spiDrvDeinit(spi_drv_t *spi)
+bool spiDrvDeinit(spi_drv_t *spi) // 移除SPI设备
 {
     if (!spi || !spi->is_initialized)
     {
@@ -190,7 +233,7 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
         esp_rom_delay_us(1);
     }
 
-    // 执行传输 - ESP32S3优化
+    // 执行传输
     if (spi->bus_config->use_dma && transfer->length > 64)
     {
         ret = spi_device_transmit(spi->device, &trans);
