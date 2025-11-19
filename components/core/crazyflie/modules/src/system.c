@@ -181,8 +181,9 @@ void systemTask(void *arg)
   commInit();      // 通信初始化
   commanderInit(); // 通信指令初始化
 
-  StateEstimatorType estimator = anyEstimator; // 状态估计器类型设为任意估计器
-  estimatorKalmanTaskInit();                   // 卡尔曼估计器任务初始化
+  // StateEstimatorType estimator = anyEstimator; // 状态估计器类型设为任意估计器
+  StateEstimatorType estimator = kalmanEstimator; // 状态估计器类型设为卡尔曼估计器
+  estimatorKalmanTaskInit();                      // 卡尔曼估计器任务初始化
   // deckInit();
   // estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator); // 稳定器初始化

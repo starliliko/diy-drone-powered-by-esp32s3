@@ -48,7 +48,7 @@
 
 #define GYRO_NBR_OF_AXES 3                     // 陀螺仪轴数
 #define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000) // 陀螺仪最小偏置超时时间
-#define SENSORS_NBR_OF_BIAS_SAMPLES 512        // 偏置样本数量
+#define SENSORS_NBR_OF_BIAS_SAMPLES 1024       // 偏置样本数量
 
 #define GYRO_VARIANCE_BASE 10000                       // 陀螺仪方差基准值
 #define GYRO_VARIANCE_THRESHOLD_X (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值X
