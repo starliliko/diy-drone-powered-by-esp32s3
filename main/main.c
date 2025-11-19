@@ -33,13 +33,6 @@
 #define DEBUG_MODULE "APP_MAIN"
 #include "debug_cf.h"
 
-#include "jy901_i2c_driver.h" // 包含JY901驱动头文件
-
-static const char *TAG = "JY901_MAIN"; // 日志TAG定义
-
-static const char *ERR = "ERR"; // 错误日志提示
-
-static jy901_handle_t jy901_sensor; // 全局JY901传感器句柄
 void app_main()
 {
     /*
@@ -58,13 +51,13 @@ void app_main()
 
     ESP_ERROR_CHECK(ret);
 
-    // /* 初始化平台 */
-    // if (platformInit() == false)
-    // {
-    //     while (1)
-    //         DEBUG_PRINT("ERROR: Platform Init Failed\n");
-    //     ; // 如果固件运行在错误的硬件上,停止运行
-    // }
+    /* 初始化平台 */
+    if (platformInit() == false)
+    {
+        while (1)
+            DEBUG_PRINT("ERROR: Platform Init Failed\n");
+        ; // 如果固件运行在错误的硬件上,停止运行
+    }
 
     /* 启动系统任务 */
     systemLaunch();

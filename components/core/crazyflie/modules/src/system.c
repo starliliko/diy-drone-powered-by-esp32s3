@@ -27,7 +27,6 @@
 
 #include <stdbool.h>
 #include <inttypes.h>
-/* FreeRtos includes */
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -42,13 +41,9 @@
 #include "config.h"
 #include "system.h"
 #include "platform.h"
-// #include "storage.h"
 #include "configblock.h"
 #include "worker.h"
 #include "freeRTOSdebug.h"
-// #include "uart_syslink.h"
-// #include "uart1.h"
-// #include "uart2.h"
 #include "wifi_esp32.h"
 #include "comm.h"
 #include "stabilizer.h"
@@ -56,21 +51,16 @@
 #include "console.h"
 #include "wifilink.h"
 #include "mem.h"
-// #include "proximity.h"
-// #include "watchdog.h"
 #include "queuemonitor.h"
 #include "buzzer.h"
 #include "sound.h"
 #include "sysload.h"
 #include "estimator_kalman.h"
-// #include "deck.h"
-// #include "extrx.h"
 #include "app.h"
 #include "stm32_legacy.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
 #include "static_mem.h"
-// #include "peer_localization.h"
 #include "cfassert.h"
 
 #ifndef START_DISARMED
@@ -88,7 +78,7 @@ static bool isInit;
 
 STATIC_MEM_TASK_ALLOC(systemTask, SYSTEM_TASK_STACKSIZE);
 
-/* System wide synchronisation */
+// 系统范围的同步
 xSemaphoreHandle canStartMutex;
 static StaticSemaphore_t canStartMutexBuffer;
 
@@ -103,24 +93,30 @@ void systemLaunch(void)
 }
 
 // This must be the first module to be initialized!
+// 这必须是第一个被初始化的模块!
 void systemInit(void)
 {
   if (isInit)
     return;
 
   DEBUG_PRINT_LOCAL("----------------------------\n");
-  DEBUG_PRINT_LOCAL("%s is up and running!\n", platformConfigGetDeviceTypeName());
+  // DEBUG_PRINT_LOCAL("%s is up and running!\n", platformConfigGetDeviceTypeName());
+  char name[20] = "diy——drone";
+  DEBUG_PRINT_LOCAL("%s is up and running!\n", name);
 
   canStartMutex = xSemaphoreCreateMutexStatic(&canStartMutexBuffer);
   xSemaphoreTake(canStartMutex, portMAX_DELAY);
+  // 分配空间创建互斥信号量，并立即获取它以阻止系统启动，直到所有初始化完成
 
-  wifilinkInit();
-  sysLoadInit();
+  wifilinkInit(); // wifi链接初始化
+  sysLoadInit();  // 系统负载初始化
 
   /* Initialized here so that DEBUG_PRINT (buffered) can be used early */
-  debugInit();
-  crtpInit();
-  consoleInit();
+  // 中文注释: 这里初始化以便可以早期使用缓冲的DEBUG_PRINT
+
+  debugInit();   // debug初始化
+  crtpInit();    // crtp初始化
+  consoleInit(); // 控制台初始化 //位置奇怪
 
   /* DEBUG_PRINT("----------------------------\n");
   DEBUG_PRINT("%s is up and running!\n", platformConfigGetDeviceTypeName());
@@ -135,14 +131,14 @@ void systemInit(void)
               *((int*)(MCU_ID_ADDRESS+8)), *((int*)(MCU_ID_ADDRESS+4)),
               *((int*)(MCU_ID_ADDRESS+0)), *((short*)(MCU_FLASH_SIZE_ADDRESS)));*/
 
-  configblockInit();
-  // storageInit();
-  workerInit();
-  adcInit();
-  ledseqInit();
-  pmInit();
-  buzzerInit();
-  //  peerLocalizationInit();
+  configblockInit(); // 从Flash或 eeprom获得初始化
+  // storageInit(); //持久化存储初始化
+  workerInit(); // 工作队列初始化
+  adcInit();    // ADC初始化
+  ledseqInit(); // LED序列初始化 //LED动画
+  pmInit();     // 电源管理初始化
+  buzzerInit(); // 蜂鸣器初始化
+  //  peerLocalizationInit();  //多机协同定位
 
 #ifdef APP_ENABLED
   appInit();
@@ -170,32 +166,26 @@ void systemTask(void *arg)
 {
   bool pass = true;
 
-  ledInit();
+  ledInit(); // led初始化
   ledSet(CHG_LED, 1);
-  wifiInit();
-  vTaskDelay(M2T(500));
 
-#ifdef DEBUG_QUEUE_MONITOR
+  wifiInit(); // wifi初始化
+
+  vTaskDelay(M2T(500));
+#ifdef DEBUG_QUEUE_MONITOR // 启动队列监视器
   queueMonitorInit();
 #endif
 
-#ifdef ENABLE_UART1
-  uart1Init(9600);
-#endif
-#ifdef ENABLE_UART2
-  uart2Init(115200);
-#endif
+  // 初始化高级模块
+  systemInit();    // 系统初始化
+  commInit();      // 通信初始化
+  commanderInit(); // 通信指令初始化
 
-  // Init the high-levels modules
-  systemInit();
-  commInit();
-  commanderInit();
-
-  StateEstimatorType estimator = anyEstimator;
-  estimatorKalmanTaskInit();
+  StateEstimatorType estimator = anyEstimator; // 状态估计器类型设为任意估计器
+  estimatorKalmanTaskInit();                   // 卡尔曼估计器任务初始化
   // deckInit();
   // estimator = deckGetRequiredEstimator();
-  stabilizerInit(estimator);
+  stabilizerInit(estimator); // 稳定器初始化
   // if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
   //{
   //   platformSetLowInterferenceRadioMode();

@@ -28,10 +28,11 @@
 
 #include "stabilizer_types.h"
 
-typedef enum {
-  anyEstimator = 0,
-  complementaryEstimator,
-  kalmanEstimator,
+typedef enum
+{
+  anyEstimator = 0,       // 任意估计器
+  complementaryEstimator, // 互补滤波估计器
+  kalmanEstimator,        // 卡尔曼滤波估计器
   StateEstimatorTypeCount,
 } StateEstimatorType;
 
@@ -42,7 +43,7 @@ bool stateEstimatorTest(void);
 void stateEstimatorSwitchTo(StateEstimatorType estimator);
 void stateEstimator(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
 StateEstimatorType getStateEstimator(void);
-const char* stateEstimatorGetName();
+const char *stateEstimatorGetName();
 
 // Support to incorporate additional sensors into the state estimate via the following functions:
 bool estimatorEnqueueTDOA(const tdoaMeasurement_t *uwb);
@@ -53,6 +54,6 @@ bool estimatorEnqueueTOF(const tofMeasurement_t *tof);
 bool estimatorEnqueueAbsoluteHeight(const heightMeasurement_t *height);
 bool estimatorEnqueueFlow(const flowMeasurement_t *flow);
 bool estimatorEnqueueYawError(const yawErrorMeasurement_t *error);
-//bool estimatorEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
+// bool estimatorEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
 
 #endif //__ESTIMATOR_H__

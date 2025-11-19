@@ -187,7 +187,7 @@ static void sensorsTask(void *param)
 
     vTaskDelay(M2T(200)); // 200ms等待系统稳定
 
-    sensorsDeviceInit(); // 传感器设备初始化
+    // sensorsDeviceInit(); // 传感器设备初始化
 
     Axis3f accScaled;
 

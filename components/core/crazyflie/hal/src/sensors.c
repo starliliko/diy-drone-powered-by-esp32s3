@@ -131,7 +131,7 @@ static const sensorsImplementation_t sensorImplementations[SensorImplementation_
         .readBaro = sensorsMpu6050Hmc5883lMs5611ReadBaro,
         .setAccMode = sensorsMpu6050Hmc5883lMs5611SetAccMode,
         .dataAvailableCallback = nullFunction,
-    }
+    },
 #endif
 #ifdef SENSOR_INCLUDED_MPU9250_LPS25H
     {

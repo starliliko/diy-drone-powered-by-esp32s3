@@ -34,6 +34,28 @@
 #define DEBUG_MODULE "PLATFORM"
 #include "debug_cf.h"
 
+#define PLATFORM_INFO_OTP_BLOCK_LEN 32
+#define DEFAULT_PLATFORM_STRING "1;EP30" // 平台配置
+
+static const platformConfig_t platformConfigs[] = {
+    {
+        .deviceType = "EP20",
+        .deviceTypeName = "ESP-Drone EP20",
+        .sensorImplementation = SensorImplementation_mpu6050_HMC5883L_MS5611, //,
+        .physicalLayoutAntennasAreClose = false,
+        .motorMap = NULL, // 根据实际情况填写
+    },
+
+    {
+        .deviceType = "EP30",
+        .deviceTypeName = "DIY-Drone EP30",
+        .sensorImplementation = SensorImplementation_bmi088_spi_ms5611,
+        .physicalLayoutAntennasAreClose = true,
+        .motorMap = NULL,
+    }
+    // 可继续添加其他平台配置
+};
+
 static const platformConfig_t *active_config = 0;
 
 int platformInit(void)
@@ -42,11 +64,12 @@ int platformInit(void)
      * get plantform type from memory and
      * Initilizes all platform related things
      * */
-
+    // 从内存中获取平台类型并初始化所有平台相关的内容
     int nrOfConfigs;
     const platformConfig_t *configs = platformGetListOfConfigurations(&nrOfConfigs);
 
     /*init platform configuration, copy the configuration index to active_config */
+    /* 初始化平台配置,将配置索引复制到 active_config */
     int err = platformInitConfiguration(configs, nrOfConfigs);
 
     if (err != 0)
@@ -93,8 +116,8 @@ int platformInitConfiguration(const platformConfig_t *configs, const int nrOfCon
 #ifndef DEVICE_TYPE_STRING_FORCE
     char deviceTypeString[PLATFORM_DEVICE_TYPE_STRING_MAX_LEN];
     char deviceType[PLATFORM_DEVICE_TYPE_MAX_LEN];
-    platformGetDeviceTypeString(deviceTypeString);               //"0;EP20"
-    platformParseDeviceTypeString(deviceTypeString, deviceType); // deviceType="EP20"
+    platformGetDeviceTypeString(deviceTypeString);
+    platformParseDeviceTypeString(deviceTypeString, deviceType);
 #else
 #define xstr(s) str(s)
 #define str(s) #s
@@ -141,28 +164,11 @@ const MotorPerifDef **platformConfigGetMotorMapping()
     return active_config->motorMap;
 }
 
-// 平台类型字符串获取（原本在 platform_esp32.c）
-#define PLATFORM_INFO_OTP_BLOCK_LEN 32
-#define DEFAULT_PLATFORM_STRING "0;EP20"
-
 void platformGetDeviceTypeString(char *deviceTypeString)
 {
-    // 这里直接使用默认字符串，如需支持 OTP，可自行扩展
     strncpy(deviceTypeString, DEFAULT_PLATFORM_STRING, PLATFORM_INFO_OTP_BLOCK_LEN);
     deviceTypeString[PLATFORM_INFO_OTP_BLOCK_LEN] = '\0';
 }
-
-// 平台配置列表（原本在 platform_esp32.c 或 platform_cf2.c）
-static const platformConfig_t platformConfigs[] = {
-    {
-        .deviceType = "EP20",
-        .deviceTypeName = "ESP-Drone EP20",
-        .sensorImplementation = SensorImplementation_COUNT, // SensorImplementation_mpu6050_HMC5883L_MS5611,
-        .physicalLayoutAntennasAreClose = false,
-        .motorMap = NULL, // 根据实际情况填写
-    },
-    // 可继续添加其他平台配置
-};
 
 const platformConfig_t *platformGetListOfConfigurations(int *nrOfConfigs)
 {

@@ -1,6 +1,6 @@
 /*
- *    ||          ____  _ __                           
- * +------+      / __ )(_) /_______________ _____  ___ 
+ *    ||          ____  _ __
+ * +------+      / __ )(_) /_______________ _____  ___
  * | 0xBC |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
  * +------+    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
  *  ||  ||    /_____/_/\__/\___/_/   \__,_/ /___/\___/
@@ -35,7 +35,7 @@
 #include "param.h"
 #include "debug_cf.h"
 #include "log.h"
-#include  "wifi_esp32.h"
+#include "wifi_esp32.h"
 #include "wifilink.h"
 #include "platformservice.h"
 #include "crtp_localization_service.h"
@@ -44,47 +44,47 @@ static bool isInit;
 
 void commInit(void)
 {
-  if (isInit) {
+  if (isInit)
+  {
     return;
   }
 
   /* These functions  are moved to be initialized early so
-    * that DEBUG_PRINTD can be used early */
-  //wifilinkInit();
-  //crtpInit();
-  //consoleInit();
+   * that DEBUG_PRINTD can be used early */
+  // wifilinkInit();
+  // crtpInit();
+  // consoleInit();
 
-  crtpSetLink(wifilinkGetLink());
-  crtpserviceInit();
-  platformserviceInit();
-  logInit();
-  paramInit();
-  //locSrvInit();
+  crtpSetLink(wifilinkGetLink()); // 设置CRTP通信链路为WiFi链路
+  crtpserviceInit();              // CRTP服务初始化
+  platformserviceInit();          // 平台服务初始化
+  logInit();                      // 日志初始化
+  paramInit();                    // 参数初始化
+  // locSrvInit();
 
-  //TODO: check for USB first and prefer USB over radio
-  //setup CRTP communication channel
-  //if (usbTest())
-  //  crtpSetLink(usbGetLink);
-  //else if(radiolinkTest())
-  //  crtpSetLink(radiolinkGetLink());
+  // TODO: check for USB first and prefer USB over radio
+  // setup CRTP communication channel
+  // if (usbTest())
+  //   crtpSetLink(usbGetLink);
+  // else if(radiolinkTest())
+  //   crtpSetLink(radiolinkGetLink());
   isInit = true;
 }
 
 bool commTest(void)
 {
-	bool pass = isInit;
-	pass &= wifilinkTest();
-	DEBUG_PRINTI("wifilinkTest = %d ", pass);
-	pass &= crtpTest();
-	DEBUG_PRINTI("crtpTest = %d ", pass);
-	pass &= crtpserviceTest();
-	DEBUG_PRINTI("crtpserviceTest = %d ", pass);
-	pass &= platformserviceTest();
-	DEBUG_PRINTI("platformserviceTest = %d ", pass);
-	pass &= consoleTest();
-	DEBUG_PRINTI("consoleTest = %d ", pass);
-	pass &= paramTest();
-	DEBUG_PRINTI("paramTest = %d ", pass);
+  bool pass = isInit;
+  pass &= wifilinkTest();
+  DEBUG_PRINTI("wifilinkTest = %d ", pass);
+  pass &= crtpTest();
+  DEBUG_PRINTI("crtpTest = %d ", pass);
+  pass &= crtpserviceTest();
+  DEBUG_PRINTI("crtpserviceTest = %d ", pass);
+  pass &= platformserviceTest();
+  DEBUG_PRINTI("platformserviceTest = %d ", pass);
+  pass &= consoleTest();
+  DEBUG_PRINTI("consoleTest = %d ", pass);
+  pass &= paramTest();
+  DEBUG_PRINTI("paramTest = %d ", pass);
   return pass;
 }
-

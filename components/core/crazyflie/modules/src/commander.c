@@ -63,9 +63,9 @@ void commanderInit(void)
   ASSERT(priorityQueue);
   xQueueSend(priorityQueue, &priorityDisable, 0);
 
-  crtpCommanderInit();
-  crtpCommanderHighLevelInit();
-  lastUpdate = xTaskGetTickCount();
+  crtpCommanderInit();              // CRTP指令初始化
+  crtpCommanderHighLevelInit();     // 高级CRTP指令初始化
+  lastUpdate = xTaskGetTickCount(); // 记录初始化时间
 
   isInit = true;
 }
@@ -77,7 +77,8 @@ void commanderSetSetpoint(setpoint_t *setpoint, int priority)
   const BaseType_t peekResult = xQueuePeek(priorityQueue, &currentPriority, 0);
   ASSERT(peekResult == pdTRUE);
 
-  if (priority >= currentPriority) {
+  if (priority >= currentPriority)
+  {
     setpoint->timestamp = xTaskGetTickCount();
     // This is a potential race but without effect on functionality
     xQueueOverwrite(setpointQueue, setpoint);
@@ -92,9 +93,8 @@ void commanderNotifySetpointsStop(int remainValidMillisecs)
 {
   uint32_t currentTime = xTaskGetTickCount();
   int timeSetback = MIN(
-    COMMANDER_WDT_TIMEOUT_SHUTDOWN - M2T(remainValidMillisecs),
-    currentTime
-  );
+      COMMANDER_WDT_TIMEOUT_SHUTDOWN - M2T(remainValidMillisecs),
+      currentTime);
   xQueuePeek(setpointQueue, &tempSetpoint, 0);
   tempSetpoint.timestamp = currentTime - timeSetback;
   xQueueOverwrite(setpointQueue, &tempSetpoint);
@@ -107,14 +107,19 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
   lastUpdate = setpoint->timestamp;
   uint32_t currentTime = xTaskGetTickCount();
 
-  if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_SHUTDOWN) {
-    if (enableHighLevel) {
+  if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_SHUTDOWN)
+  {
+    if (enableHighLevel)
+    {
       crtpCommanderHighLevelGetSetpoint(setpoint, state);
     }
-    if (!enableHighLevel || crtpCommanderHighLevelIsStopped()) {
+    if (!enableHighLevel || crtpCommanderHighLevelIsStopped())
+    {
       memcpy(setpoint, &nullSetpoint, sizeof(nullSetpoint));
     }
-  } else if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_STABILIZE) {
+  }
+  else if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_STABILIZE)
+  {
     xQueueOverwrite(priorityQueue, &priorityDisable);
     // Leveling ...
     setpoint->mode.x = modeDisable;

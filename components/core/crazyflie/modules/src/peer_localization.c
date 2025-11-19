@@ -4,7 +4,6 @@
 #include "task.h"
 #include "peer_localization.h"
 
-
 void peerLocalizationInit()
 {
   // All other_positions[in].id will be set to zero due to static initialization.
@@ -21,8 +20,10 @@ static peerLocalizationOtherPosition_t other_positions[PEER_LOCALIZATION_MAX_NEI
 
 bool peerLocalizationTellPosition(int cfid, positionMeasurement_t const *pos)
 {
-  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i) {
-    if (other_positions[i].id == 0 || other_positions[i].id == cfid) {
+  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i)
+  {
+    if (other_positions[i].id == 0 || other_positions[i].id == cfid)
+    {
       other_positions[i].id = cfid;
       other_positions[i].pos.x = pos->x;
       other_positions[i].pos.y = pos->y;
@@ -36,8 +37,10 @@ bool peerLocalizationTellPosition(int cfid, positionMeasurement_t const *pos)
 
 bool peerLocalizationIsIDActive(uint8_t cfid)
 {
-  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i) {
-    if (other_positions[i].id == cfid) {
+  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i)
+  {
+    if (other_positions[i].id == cfid)
+    {
       return true;
     }
   }
@@ -46,8 +49,10 @@ bool peerLocalizationIsIDActive(uint8_t cfid)
 
 peerLocalizationOtherPosition_t *peerLocalizationGetPositionByID(uint8_t cfid)
 {
-  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i) {
-    if (other_positions[i].id == cfid) {
+  for (uint8_t i = 0; i < PEER_LOCALIZATION_MAX_NEIGHBORS; ++i)
+  {
+    if (other_positions[i].id == cfid)
+    {
       return &other_positions[i];
     }
   }
@@ -57,7 +62,8 @@ peerLocalizationOtherPosition_t *peerLocalizationGetPositionByID(uint8_t cfid)
 peerLocalizationOtherPosition_t *peerLocalizationGetPositionByIdx(uint8_t idx)
 {
   // TODO: should we return NULL if the id == 0?
-  if (idx < PEER_LOCALIZATION_MAX_NEIGHBORS) {
+  if (idx < PEER_LOCALIZATION_MAX_NEIGHBORS)
+  {
     return &other_positions[idx];
   }
   return NULL;
