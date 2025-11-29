@@ -59,9 +59,9 @@
 #define MOT_PWM_CH4 7 // Motor M4 pwmchannel
 
 // 测试用占空比
-#define MOTORS_TEST_RATIO (uint16_t)(0.2 * (1 << 16))
-#define MOTORS_TEST_ON_TIME_MS 50
-#define MOTORS_TEST_DELAY_TIME_MS 150
+#define MOTORS_TEST_RATIO (uint16_t)(0.05 * (1 << 16)) // 5% 推力
+#define MOTORS_TEST_ON_TIME_MS 200
+#define MOTORS_TEST_DELAY_TIME_MS 200
 
 typedef enum
 {
@@ -84,10 +84,6 @@ extern const MotorPerifDef *motorMapDefaultBrushed[NBR_OF_MOTORS];
  */
 extern const uint16_t testsound[NBR_OF_MOTORS];
 
-bool pwm_timmer_init();
-/**
- * Initialisation. Will set all motors ratio to 0%
- */
 void motorsInit(const MotorPerifDef **motorMapSelect);
 
 /**
@@ -112,19 +108,9 @@ void motorsSetRatio(uint32_t id, uint16_t ratio);
 int motorsGetRatio(uint32_t id);
 
 /**
- * FreeRTOS Task to test the Motors driver
+ * Make the motor 'id' beep with given frequency and ratio.
  */
-void motorsTestTask(void *params);
-
-/* Set PWM frequency for motor controller
- * This function will set all motors into a "beep"-mode,
- * each of the motor will turned on with a given ratio and frequency.
- * The higher the ratio the higher the given power to the motors.
- * ATTENTION: To much ratio can push your crazyflie into the air and hurt you!
- * Example:
- *     motorsBeep(true, 1000, (uint16_t)(72000000L / frequency)/ 20);
- *     motorsBeep(false, 0, 0); *
- * */
+// 空函数
 void motorsBeep(int id, bool enable, uint16_t frequency, uint16_t ratio);
 
 #endif /* __MOTORS_H__ */
