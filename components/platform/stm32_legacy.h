@@ -28,11 +28,7 @@ typedef enum
     SUCCESS = !ERROR
 } ErrorStatus;
 
-typedef struct
-{
-
-} GPIO_TypeDef;
-
+// 任务标识，方便调试
 #define TASK_LED_ID_NBR 1
 #define TASK_RADIO_ID_NBR 2
 #define TASK_STABILIZER_ID_NBR 3

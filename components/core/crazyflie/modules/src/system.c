@@ -166,10 +166,10 @@ void systemTask(void *arg)
 {
   bool pass = true;
 
-  ledInit(); // led初始化
-  ledSet(CHG_LED, 1);
-
-  wifiInit(); // wifi初始化
+  // 底层外设初始化
+  ledInit();          // led初始化
+  ledSet(CHG_LED, 1); // 充电指示灯亮起
+  wifiInit();         // wifi初始化
 
   vTaskDelay(M2T(500));
 #ifdef DEBUG_QUEUE_MONITOR // 启动队列监视器
@@ -191,14 +191,14 @@ void systemTask(void *arg)
   //{
   //   platformSetLowInterferenceRadioMode();
   // }
-  soundInit();
-  memInit();
+  soundInit(); // 音乐初始化
+  memInit();   // 通过CRTP协议管理内存初始化
 
 #ifdef PROXIMITY_ENABLED
-  proximityInit();
+  proximityInit(); // 接近/距离传感器初始化
 #endif
 
-  /* Test each modules */
+  // 测试每个模块
   pass &= wifiTest();
   DEBUG_PRINTI("wifilinkTest = %d ", pass);
   pass &= systemTest();
@@ -223,26 +223,26 @@ void systemTask(void *arg)
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();
 
-  // Start the firmware
+  // 系统自检
   if (pass)
   {
     selftestPassed = 1;
-    systemStart();
+    systemStart(); // 启动系统
     DEBUG_PRINTI("systemStart ! selftestPassed = %d", selftestPassed);
-    soundSetEffect(SND_STARTUP);
-    ledseqRun(&seq_alive);
+    soundSetEffect(SND_STARTUP); // 播放启动音效
+    ledseqRun(&seq_alive);       // 运行存活LED灯效果
     ledseqRun(&seq_testPassed);
   }
   else
   {
     selftestPassed = 0;
-    if (systemTest())
+    if (systemTest()) // 测试系统情况
     {
       while (1)
       {
         ledseqRun(&seq_testFailed);
         vTaskDelay(M2T(2000));
-        // System can be forced to start by setting the param to 1 from the cfclient
+        // 系统可以通过从cfclient将参数设置为1来强制启动
         if (selftestPassed)
         {
           DEBUG_PRINT("Start forced.\n");
@@ -254,14 +254,15 @@ void systemTask(void *arg)
     else
     {
       ledInit();
-      ledSet(SYS_LED, true);
+      ledSet(SYS_LED, true); // 永远点亮系统LED表示严重错误
     }
   }
   DEBUG_PRINT("Free heap: %" PRIu32 " bytes\n", xPortGetFreeHeapSize());
 
-  workerLoop();
+  workerLoop(); // 工作队列，轻量级的异步任务调度和执行机制
 
   // Should never reach this point!
+
   while (1)
     vTaskDelay(portMAX_DELAY);
 }
