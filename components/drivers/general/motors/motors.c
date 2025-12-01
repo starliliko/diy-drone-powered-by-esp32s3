@@ -64,7 +64,7 @@ static uint32_t motor_pulse_us[NBR_OF_MOTORS] = {ESC_PULSE_MIN_US, ESC_PULSE_MIN
 uint32_t motor_ratios[NBR_OF_MOTORS] = {0, 0, 0, 0};
 
 void motorsBeep(int id, bool enable, uint16_t frequency, uint16_t ratio);
-
+static void motorsUnlockESC(void);
 const MotorPerifDef **motorMap; /* Current map configuration */
 
 const uint32_t MOTORS[] = {MOTOR_M1, MOTOR_M2, MOTOR_M3, MOTOR_M4};

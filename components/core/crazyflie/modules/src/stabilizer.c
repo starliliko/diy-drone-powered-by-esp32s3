@@ -202,7 +202,7 @@ void stabilizerInit(StateEstimatorType estimator)
   if (isInit)
     return;
 
-  sensorsInit(); // 初始化传感器
+  sensorsInit(); // 初�?�化传感�?
   if (estimator == anyEstimator)
   {
     estimator = deckGetRequiredEstimator();
@@ -554,7 +554,7 @@ static void testProps(sensorData_t *sensors)
         nrFailedTests++;
         for (int j = 0; j < 3; j++)
         {
-          motorsBeep(m, true, testsound[m], (uint16_t)(MOTORS_TIM_BEEP_CLK_FREQ / A4) / 20);
+          //  motorsBeep(m, true, testsound[m], (uint16_t)(MOTORS_TIM_BEEP_CLK_FREQ / A4) / 20);
           vTaskDelay(M2T(MOTORS_TEST_ON_TIME_MS));
           motorsBeep(m, false, 0, 0);
           vTaskDelay(M2T(100));

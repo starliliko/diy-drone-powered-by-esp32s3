@@ -14,7 +14,6 @@ dependencies:
   #   # `public` flag doesn't have an effect dependencies of the `main` component.
   #   # All dependencies of `main` are public by default.
   #   public: true
-  espressif/esp-now: ^2.5.2
-   override_paths:
-     - ../components/esp-now_custom
+  espressif/esp-now:
+    version: "^2.5.2"
 

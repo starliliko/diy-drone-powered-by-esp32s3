@@ -38,7 +38,6 @@
 #include "debug.h"
 #include "syslink.h"
 #include "radiolink.h"
-#include "uart_syslink.h"
 #include "configblock.h"
 #include "pm.h"
 #include "ow.h"
@@ -62,7 +61,7 @@ STATIC_MEM_TASK_ALLOC_STACK_NO_DMA_CCM_SAFE(syslinkTask, SYSLINK_TASK_STACKSIZE)
 static void syslinkTask(void *param)
 {
   SyslinkPacket slp;
-  while(1)
+  while (1)
   {
     uartslkGetPacketBlocking(&slp);
     syslinkRouteIncommingPacket(&slp);
@@ -76,7 +75,7 @@ STATIC_MEM_TASK_ALLOC(uart2Task, UART2_TASK_STACKSIZE);
 static void uart2Task(void *param)
 {
   SyslinkPacket slp;
-  while(1)
+  while (1)
   {
     uart2GetPacketBlocking(&slp);
     syslinkRouteIncommingPacket(&slp);
@@ -93,18 +92,18 @@ static void syslinkRouteIncommingPacket(SyslinkPacket *slp)
 
   switch (groupType)
   {
-    case SYSLINK_RADIO_GROUP:
-      radiolinkSyslinkDispatch(slp);
-      break;
-    case SYSLINK_PM_GROUP:
-      pmSyslinkUpdate(slp);
-      break;
-    case SYSLINK_OW_GROUP:
-      owSyslinkRecieve(slp);
-      break;
-    default:
-      DEBUG_PRINT("Unknown packet:%X.\n", slp->type);
-      break;
+  case SYSLINK_RADIO_GROUP:
+    radiolinkSyslinkDispatch(slp);
+    break;
+  case SYSLINK_PM_GROUP:
+    pmSyslinkUpdate(slp);
+    break;
+  case SYSLINK_OW_GROUP:
+    owSyslinkRecieve(slp);
+    break;
+  default:
+    DEBUG_PRINT("Unknown packet:%X.\n", slp->type);
+    break;
   }
 }
 
@@ -114,7 +113,8 @@ static void syslinkRouteIncommingPacket(SyslinkPacket *slp)
 
 void syslinkInit()
 {
-  if(isInit) {
+  if (isInit)
+  {
     return;
   }
 
@@ -122,10 +122,10 @@ void syslinkInit()
 
   STATIC_MEM_TASK_CREATE(syslinkTask, syslinkTask, SYSLINK_TASK_NAME, NULL, SYSLINK_TASK_PRI);
 
-  #ifdef UART2_LINK_COMM
+#ifdef UART2_LINK_COMM
   uart2Init(512000);
   STATIC_MEM_TASK_CREATE(uart2Task, uart2Task, UART2_TASK_NAME, NULL, UART2_TASK_PRI);
-  #endif
+#endif
 
   isInit = true;
 }
@@ -158,10 +158,10 @@ int syslinkSendPacket(SyslinkPacket *slp)
     cksum[0] += sendBuffer[i];
     cksum[1] += cksum[0];
   }
-  sendBuffer[dataSize-2] = cksum[0];
-  sendBuffer[dataSize-1] = cksum[1];
+  sendBuffer[dataSize - 2] = cksum[0];
+  sendBuffer[dataSize - 1] = cksum[1];
 
-  #ifdef UART2_LINK_COMM
+#ifdef UART2_LINK_COMM
   uint8_t groupType;
   groupType = slp->type & SYSLINK_GROUP_MASK;
   switch (groupType)
@@ -179,9 +179,9 @@ int syslinkSendPacket(SyslinkPacket *slp)
     DEBUG_PRINT("Unknown packet:%X.\n", slp->type);
     break;
   }
-  #else
+#else
   uartslkSendDataDmaBlocking(dataSize, sendBuffer);
-  #endif
+#endif
 
   xSemaphoreGive(syslinkAccess);
 
