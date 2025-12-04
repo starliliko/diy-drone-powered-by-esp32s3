@@ -30,7 +30,6 @@
 #include "task.h"
 #include "queue.h"
 
-
 #include "stm32_legacy.h"
 #include "config.h"
 #include "system.h"
@@ -39,29 +38,28 @@
 #include "uart1.h"
 #include "cppm.h"
 
-#define DEBUG_MODULE  "EXTRX"
+#define DEBUG_MODULE "EXTRX"
 #include "debug_cf.h"
 #include "log.h"
 #include "static_mem.h"
 
-//#define ENABLE_CPPM
+// #define ENABLE_CPPM
 #define ENABLE_EXTRX_LOG
 
+#define EXTRX_NR_CHANNELS 8
 
-#define EXTRX_NR_CHANNELS  8
+#define EXTRX_CH_TRUST 2
+#define EXTRX_CH_ROLL 0
+#define EXTRX_CH_PITCH 1
+#define EXTRX_CH_YAW 3
 
-#define EXTRX_CH_TRUST     2
-#define EXTRX_CH_ROLL      0
-#define EXTRX_CH_PITCH     1
-#define EXTRX_CH_YAW       3
+#define EXTRX_SIGN_ROLL (-1)
+#define EXTRX_SIGN_PITCH (-1)
+#define EXTRX_SIGN_YAW (-1)
 
-#define EXTRX_SIGN_ROLL    (-1)
-#define EXTRX_SIGN_PITCH   (-1)
-#define EXTRX_SIGN_YAW     (-1)
-
-#define EXTRX_SCALE_ROLL   (40.0f)
-#define EXTRX_SCALE_PITCH  (40.0f)
-#define EXTRX_SCALE_YAW    (400.0f)
+#define EXTRX_SCALE_ROLL (40.0f)
+#define EXTRX_SCALE_PITCH (40.0f)
+#define EXTRX_SCALE_YAW (400.0f)
 
 static setpoint_t extrxSetpoint;
 static uint16_t ch[EXTRX_NR_CHANNELS];
@@ -93,7 +91,7 @@ void extRxInit(void)
 static void extRxTask(void *param)
 {
 
-  //Wait for the system to be fully started
+  // Wait for the system to be fully started
   systemWaitStart();
 
   while (true)
