@@ -27,6 +27,7 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./modules/src/estimator_complementary.c"
                 "./modules/src/estimator_kalman.c"
                 "./modules/src/estimator.c"
+                "./modules/src/extrx.c"
                 "./modules/src/kalman_core.c"
                 "./modules/src/kalman_supervisor.c"
                 "./modules/src/log.c"
@@ -70,7 +71,7 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./utils/src/version.c"
                 "./utils/src/rateSupervisor.c"
                 INCLUDE_DIRS "./hal/interface" "./modules/interface" "./utils/interface"
-                REQUIRES i2c_bus deck mpu6050 bmi088 ms5611 hmc5883l pmw3901 vl53l1 vl53l0 platform config led eeprom dsp_lib motors wifi adc esp_timer)
+                REQUIRES i2c_bus deck mpu6050 bmi088 ms5611 hmc5883l pmw3901 vl53l1 vl53l0 platform config led eeprom dsp_lib motors wifi adc esp_timer sbus)
 
 idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
 target_include_directories(${COMPONENT_TARGET} PUBLIC

@@ -349,5 +349,80 @@ menu "ESPDrone Config"
                 GPIO number (IOxx) MOTOR04_PIN
     endmenu
 
+    menu "SBUS config"
+        config ENABLE_SBUS
+            bool "Enable SBUS receiver input"
+            default n
+            help
+                Enable SBUS protocol support for external RC receiver.
+                SBUS uses inverted UART at 100000 baud, 8E2 format.
+
+        config SBUS_UART_NUM
+            int "SBUS UART port number"
+            depends on ENABLE_SBUS
+            range 0 2
+            default 1
+            help
+                UART port number for SBUS receiver (0, 1, or 2).
+                Avoid using UART0 as it is typically used for console/debug.
+
+        config SBUS_RX_PIN
+            int "SBUS RX GPIO number"
+            depends on ENABLE_SBUS
+            range 0 48 
+            default 18 
+            help
+                GPIO number (IOxx) connected to SBUS receiver signal output.
+                Note: SBUS uses inverted UART signal, handled by ESP32 UART peripheral.
+
+        config SBUS_CH_THROTTLE
+            int "Throttle channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 2
+            help
+                SBUS channel for throttle control (typically channel 3, index 2)
+
+        config SBUS_CH_ROLL
+            int "Roll channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 0
+            help
+                SBUS channel for roll control (typically channel 1, index 0)
+
+        config SBUS_CH_PITCH
+            int "Pitch channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 1
+            help
+                SBUS channel for pitch control (typically channel 2, index 1)
+
+        config SBUS_CH_YAW
+            int "Yaw channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 3
+            help
+                SBUS channel for yaw control (typically channel 4, index 3)
+
+        config SBUS_CH_ARM
+            int "Arm switch channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 4
+            help
+                SBUS channel for arm/disarm switch (typically channel 5, index 4)
+
+        config SBUS_CH_MODE
+            int "Flight mode switch channel (0-15)"
+            depends on ENABLE_SBUS
+            range 0 15
+            default 5
+            help
+                SBUS channel for flight mode switch (typically channel 6, index 5)
+    endmenu
+
 
 endmenu

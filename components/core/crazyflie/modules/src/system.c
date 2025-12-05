@@ -58,6 +58,7 @@
 #include "estimator_kalman.h"
 #include "app.h"
 #include "stm32_legacy.h"
+#include "extrx.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
 #include "static_mem.h"
@@ -180,6 +181,10 @@ void systemTask(void *arg)
   systemInit();    // 系统初始化
   commInit();      // 通信初始化
   commanderInit(); // 通信指令初始化
+
+#ifdef CONFIG_ENABLE_SBUS
+  extRxInit(); // 外部接收器(SBUS)初始化
+#endif
 
   // StateEstimatorType estimator = anyEstimator; // 状态估计器类型设为任意估计器
   StateEstimatorType estimator = kalmanEstimator; // 状态估计器类型设为卡尔曼估计器

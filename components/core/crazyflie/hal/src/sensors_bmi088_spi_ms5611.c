@@ -74,7 +74,7 @@ typedef struct
     Axis3i16 buffer[SENSORS_NBR_OF_BIAS_SAMPLES]; // 数据缓冲区
 } BiasObj;
 
-// 静态内存分配队列和信号量
+// 静态内存分配队列
 static QueueHandle_t accelerometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(accelerometerDataQueue, 1, sizeof(Axis3f));
 static QueueHandle_t gyroDataQueue;
@@ -414,7 +414,7 @@ static void sensorsInterruptInit(void)
     sensorsDataReady = xSemaphoreCreateBinaryStatic(&sensorsDataReadyBuffer);
     dataReady = xSemaphoreCreateBinaryStatic(&dataReadyBuffer);
 
-    // 安装GPIO中断服务
+    // 注册GPIO中断服务
     gpio_set_intr_type(BMI088_INT1_PIN, GPIO_INTR_NEGEDGE);
     gpio_set_intr_type(BMI088_INT3_PIN, GPIO_INTR_NEGEDGE);
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
