@@ -35,7 +35,7 @@
 #include "debug_cf.h"
 
 #define PLATFORM_INFO_OTP_BLOCK_LEN 32
-#define DEFAULT_PLATFORM_STRING "1;EP30" // 平台配置
+#define DEFAULT_PLATFORM_STRING "0;EP30" // 平台配置
 
 static const platformConfig_t platformConfigs[] = {
     {

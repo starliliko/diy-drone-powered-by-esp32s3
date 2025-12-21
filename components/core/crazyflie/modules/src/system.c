@@ -63,6 +63,7 @@
 #include "debug_cf.h"
 #include "static_mem.h"
 #include "cfassert.h"
+#include "extrx.h"
 
 #ifndef START_DISARMED
 #define ARM_INIT true
@@ -193,10 +194,11 @@ void systemTask(void *arg)
   // estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator); // 稳定器初始化
   // if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
-  //{
+  // {
   //   platformSetLowInterferenceRadioMode();
-  // }
-  soundInit(); // 音乐初始化
+  // } //无用
+
+  soundInit(); // 蜂鸣器音效初始化
   memInit();   // 通过CRTP协议管理内存初始化
 
 #ifdef PROXIMITY_ENABLED
@@ -225,6 +227,8 @@ void systemTask(void *arg)
   pass &= memTest();
   DEBUG_PRINTI("memTest = %d ", pass);
   // pass &= watchdogNormalStartTest();
+  pass &= extRxTest();
+  DEBUG_PRINTI("extRxTest = %d ", pass);
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();
 
@@ -267,7 +271,7 @@ void systemTask(void *arg)
   workerLoop(); // 工作队列，轻量级的异步任务调度和执行机制
 
   // Should never reach this point!
-
+  // 永远不应该到达这里!
   while (1)
     vTaskDelay(portMAX_DELAY);
 }

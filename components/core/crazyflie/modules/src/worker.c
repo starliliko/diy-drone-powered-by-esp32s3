@@ -37,9 +37,10 @@
 
 #define WORKER_QUEUE_LENGTH 5
 
-struct worker_work {
-  void (*function)(void*);
-  void* arg;
+struct worker_work
+{
+  void (*function)(void *);
+  void *arg;
 };
 
 static xQueueHandle workerQueue;
@@ -75,7 +76,7 @@ void workerLoop()
   }
 }
 
-int workerSchedule(void (*function)(void*), void *arg)
+int workerSchedule(void (*function)(void *), void *arg)
 {
   struct worker_work work;
 

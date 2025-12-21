@@ -39,14 +39,16 @@
 
 static bool motorSetEnable = false;
 
-static struct {
+static struct
+{
   uint32_t m1;
   uint32_t m2;
   uint32_t m3;
   uint32_t m4;
 } motorPower;
 
-static struct {
+static struct
+{
   uint16_t m1;
   uint16_t m2;
   uint16_t m3;
@@ -61,7 +63,7 @@ static uint32_t idleThrust = DEFAULT_IDLE_THRUST;
 
 void powerDistributionInit(void)
 {
-  motorsInit(platformConfigGetMotorMapping());
+  motorsInit(NULL); // 传入的参数无用
 }
 
 bool powerDistributionTest(void)
@@ -85,23 +87,23 @@ void powerStop()
 
 void powerDistribution(const control_t *control)
 {
-  #ifdef QUAD_FORMATION_X
-    int16_t r = control->roll / 2.0f;
-    int16_t p = control->pitch / 2.0f;
-    motorPower.m1 = limitThrust(control->thrust - r + p + control->yaw);
-    motorPower.m2 = limitThrust(control->thrust - r - p - control->yaw);
-    motorPower.m3 =  limitThrust(control->thrust + r - p + control->yaw);
-    motorPower.m4 =  limitThrust(control->thrust + r + p - control->yaw);
-  #else // QUAD_FORMATION_NORMAL
-    motorPower.m1 = limitThrust(control->thrust + control->pitch +
-                               control->yaw);
-    motorPower.m2 = limitThrust(control->thrust - control->roll -
-                               control->yaw);
-    motorPower.m3 =  limitThrust(control->thrust - control->pitch +
-                               control->yaw);
-    motorPower.m4 =  limitThrust(control->thrust + control->roll -
-                               control->yaw);
-  #endif
+#ifdef QUAD_FORMATION_X
+  int16_t r = control->roll / 2.0f;
+  int16_t p = control->pitch / 2.0f;
+  motorPower.m1 = limitThrust(control->thrust - r + p + control->yaw);
+  motorPower.m2 = limitThrust(control->thrust - r - p - control->yaw);
+  motorPower.m3 = limitThrust(control->thrust + r - p + control->yaw);
+  motorPower.m4 = limitThrust(control->thrust + r + p - control->yaw);
+#else // QUAD_FORMATION_NORMAL
+  motorPower.m1 = limitThrust(control->thrust + control->pitch +
+                              control->yaw);
+  motorPower.m2 = limitThrust(control->thrust - control->roll -
+                              control->yaw);
+  motorPower.m3 = limitThrust(control->thrust - control->pitch +
+                              control->yaw);
+  motorPower.m4 = limitThrust(control->thrust + control->roll -
+                              control->yaw);
+#endif
 
   if (motorSetEnable)
   {
@@ -112,16 +114,20 @@ void powerDistribution(const control_t *control)
   }
   else
   {
-    if (motorPower.m1 < idleThrust) {
+    if (motorPower.m1 < idleThrust)
+    {
       motorPower.m1 = idleThrust;
     }
-    if (motorPower.m2 < idleThrust) {
+    if (motorPower.m2 < idleThrust)
+    {
       motorPower.m2 = idleThrust;
     }
-    if (motorPower.m3 < idleThrust) {
+    if (motorPower.m3 < idleThrust)
+    {
       motorPower.m3 = idleThrust;
     }
-    if (motorPower.m4 < idleThrust) {
+    if (motorPower.m4 < idleThrust)
+    {
       motorPower.m4 = idleThrust;
     }
 

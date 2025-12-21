@@ -146,6 +146,8 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     // 配置CS引脚
     if (device_config->cs_pin >= 0)
     {
+        ESP_LOGI("SPI_DRV", "Configuring CS pin: GPIO %d", device_config->cs_pin);
+
         gpio_config_t cs_conf = {
             .pin_bit_mask = (1ULL << device_config->cs_pin),
             .mode = GPIO_MODE_OUTPUT,
@@ -157,12 +159,15 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
         ret = gpio_config(&cs_conf);
         if (ret != ESP_OK)
         {
+            ESP_LOGE("SPI_DRV", "Failed to configure CS pin %d: %s",
+                     device_config->cs_pin, esp_err_to_name(ret));
             DEBUG_PRINT("Failed to configure CS pin: %s\n", esp_err_to_name(ret));
             spi_bus_remove_device(spi->device);
             vSemaphoreDelete(spi->mutex);
             return false;
         }
         gpio_set_level(device_config->cs_pin, 1); // CS高电平（未选中）
+        ESP_LOGI("SPI_DRV", "CS pin %d configured, set to HIGH (deselected)", device_config->cs_pin);
     }
 
     spi->is_initialized = true;
@@ -231,6 +236,7 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
     {
         gpio_set_level(spi->device_config.cs_pin, 0); // CS低电平（选中）
         esp_rom_delay_us(1);
+        // ESP_LOGI("SPI_DRV", "CS LOW (selected): GPIO %d", spi->device_config.cs_pin);
     }
 
     // 执行传输
@@ -254,6 +260,7 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
     {
         esp_rom_delay_us(1);
         gpio_set_level(spi->device_config.cs_pin, 1); // CS高电平（未选中）
+        // ESP_LOGI("SPI_DRV", "CS HIGH (deselected): GPIO %d", spi->device_config.cs_pin);
     }
 
     xSemaphoreGive(g_spi_bus_mutex);
@@ -310,6 +317,9 @@ bool spiDrvReadReg(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data, size_t lengt
 // 内部函数实现
 static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
 {
+    ESP_LOGI("SPI_DRV", "Initializing SPI bus: MISO=%d, MOSI=%d, CLK=%d",
+             bus_config->miso_pin, bus_config->mosi_pin, bus_config->sclk_pin);
+
     spi_bus_config_t esp_bus_config = {
         .miso_io_num = bus_config->miso_pin,
         .mosi_io_num = bus_config->mosi_pin,
@@ -321,8 +331,19 @@ static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
         .isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO,
     };
 
-    return spi_bus_initialize(bus_config->host_id, &esp_bus_config,
-                              bus_config->use_dma ? SPI_DMA_CH_AUTO : SPI_DMA_DISABLED);
+    esp_err_t ret = spi_bus_initialize(bus_config->host_id, &esp_bus_config,
+                                       bus_config->use_dma ? SPI_DMA_CH_AUTO : SPI_DMA_DISABLED);
+
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI("SPI_DRV", "SPI bus initialized successfully");
+    }
+    else
+    {
+        ESP_LOGE("SPI_DRV", "SPI bus init failed: %s", esp_err_to_name(ret));
+    }
+
+    return ret;
 }
 
 static esp_err_t spi_drv_device_initialize(spi_drv_t *spi)
@@ -339,7 +360,7 @@ static esp_err_t spi_drv_device_initialize(spi_drv_t *spi)
         .cs_ena_pretrans = 0,
         .cs_ena_posttrans = 0,
         .input_delay_ns = 0,
-        .flags = SPI_DEVICE_HALFDUPLEX,
+        .flags = 0, // 全双工模式，BMI088 需要同时 MOSI/MISO
     };
 
     return spi_bus_add_device(spi->bus_config->host_id, &dev_config, &spi->device);

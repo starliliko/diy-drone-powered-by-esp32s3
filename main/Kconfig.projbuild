@@ -113,113 +113,102 @@ menu "ESPDrone Config"
             range 0 34 if TARGET_ESPLANE_V1
             default 27 if TARGET_ESPLANE_V1
             range 0 43 if TARGET_ESPLANE_V2_S2
-            default 39 if TARGET_ESPLANE_V2_S2
+            default 21 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 39 if TARGET_ESP32_S2_DRONE_V1_2
+            default 21 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) BUZ1_PIN_POS
+                GPIO number (IOxx) BUZ1_PIN_POS (避免与I2C1冲突,改为GPIO21)
 
         config BUZ2_PIN_NEG
             int "BUZ2_PIN_NEG GPIO number"
             range 0 34 if TARGET_ESPLANE_V1
             default 26 if TARGET_ESPLANE_V1
             range 0 43 if TARGET_ESPLANE_V2_S2
-            default 38 if TARGET_ESPLANE_V2_S2
+            default 48 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 38 if TARGET_ESP32_S2_DRONE_V1_2
+            default 48 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) BUZ2_PIN_NEG
+                GPIO number (IOxx) BUZ2_PIN_NEG (避免与I2C1冲突,改为GPIO48)
 
     endmenu
 
     menu "sensors config"
         config I2C0_PIN_SDA
             int "I2C0_PIN_SDA GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 21 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 11 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 11 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 43 
+            default 41 
             help
-                GPIO number (IOxx) I2C0_PIN_SDA
+                GPIO number (IOxx) I2C0_PIN_SDA (避免与SPI冲突)
 
         config I2C0_PIN_SCL
             int "I2C0_PIN_SCL GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 22 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 10 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 10 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 43 
+            default 40 
             help
-                GPIO number (IOxx) I2C0_PIN_SCL
+                GPIO number (IOxx) I2C0_PIN_SCL (避免与SPI冲突)
 
         config I2C1_PIN_SDA
             int "I2C1_PIN_SDA GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 16 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 40 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 40 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 43 
+            default 38 
             help
                 GPIO number (IOxx) I2C1_PIN_SDA
 
         config I2C1_PIN_SCL
             int "I2C1_PIN_SCL GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 17 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 41 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 41 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 43 
+            default 39 
             help
                 GPIO number (IOxx) I2C1_PIN_SCL
 
         config SPI_PIN_MISO
             int "SPI_PIN_MISO GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 12 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 37 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 37 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 48 
+            default 13
             help
-                GPIO number (IOxx) SPI_PIN_MISO
+                GPIO number (IOxx) SPI_PIN_MISO (SPI2 HSPI recommended)
 
         config SPI_PIN_MOSI
             int "SPI_PIN_MOSI GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 13 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 35 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 35 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 48 
+            default 11
             help
-                GPIO number (IOxx) SPI_PIN_MOSI
+                GPIO number (IOxx) SPI_PIN_MOSI (SPI2 HSPI recommended)
 
         config SPI_PIN_CLK
             int "SPI_PIN_CLK GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 14 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 36 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 36 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 48 
+            default 12
             help
-                GPIO number (IOxx) SPI_PIN_CLK
+                GPIO number (IOxx) SPI_PIN_CLK (SPI2 HSPI recommended)
 
         config SPI_PIN_CS0
             int "SPI_PIN_CS0 GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 15 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 34 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 34 if TARGET_ESP32_S2_DRONE_V1_2
+            range 0 48 
+            default 10
             help
-                GPIO number (IOxx) SPI_PIN_CS0
+                GPIO number (IOxx) SPI_PIN_CS0 (BMI088 Accelerometer)
+
+        config SPI_PIN_CS1
+            int "SPI_PIN_CS1 GPIO number"
+            range 0 48 
+            default 16
+            help
+                GPIO number (IOxx) SPI_PIN_CS1 (BMI088 Gyroscope) - 独立引脚避免冲突
+
+        config  BMI088_INT1_PIN
+            int "BMI088_INT1_PIN GPIO number"
+            range 0 43 
+            default 15 
+            help
+                GPIO number (IOxx) BMI088_INT1_PIN
+
+        config BMI088_INT3_PIN
+            int "BMI088_INT3_PIN GPIO number"
+            range 0 43 
+            default 14 
+            help
+                GPIO number (IOxx) BMI088_INT3_PIN
 
         config MPU_PIN_INT
             int "MPU_PIN_INT GPIO number"
@@ -272,11 +261,11 @@ menu "ESPDrone Config"
             range 0 34 if TARGET_ESPLANE_V1
             default 5 if TARGET_ESPLANE_V1
             range 0 43 if TARGET_ESPLANE_V2_S2
-            default 9 if TARGET_ESPLANE_V2_S2
+            default 17 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 9 if TARGET_ESP32_S2_DRONE_V1_2
+            default 17 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) LED_PIN_GREEN
+                GPIO number (IOxx) LED_PIN_GREEN (避免与SPI_CS1冲突,改为GPIO17)
 
         config LED_PIN_RED
             int "LED_PIN_RED GPIO number"

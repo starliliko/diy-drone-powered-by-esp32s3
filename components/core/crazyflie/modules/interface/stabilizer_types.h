@@ -29,15 +29,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "imu_types.h"
-//#include "lighthouse_calibration.h"
+// #include "lighthouse_calibration.h"
 
 /* Data structure used by the stabilizer subsystem.
  * All have a timestamp to be set when the data is calculated.
  */
 
 /** Attitude in euler angle form */
-typedef struct attitude_s {
-  uint32_t timestamp;  // Timestamp when the data was computed
+typedef struct attitude_s
+{
+  uint32_t timestamp; // Timestamp when the data was computed
 
   float roll;
   float pitch;
@@ -50,7 +51,8 @@ typedef float vec3d[vec3d_size];
 typedef float mat3d[vec3d_size][vec3d_size];
 
 /* x,y,z vector */
-struct vec3_s {
+struct vec3_s
+{
   uint32_t timestamp; // Timestamp when the data was computed
 
   float x;
@@ -64,17 +66,21 @@ typedef struct vec3_s velocity_t;
 typedef struct vec3_s acc_t;
 
 /* Orientation as a quaternion */
-typedef struct quaternion_s {
+typedef struct quaternion_s
+{
   uint32_t timestamp;
 
-  union {
-    struct {
+  union
+  {
+    struct
+    {
       float q0;
       float q1;
       float q2;
       float q3;
     };
-    struct {
+    struct
+    {
       float x;
       float y;
       float z;
@@ -83,21 +89,26 @@ typedef struct quaternion_s {
   };
 } quaternion_t;
 
-typedef struct tdoaMeasurement_s {
+typedef struct tdoaMeasurement_s
+{
   point_t anchorPosition[2];
   float distanceDiff;
   float stdDev;
 } tdoaMeasurement_t;
 
-typedef struct baro_s {
-  float pressure;           // mbar
-  float temperature;        // degree Celcius
-  float asl;                // m (ASL = altitude above sea level)
+typedef struct baro_s
+{
+  float pressure;    // mbar
+  float temperature; // degree Celcius
+  float asl;         // m (ASL = altitude above sea level)
 } baro_t;
 
-typedef struct positionMeasurement_s {
-  union {
-    struct {
+typedef struct positionMeasurement_s
+{
+  union
+  {
+    struct
+    {
       float x;
       float y;
       float z;
@@ -107,9 +118,12 @@ typedef struct positionMeasurement_s {
   float stdDev;
 } positionMeasurement_t;
 
-typedef struct poseMeasurement_s {
-  union {
-    struct {
+typedef struct poseMeasurement_s
+{
+  union
+  {
+    struct
+    {
       float x;
       float y;
       float z;
@@ -121,9 +135,12 @@ typedef struct poseMeasurement_s {
   float stdDevQuat;
 } poseMeasurement_t;
 
-typedef struct distanceMeasurement_s {
-  union {
-    struct {
+typedef struct distanceMeasurement_s
+{
+  union
+  {
+    struct
+    {
       float x;
       float y;
       float z;
@@ -134,112 +151,126 @@ typedef struct distanceMeasurement_s {
   float stdDev;
 } distanceMeasurement_t;
 
-typedef struct zDistance_s {
+typedef struct zDistance_s
+{
   uint32_t timestamp;
-  float distance;           // m
+  float distance; // m
 } zDistance_t;
 
-typedef struct sensorData_s {
-  Axis3f acc;               // Gs
-  Axis3f gyro;              // deg/s
-  Axis3f mag;               // gauss
+typedef struct sensorData_s
+{
+  Axis3f acc;  // Gs
+  Axis3f gyro; // deg/s
+  Axis3f mag;  // gauss
   baro_t baro;
 #ifdef LOG_SEC_IMU
-  Axis3f accSec;            // Gs
-  Axis3f gyroSec;           // deg/s
+  Axis3f accSec;  // Gs
+  Axis3f gyroSec; // deg/s
 #endif
   uint64_t interruptTimestamp;
 } sensorData_t;
 
-typedef struct state_s {
-  attitude_t attitude;      // deg (legacy CF2 body coordinate system, where pitch is inverted)
+typedef struct state_s
+{
+  attitude_t attitude; // deg (legacy CF2 body coordinate system, where pitch is inverted)
   quaternion_t attitudeQuaternion;
-  point_t position;         // m
-  velocity_t velocity;      // m/s
-  acc_t acc;                // Gs (but acc.z without considering gravity)
+  point_t position;    // m
+  velocity_t velocity; // m/s
+  acc_t acc;           // Gs (but acc.z without considering gravity)
 } state_t;
 
-typedef struct control_s {
+typedef struct control_s
+{
   int16_t roll;
   int16_t pitch;
   int16_t yaw;
   float thrust;
 } control_t;
 
-typedef enum mode_e {
-  modeDisable = 0,
-  modeAbs,
-  modeVelocity
+typedef enum mode_e
+{
+  modeDisable = 0, // 禁用
+  modeAbs,         // 决定量
+  modeVelocity     // 速度量
 } stab_mode_t;
 
-typedef struct setpoint_s {
+typedef struct setpoint_s
+{
   uint32_t timestamp;
 
-  attitude_t attitude;      // deg
-  attitude_t attitudeRate;  // deg/s
+  attitude_t attitude;     // deg
+  attitude_t attitudeRate; // deg/s
   quaternion_t attitudeQuaternion;
   float thrust;
-  point_t position;         // m
-  velocity_t velocity;      // m/s
-  acc_t acceleration;       // m/s^2
-  bool velocity_body;       // true if velocity is given in body frame; false if velocity is given in world frame
+  point_t position;    // m
+  velocity_t velocity; // m/s
+  acc_t acceleration;  // m/s^2
+  bool velocity_body;  // true if velocity is given in body frame; false if velocity is given in world frame
 
-  struct {
+  struct
+  {
     stab_mode_t x;
     stab_mode_t y;
     stab_mode_t z;
     stab_mode_t roll;
     stab_mode_t pitch;
     stab_mode_t yaw;
-    stab_mode_t quat;
+    stab_mode_t quat; // 四元数
   } mode;
 } setpoint_t;
 
 /** Estimate of position */
-typedef struct estimate_s {
+typedef struct estimate_s
+{
   uint32_t timestamp; // Timestamp when the data was computed
 
   point_t position;
 } estimate_t;
 
 /** Setpoint for althold */
-typedef struct setpointZ_s {
+typedef struct setpointZ_s
+{
   float z;
   bool isUpdate; // True = small update of setpoint, false = completely new
 } setpointZ_t;
 
 /** Flow measurement**/
-typedef struct flowMeasurement_s {
+typedef struct flowMeasurement_s
+{
   uint32_t timestamp;
-  union {
-    struct {
-      float dpixelx;  // Accumulated pixel count x
-      float dpixely;  // Accumulated pixel count y
+  union
+  {
+    struct
+    {
+      float dpixelx; // Accumulated pixel count x
+      float dpixely; // Accumulated pixel count y
     };
-    float dpixel[2];  // Accumulated pixel count
+    float dpixel[2]; // Accumulated pixel count
   };
-  float stdDevX;      // Measurement standard deviation
-  float stdDevY;      // Measurement standard deviation
-  float dt;           // Time during which pixels were accumulated
+  float stdDevX; // Measurement standard deviation
+  float stdDevY; // Measurement standard deviation
+  float dt;      // Time during which pixels were accumulated
 } flowMeasurement_t;
 
-
 /** TOF measurement**/
-typedef struct tofMeasurement_s {
+typedef struct tofMeasurement_s
+{
   uint32_t timestamp;
   float distance;
   float stdDev;
 } tofMeasurement_t;
 
 /** Absolute height measurement */
-typedef struct heightMeasurement_s {
+typedef struct heightMeasurement_s
+{
   uint32_t timestamp;
   float height;
   float stdDev;
 } heightMeasurement_t;
 
 /** Yaw error measurement */
-typedef struct {
+typedef struct
+{
   uint32_t timestamp;
   float yawError;
   float stdDev;

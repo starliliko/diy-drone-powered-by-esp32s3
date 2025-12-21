@@ -28,4 +28,4 @@
 #include <stdint.h>
 
 void extRxInit(void);
-
+bool extRxTest(void);

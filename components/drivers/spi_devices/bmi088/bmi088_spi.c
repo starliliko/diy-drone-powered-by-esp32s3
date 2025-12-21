@@ -4,9 +4,12 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <math.h>
+#include "esp_log.h"
 
 #define DEBUG_MODULE "BMI088_SPI"
 #include "debug_cf.h"
+
+static const char *TAG = "BMI088_SPI";
 
 // SPI读写标志位
 #define BMI088_SPI_READ_FLAG 0x80
@@ -44,37 +47,49 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     }
 
     // 初始化加速度计SPI设备（bus_config可以为NULL，使用全局配置）
+    ESP_LOGI(TAG, "Initializing accelerometer SPI device...");
     if (!spiDrvDeviceInit(&dev->acc_spi, bus_config, acc_device_config))
     {
+        ESP_LOGE(TAG, "Failed to initialize accelerometer SPI");
         DEBUG_PRINT("Failed to initialize accelerometer SPI\n");
         return false;
     }
+    ESP_LOGI(TAG, "Accelerometer SPI initialized");
 
     // 初始化陀螺仪SPI设备
+    ESP_LOGI(TAG, "Initializing gyroscope SPI device...");
     if (!spiDrvDeviceInit(&dev->gyro_spi, bus_config, gyro_device_config))
     {
+        ESP_LOGE(TAG, "Failed to initialize gyroscope SPI");
         DEBUG_PRINT("Failed to initialize gyroscope SPI\n");
         spiDrvDeinit(&dev->acc_spi);
         return false;
     }
+    ESP_LOGI(TAG, "Gyroscope SPI initialized");
 
     // 步骤1: 软复位
+    ESP_LOGI(TAG, "Step 1: Performing soft reset...");
     if (!bmi088_spi_soft_reset(dev))
     {
+        ESP_LOGE(TAG, "Soft reset failed");
         DEBUG_PRINT("Soft reset failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "Soft reset completed");
 
     BMI088_DELAY_MS(50); // 等待IMU完全就绪 30ms以上
 
     // 步骤2: 检查芯片ID
+    ESP_LOGI(TAG, "Step 2: Checking chip ID...");
     if (!bmi088_spi_check_chip_id(dev))
     {
+        ESP_LOGE(TAG, "Chip ID verification failed");
         DEBUG_PRINT("Chip ID verification failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "Chip ID verified");
 
     // 步骤3: 设置电源模式
     bmi088_config_t sensor_config = {
@@ -86,35 +101,46 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         .gyro_bw = BMI088_CONFIG_GYRO_BW,
         .gyro_power = BMI088_CONFIG_GYRO_POWER};
 
+    ESP_LOGI(TAG, "Step 3: Setting power mode...");
     if (!bmi088_spi_set_power_mode(dev, sensor_config.acc_power, sensor_config.gyro_power))
     {
+        ESP_LOGE(TAG, "Power mode configuration failed");
         DEBUG_PRINT("Power mode configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "Power mode configured");
 
     // 步骤4: 设置传感器配置（量程、ODR等）
+    ESP_LOGI(TAG, "Step 4: Configuring sensor...");
     if (!bmi088_spi_configure(dev, &sensor_config))
     {
+        ESP_LOGE(TAG, "Sensor configuration failed");
         DEBUG_PRINT("Sensor configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "Sensor configured");
 
     // 步骤5: 配置数据就绪中断
+    ESP_LOGI(TAG, "Step 5: Configuring interrupts...");
     if (!bmi088_acc_configure_data_ready_interrupt(dev))
     {
+        ESP_LOGE(TAG, "ACC interrupt configuration failed");
         DEBUG_PRINT("ACC interrupt configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "ACC interrupt configured");
 
     if (!bmi088_gyro_configure_data_ready_interrupt(dev))
     {
+        ESP_LOGE(TAG, "GYRO interrupt configuration failed");
         DEBUG_PRINT("GYRO interrupt configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
     }
+    ESP_LOGI(TAG, "GYRO interrupt configured");
 
     // 步骤6: 等待数据采集稳定
     BMI088_DELAY_MS(50);
@@ -139,7 +165,7 @@ bool bmi088_spi_deinit(bmi088_dev_t *dev)
 
 bool bmi088_acc_read_reg(bmi088_dev_t *dev, uint8_t reg_addr, uint8_t *data, size_t length)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -163,13 +189,13 @@ bool bmi088_acc_read_reg(bmi088_dev_t *dev, uint8_t reg_addr, uint8_t *data, siz
         return false;
     }
 
-    memcpy(data, &rx_buf[2], length); // 跳过寄存器地址和虚拟字节
+    memcpy(data, &rx_buf[2], length); // BMI088 ACC: 虚拟字节后数据从第三个字节开始
     return true;
 }
 
 bool bmi088_acc_write_reg(bmi088_dev_t *dev, uint8_t reg_addr, const uint8_t *data, size_t length)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -179,18 +205,36 @@ bool bmi088_acc_write_reg(bmi088_dev_t *dev, uint8_t reg_addr, const uint8_t *da
 
 bool bmi088_gyro_read_reg(bmi088_dev_t *dev, uint8_t reg_addr, uint8_t *data, size_t length)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
 
     // 陀螺仪不需要虚拟字节
-    return spiDrvReadReg(&dev->gyro_spi, reg_addr | BMI088_SPI_READ_FLAG, data, length);
+    uint8_t tx_buf[length + 1];
+    uint8_t rx_buf[length + 1];
+
+    tx_buf[0] = reg_addr | BMI088_SPI_READ_FLAG;
+    memset(&tx_buf[1], 0x00, length);
+
+    spi_drv_transfer_t transfer = {
+        .tx_buffer = tx_buf,
+        .rx_buffer = rx_buf,
+        .length = length + 1,
+        .is_write = false,
+        .flags = 0};
+
+    if (spiDrvTransfer(&dev->gyro_spi, &transfer))
+    {
+        memcpy(data, &rx_buf[1], length);
+        return true;
+    }
+    return false;
 }
 
 bool bmi088_gyro_write_reg(bmi088_dev_t *dev, uint8_t reg_addr, const uint8_t *data, size_t length)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -227,7 +271,7 @@ bool bmi088_spi_configure(bmi088_dev_t *dev, const bmi088_config_t *config)
 bool bmi088_spi_set_acc_config(bmi088_dev_t *dev, bmi088_acc_range_t range,
                                bmi088_acc_odr_t odr, bmi088_acc_bwp_t bwp)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -257,7 +301,7 @@ bool bmi088_spi_set_acc_config(bmi088_dev_t *dev, bmi088_acc_range_t range,
 
 bool bmi088_spi_set_gyro_config(bmi088_dev_t *dev, bmi088_gyro_range_t range, bmi088_gyro_bw_t bw)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -286,7 +330,7 @@ bool bmi088_spi_set_gyro_config(bmi088_dev_t *dev, bmi088_gyro_range_t range, bm
 
 bool bmi088_spi_set_power_mode(bmi088_dev_t *dev, bmi088_acc_power_t acc_power, bmi088_gyro_power_t gyro_power)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -384,20 +428,46 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
     uint8_t acc_chip_id, gyro_chip_id;
 
     // 检查加速度计芯片ID
-    if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &acc_chip_id, 1))
+    // BMI088加速度计需要虚拟读取：第一次读取任何寄存器会返回无效数据
+    ESP_LOGI(TAG, "Reading accelerometer chip ID (first dummy read)...");
+    uint8_t dummy;
+    if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1))
     {
+        ESP_LOGE(TAG, "Failed to perform dummy read for accelerometer");
         DEBUG_PRINT("Failed to read accelerometer chip ID\n");
         return false;
     }
 
+    // 延时后进行真实读取
+    BMI088_DELAY_MS(10);
+
+    ESP_LOGI(TAG, "Reading accelerometer chip ID (actual read)...");
+    if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &acc_chip_id, 1))
+    {
+        ESP_LOGE(TAG, "Failed to read accelerometer chip ID");
+        DEBUG_PRINT("Failed to read accelerometer chip ID\n");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "ACC Chip ID: 0x%02X (expected: 0x%02X)", acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
     if (acc_chip_id != BMI088_ACC_CHIP_ID_VALUE)
     {
+        ESP_LOGE(TAG, "Invalid accelerometer chip ID: 0x%02X (expected: 0x%02X)",
+                 acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
         DEBUG_PRINT("Invalid accelerometer chip ID: 0x%02X (expected: 0x%02X)\n",
                     acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
         return false;
     }
 
     // 检查陀螺仪芯片ID
+    // BMI088陀螺仪也需要虚拟读取（与加速度计相同）
+    if (!bmi088_gyro_read_reg(dev, BMI088_GYRO_CHIP_ID_REG, &gyro_chip_id, 1))
+    {
+        DEBUG_PRINT("Failed to read gyroscope chip ID (dummy read)\n");
+        return false;
+    }
+    BMI088_DELAY_MS(10);
+
     if (!bmi088_gyro_read_reg(dev, BMI088_GYRO_CHIP_ID_REG, &gyro_chip_id, 1))
     {
         DEBUG_PRINT("Failed to read gyroscope chip ID\n");
@@ -429,7 +499,7 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
-    BMI088_DELAY_MS(1);
+    BMI088_DELAY_MS(2); // 加速度计需要 1ms，增加到 2ms 以确保稳定
 
     // 软复位陀螺仪
     uint8_t gyro_reset_cmd = 0xB6;
@@ -437,6 +507,7 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
+    BMI088_DELAY_MS(30); // 陀螺仪需要 30ms 启动时间（数据手册要求）
 
     DEBUG_PRINT("BMI088 soft reset completed\n");
     return true;
@@ -517,7 +588,7 @@ float bmi088_spi_get_gyro_scale(bmi088_gyro_range_t range)
  */
 static bool bmi088_acc_configure_data_ready_interrupt(bmi088_dev_t *dev)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }
@@ -554,7 +625,7 @@ static bool bmi088_acc_configure_data_ready_interrupt(bmi088_dev_t *dev)
  */
 static bool bmi088_gyro_configure_data_ready_interrupt(bmi088_dev_t *dev)
 {
-    if (!dev || !dev->is_initialized)
+    if (!dev)
     {
         return false;
     }

@@ -28,7 +28,7 @@
 
 #define GYRO_ADD_RAW_AND_VARIANCE_LOG_VALUES // 启用陀螺仪原始值和方差日志记录
 
-#define SENSORS_READ_RATE_HZ 800 // 传感器读取频率
+#define SENSORS_READ_RATE_HZ 1000 // 传感器读取频率 (1kHz控制循环)
 /*
 通过硬件中断同步，已经实现IMU数据对齐与时间同步
 */
