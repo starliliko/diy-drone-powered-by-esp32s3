@@ -146,8 +146,6 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
     // 配置CS引脚
     if (device_config->cs_pin >= 0)
     {
-        ESP_LOGI("SPI_DRV", "Configuring CS pin: GPIO %d", device_config->cs_pin);
-
         gpio_config_t cs_conf = {
             .pin_bit_mask = (1ULL << device_config->cs_pin),
             .mode = GPIO_MODE_OUTPUT,
@@ -167,7 +165,6 @@ bool spiDrvDeviceInit(spi_drv_t *spi, spi_drv_bus_config_t *bus_config, const sp
             return false;
         }
         gpio_set_level(device_config->cs_pin, 1); // CS高电平（未选中）
-        ESP_LOGI("SPI_DRV", "CS pin %d configured, set to HIGH (deselected)", device_config->cs_pin);
     }
 
     spi->is_initialized = true;
@@ -317,9 +314,6 @@ bool spiDrvReadReg(spi_drv_t *spi, uint8_t reg_addr, uint8_t *data, size_t lengt
 // 内部函数实现
 static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
 {
-    ESP_LOGI("SPI_DRV", "Initializing SPI bus: MISO=%d, MOSI=%d, CLK=%d",
-             bus_config->miso_pin, bus_config->mosi_pin, bus_config->sclk_pin);
-
     spi_bus_config_t esp_bus_config = {
         .miso_io_num = bus_config->miso_pin,
         .mosi_io_num = bus_config->mosi_pin,
@@ -334,11 +328,7 @@ static esp_err_t spi_drv_bus_initialize(spi_drv_bus_config_t *bus_config)
     esp_err_t ret = spi_bus_initialize(bus_config->host_id, &esp_bus_config,
                                        bus_config->use_dma ? SPI_DMA_CH_AUTO : SPI_DMA_DISABLED);
 
-    if (ret == ESP_OK)
-    {
-        ESP_LOGI("SPI_DRV", "SPI bus initialized successfully");
-    }
-    else
+    if (ret != ESP_OK)
     {
         ESP_LOGE("SPI_DRV", "SPI bus init failed: %s", esp_err_to_name(ret));
     }

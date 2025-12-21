@@ -4,6 +4,7 @@
 
 #include "sensors_bmi088_spi_ms5611.h"
 #include "debug_cf.h"
+#include "esp_log.h"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -185,16 +186,24 @@ static void sensorsTask(void *param)
 {
     systemWaitStart();
 
+    ESP_LOGI("SENSORS", "[sensorsTask] Started, waiting for interrupts...");
     vTaskDelay(M2T(200)); // 200ms等待系统稳定
 
     // sensorsDeviceInit(); // 传感器设备初始化
 
     Axis3f accScaled;
 
+    uint32_t interruptCount = 0;
     while (1)
     {
-        if (pdTRUE == xSemaphoreTake(sensorsDataReady, portMAX_DELAY))
+        ESP_LOGI("SENSORS", "[sensorsTask] Waiting for sensorsDataReady semaphore...");
+        if (pdTRUE == xSemaphoreTake(sensorsDataReady, M2T(1000))) // 1秒超时
         {
+            interruptCount++;
+            if (interruptCount % 100 == 1)
+            {
+                ESP_LOGI("SENSORS", "[sensorsTask] Got interrupt #%u, processing data...", interruptCount);
+            }
             sensorData.interruptTimestamp = imuIntTimestamp;
 
             // 读取BMI088数据

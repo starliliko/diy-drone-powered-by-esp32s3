@@ -25,9 +25,6 @@ bool bmi088_init_with_default_config(bmi088_dev_t *dev)
         return false;
     }
 
-    ESP_LOGI(TAG, "Initializing BMI088 with default configuration");
-    ESP_LOGI(TAG, "ACC CS: %d, GYRO CS: %d, Freq: %d Hz",
-             acc_config->cs_pin, gyro_config->cs_pin, acc_config->clock_speed_hz);
     DEBUG_PRINT("Initializing BMI088 with default configuration\n");
     DEBUG_PRINT("ACC CS: %d, GYRO CS: %d, Freq: %d Hz\n",
                 acc_config->cs_pin, gyro_config->cs_pin, acc_config->clock_speed_hz);
@@ -39,10 +36,6 @@ bool bmi088_init_with_default_config(bmi088_dev_t *dev)
     {
         ESP_LOGE(TAG, "bmi088_spi_init returned false");
         DEBUG_PRINT("bmi088_spi_init returned false\n");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "bmi088_spi_init succeeded");
     }
 
     return result;

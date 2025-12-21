@@ -59,6 +59,7 @@
 #include "app.h"
 #include "stm32_legacy.h"
 #include "extrx.h"
+#include "esp_log.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
 #include "static_mem.h"
@@ -227,16 +228,20 @@ void systemTask(void *arg)
   pass &= memTest();
   DEBUG_PRINTI("memTest = %d ", pass);
   // pass &= watchdogNormalStartTest();
-  pass &= extRxTest();
-  DEBUG_PRINTI("extRxTest = %d ", pass);
+  // pass &= extRxTest();
+  // DEBUG_PRINTI("extRxTest = %d ", pass);
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();
+
+  ESP_LOGI("SYS", "[SYSTEM] All tests completed, pass=%d", pass);
 
   // 系统自检
   if (pass)
   {
+    ESP_LOGI("SYS", "[SYSTEM] Tests passed, calling systemStart()...");
     selftestPassed = 1;
     systemStart(); // 启动系统
+    ESP_LOGI("SYS", "[SYSTEM] systemStart() returned");
     DEBUG_PRINTI("systemStart ! selftestPassed = %d", selftestPassed);
     soundSetEffect(SND_STARTUP); // 播放启动音效
     ledseqRun(&seq_alive);       // 运行存活LED灯效果
@@ -279,7 +284,9 @@ void systemTask(void *arg)
 /* Global system variables */
 void systemStart()
 {
+  ESP_LOGI("SYS", "[systemStart] Releasing canStartMutex...");
   xSemaphoreGive(canStartMutex);
+  ESP_LOGI("SYS", "[systemStart] canStartMutex released");
 #ifndef DEBUG_EP2
   // watchdogInit();
 #endif

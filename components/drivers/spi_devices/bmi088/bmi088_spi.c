@@ -47,17 +47,14 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     }
 
     // 初始化加速度计SPI设备（bus_config可以为NULL，使用全局配置）
-    ESP_LOGI(TAG, "Initializing accelerometer SPI device...");
     if (!spiDrvDeviceInit(&dev->acc_spi, bus_config, acc_device_config))
     {
         ESP_LOGE(TAG, "Failed to initialize accelerometer SPI");
         DEBUG_PRINT("Failed to initialize accelerometer SPI\n");
         return false;
     }
-    ESP_LOGI(TAG, "Accelerometer SPI initialized");
 
     // 初始化陀螺仪SPI设备
-    ESP_LOGI(TAG, "Initializing gyroscope SPI device...");
     if (!spiDrvDeviceInit(&dev->gyro_spi, bus_config, gyro_device_config))
     {
         ESP_LOGE(TAG, "Failed to initialize gyroscope SPI");
@@ -65,10 +62,8 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         spiDrvDeinit(&dev->acc_spi);
         return false;
     }
-    ESP_LOGI(TAG, "Gyroscope SPI initialized");
 
     // 步骤1: 软复位
-    ESP_LOGI(TAG, "Step 1: Performing soft reset...");
     if (!bmi088_spi_soft_reset(dev))
     {
         ESP_LOGE(TAG, "Soft reset failed");
@@ -76,12 +71,10 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "Soft reset completed");
 
     BMI088_DELAY_MS(50); // 等待IMU完全就绪 30ms以上
 
     // 步骤2: 检查芯片ID
-    ESP_LOGI(TAG, "Step 2: Checking chip ID...");
     if (!bmi088_spi_check_chip_id(dev))
     {
         ESP_LOGE(TAG, "Chip ID verification failed");
@@ -89,7 +82,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "Chip ID verified");
 
     // 步骤3: 设置电源模式
     bmi088_config_t sensor_config = {
@@ -101,7 +93,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         .gyro_bw = BMI088_CONFIG_GYRO_BW,
         .gyro_power = BMI088_CONFIG_GYRO_POWER};
 
-    ESP_LOGI(TAG, "Step 3: Setting power mode...");
     if (!bmi088_spi_set_power_mode(dev, sensor_config.acc_power, sensor_config.gyro_power))
     {
         ESP_LOGE(TAG, "Power mode configuration failed");
@@ -109,10 +100,8 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "Power mode configured");
 
     // 步骤4: 设置传感器配置（量程、ODR等）
-    ESP_LOGI(TAG, "Step 4: Configuring sensor...");
     if (!bmi088_spi_configure(dev, &sensor_config))
     {
         ESP_LOGE(TAG, "Sensor configuration failed");
@@ -120,10 +109,8 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "Sensor configured");
 
     // 步骤5: 配置数据就绪中断
-    ESP_LOGI(TAG, "Step 5: Configuring interrupts...");
     if (!bmi088_acc_configure_data_ready_interrupt(dev))
     {
         ESP_LOGE(TAG, "ACC interrupt configuration failed");
@@ -131,7 +118,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "ACC interrupt configured");
 
     if (!bmi088_gyro_configure_data_ready_interrupt(dev))
     {
@@ -140,7 +126,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
         bmi088_spi_deinit(dev);
         return false;
     }
-    ESP_LOGI(TAG, "GYRO interrupt configured");
 
     // 步骤6: 等待数据采集稳定
     BMI088_DELAY_MS(50);
@@ -429,7 +414,6 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
 
     // 检查加速度计芯片ID
     // BMI088加速度计需要虚拟读取：第一次读取任何寄存器会返回无效数据
-    ESP_LOGI(TAG, "Reading accelerometer chip ID (first dummy read)...");
     uint8_t dummy;
     if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1))
     {
@@ -441,7 +425,6 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
     // 延时后进行真实读取
     BMI088_DELAY_MS(10);
 
-    ESP_LOGI(TAG, "Reading accelerometer chip ID (actual read)...");
     if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &acc_chip_id, 1))
     {
         ESP_LOGE(TAG, "Failed to read accelerometer chip ID");
@@ -449,7 +432,6 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
         return false;
     }
 
-    ESP_LOGI(TAG, "ACC Chip ID: 0x%02X (expected: 0x%02X)", acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
     if (acc_chip_id != BMI088_ACC_CHIP_ID_VALUE)
     {
         ESP_LOGE(TAG, "Invalid accelerometer chip ID: 0x%02X (expected: 0x%02X)",
