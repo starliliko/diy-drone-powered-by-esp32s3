@@ -233,7 +233,6 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
     {
         gpio_set_level(spi->device_config.cs_pin, 0); // CS低电平（选中）
         esp_rom_delay_us(1);
-        // ESP_LOGI("SPI_DRV", "CS LOW (selected): GPIO %d", spi->device_config.cs_pin);
     }
 
     // 执行传输
@@ -257,7 +256,6 @@ bool spiDrvTransfer(spi_drv_t *spi, spi_drv_transfer_t *transfer)
     {
         esp_rom_delay_us(1);
         gpio_set_level(spi->device_config.cs_pin, 1); // CS高电平（未选中）
-        // ESP_LOGI("SPI_DRV", "CS HIGH (deselected): GPIO %d", spi->device_config.cs_pin);
     }
 
     xSemaphoreGive(g_spi_bus_mutex);
