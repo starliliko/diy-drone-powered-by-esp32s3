@@ -29,7 +29,8 @@ extern "C"
 #define BMI088_ACC_TEMP_LSB_REG 0x23
 #define BMI088_ACC_CONF_REG 0x40
 #define BMI088_ACC_RANGE_REG 0x41
-#define BMI088_ACC_INT1_IO_CONF_REG 0x53       // INT1引脚配置
+#define BMI088_ACC_INT1_IO_CONF_REG 0x53       // INT1引脚配置(包含输出使能)
+#define BMI088_ACC_INT2_IO_CONF_REG 0x54       // INT2引脚配置(不用于INT1!)
 #define BMI088_ACC_INT1_INT2_MAP_DATA_REG 0x58 // 数据就绪中断映射
 #define BMI088_ACC_PWR_CONF_REG 0x7C
 #define BMI088_ACC_PWR_CTRL_REG 0x7D
@@ -62,12 +63,15 @@ extern "C"
 #define BMI088_ACC_INT1_OPEN_DRAIN (1 << 2)  // 开漏模式(0=推挽)
 #define BMI088_ACC_INT1_ACTIVE_HIGH (1 << 1) // 高电平有效(0=低电平有效)
 
-// 加速度计INT1_INT2_MAP_DATA寄存器位
+// 加速度计INT1_INT2_MAP_DATA寄存器位(0x58)
 #define BMI088_ACC_DRDY_INT1 (1 << 2) // 数据就绪映射到INT1
 
 // 陀螺仪INT3_INT4_IO_CONF寄存器位
 #define BMI088_GYRO_INT3_ACTIVE_HIGH (1 << 0) // INT3高电平有效(0=低电平有效)
 #define BMI088_GYRO_INT3_PUSH_PULL (0 << 1)   // INT3推挽输出
+
+// 陀螺仪INT_CTRL寄存器位(0x15)
+#define BMI088_GYRO_DRDY_INT_EN (1 << 7) // 数据就绪中断使能
 
 // 陀螺仪INT3_INT4_IO_MAP寄存器位
 #define BMI088_GYRO_DRDY_INT3 (1 << 0) // 数据就绪映射到INT3

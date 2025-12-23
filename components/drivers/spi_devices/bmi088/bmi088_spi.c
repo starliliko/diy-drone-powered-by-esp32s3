@@ -49,7 +49,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     // 初始化加速度计SPI设备（bus_config可以为NULL，使用全局配置）
     if (!spiDrvDeviceInit(&dev->acc_spi, bus_config, acc_device_config))
     {
-        ESP_LOGE(TAG, "Failed to initialize accelerometer SPI");
         DEBUG_PRINT("Failed to initialize accelerometer SPI\n");
         return false;
     }
@@ -57,16 +56,27 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     // 初始化陀螺仪SPI设备
     if (!spiDrvDeviceInit(&dev->gyro_spi, bus_config, gyro_device_config))
     {
-        ESP_LOGE(TAG, "Failed to initialize gyroscope SPI");
         DEBUG_PRINT("Failed to initialize gyroscope SPI\n");
         spiDrvDeinit(&dev->acc_spi);
         return false;
     }
 
+    // 【关键】BMI088加速度计启动序列（数据手册要求）:
+    // 加速度计上电后默认可能处于I2C模式，必须先读取一次任意寄存器来激活SPI模式！
+    // 这个读取会返回无效数据，但会触发加速度计切换到SPI模式
+    uint8_t dummy;
+    ESP_LOGI(TAG, "Activating ACC SPI mode (first dummy read)...");
+    bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1);
+    ESP_LOGI(TAG, "First dummy read result: 0x%02X", dummy);
+    BMI088_DELAY_MS(2);
+    // 再读一次确保SPI模式已激活
+    bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1);
+    ESP_LOGI(TAG, "Second read result: 0x%02X (expect 0x1E for ACC chip ID)", dummy);
+    BMI088_DELAY_MS(2);
+
     // 步骤1: 软复位
     if (!bmi088_spi_soft_reset(dev))
     {
-        ESP_LOGE(TAG, "Soft reset failed");
         DEBUG_PRINT("Soft reset failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -77,7 +87,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     // 步骤2: 检查芯片ID
     if (!bmi088_spi_check_chip_id(dev))
     {
-        ESP_LOGE(TAG, "Chip ID verification failed");
         DEBUG_PRINT("Chip ID verification failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -95,7 +104,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
 
     if (!bmi088_spi_set_power_mode(dev, sensor_config.acc_power, sensor_config.gyro_power))
     {
-        ESP_LOGE(TAG, "Power mode configuration failed");
         DEBUG_PRINT("Power mode configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -104,7 +112,7 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     // 步骤4: 设置传感器配置（量程、ODR等）
     if (!bmi088_spi_configure(dev, &sensor_config))
     {
-        ESP_LOGE(TAG, "Sensor configuration failed");
+
         DEBUG_PRINT("Sensor configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -113,7 +121,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
     // 步骤5: 配置数据就绪中断
     if (!bmi088_acc_configure_data_ready_interrupt(dev))
     {
-        ESP_LOGE(TAG, "ACC interrupt configuration failed");
         DEBUG_PRINT("ACC interrupt configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -121,7 +128,6 @@ bool bmi088_spi_init(bmi088_dev_t *dev,
 
     if (!bmi088_gyro_configure_data_ready_interrupt(dev))
     {
-        ESP_LOGE(TAG, "GYRO interrupt configuration failed");
         DEBUG_PRINT("GYRO interrupt configuration failed\n");
         bmi088_spi_deinit(dev);
         return false;
@@ -261,21 +267,68 @@ bool bmi088_spi_set_acc_config(bmi088_dev_t *dev, bmi088_acc_range_t range,
         return false;
     }
 
-    // 设置量程
+    // 【关键】严格按照BMI088数据手册的上电顺序：
+    // 1. PWR_CONF (0x7C) = 0x00 退出Suspend模式（必须先退出suspend才能配置！）
+    // 2. 等待450us以上
+    // 3. PWR_CTRL (0x7D) = 0x04 使能加速度计
+    // 4. 等待50ms（让模拟部分完全稳定）
+    // 5. ACC_CONF (0x40) = ... 配置采样率
+    // 6. ACC_RANGE (0x41) = ... 配置量程
+
+    // Step 1: 先退出Suspend模式（PWR_CONF=0x00）
+    uint8_t pwr_conf = 0x00;
+    bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf, 1);
+    BMI088_DELAY_MS(1); // 等待450us以上
+
+    // Step 2: 使能加速度计（PWR_CTRL=0x04）
+    uint8_t pwr_ctrl = 0x04;
+    bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl, 1);
+    BMI088_DELAY_MS(50); // 【关键】等待50ms让模拟电路稳定
+
+    // 【新增】在配置前读取并清除错误寄存器
+    uint8_t err_reg = 0;
+    bmi088_acc_read_reg(dev, 0x02, &err_reg, 1); // ACC_ERR_REG
+    if (err_reg != 0)
+    {
+        ESP_LOGW(TAG, "ACC_ERR_REG before config: 0x%02X, clearing...", err_reg);
+    }
+
+    // Step 3: 配置ACC_CONF（ODR + 带宽）- 必须在电源稳定后
+    // 【修复】使用 Crazyflie 验证过的配置值格式
+    // acc_bwp 在 bit7:4, acc_odr 在 bit3:0
+    // 使用 OSR4 带宽 (0x80) + ODR，与 Crazyflie 一致
+    // 0xAC = 1600Hz ODR + OSR4 带宽 (Crazyflie 使用的值)
+    uint8_t conf_val = 0x80 | ((uint8_t)bwp << 4) | (uint8_t)odr;
+    ESP_LOGI(TAG, "Writing ACC_CONF: 0x%02X (odr=%d, bwp=%d)", conf_val, odr, bwp);
+    if (!bmi088_acc_write_reg(dev, BMI088_ACC_CONF_REG, &conf_val, 1))
+    {
+        return false;
+    }
+    BMI088_DELAY_MS(10); // 增加等待时间确保配置生效
+
+    // Step 4: 配置ACC_RANGE（量程）
     uint8_t range_val = (uint8_t)range;
     if (!bmi088_acc_write_reg(dev, BMI088_ACC_RANGE_REG, &range_val, 1))
     {
         return false;
     }
-    BMI088_DELAY_MS(2); // 确保写入间隔
+    BMI088_DELAY_MS(10); // 增加等待时间
 
-    // 设置ODR和带宽
-    uint8_t conf_val = ((uint8_t)odr << 0) | ((uint8_t)bwp << 4);
-    if (!bmi088_acc_write_reg(dev, BMI088_ACC_CONF_REG, &conf_val, 1))
+    // 【新增】检查配置后是否有错误
+    bmi088_acc_read_reg(dev, 0x02, &err_reg, 1);
+    if (err_reg != 0)
     {
-        return false;
+        ESP_LOGE(TAG, "ACC_ERR_REG after config: 0x%02X (error_code=%d)", err_reg, (err_reg >> 2) & 0x07);
     }
-    BMI088_DELAY_MS(2); // 确保写入间隔
+
+    // 读回验证所有配置
+    uint8_t conf_read = 0, range_read = 0, pwr_ctrl_read = 0;
+    bmi088_acc_read_reg(dev, BMI088_ACC_CONF_REG, &conf_read, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_RANGE_REG, &range_read, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl_read, 1);
+
+    ESP_LOGI(TAG, "ACC config verify: CONF=0x%02X(expect 0x%02X), RANGE=0x%02X(expect 0x%02X), PWR_CTRL=0x%02X",
+             conf_read, conf_val, range_read, range_val, pwr_ctrl_read);
 
     dev->config.acc_range = range;
     dev->config.acc_odr = odr;
@@ -320,21 +373,33 @@ bool bmi088_spi_set_power_mode(bmi088_dev_t *dev, bmi088_acc_power_t acc_power, 
         return false;
     }
 
-    // 配置加速度计电源 - 先启用加速度计
-    uint8_t acc_pwr_ctrl = 0x04;
-    if (!bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &acc_pwr_ctrl, 1))
-    {
-        return false;
-    }
-    BMI088_DELAY_MS(50); // 等待50ms让加速度计启动
+    // 注意：软复位后已经执行过PWR_CONF和PWR_CTRL的写入
+    // 这里只需确认或调整电源模式（如果需要不同于Active的模式）
 
-    // 设置加速度计电源模式
-    uint8_t acc_pwr_conf = (uint8_t)acc_power;
-    if (!bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &acc_pwr_conf, 1))
+    // 如果需要的模式不是Active(0x00)，则重新配置
+    if (acc_power != BMI088_ACC_PWR_ACTIVE)
     {
-        return false;
+        uint8_t acc_pwr_conf = (uint8_t)acc_power;
+        if (!bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &acc_pwr_conf, 1))
+        {
+            return false;
+        }
+        BMI088_DELAY_MS(5);
     }
-    BMI088_DELAY_MS(50); // 等待电源模式切换
+
+    // 验证PWR_CTRL和PWR_CONF状态
+    uint8_t pwr_ctrl_read = 0, pwr_conf_read = 0;
+    bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl_read, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf_read, 1);
+    DEBUG_PRINT("ACC power verify: PWR_CTRL=0x%02X PWR_CONF=0x%02X\n", pwr_ctrl_read, pwr_conf_read);
+
+    if (pwr_ctrl_read != 0x04)
+    {
+        DEBUG_PRINT("WARNING: PWR_CTRL not 0x04! Rewriting...\n");
+        uint8_t pwr_ctrl = 0x04;
+        bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl, 1);
+        BMI088_DELAY_MS(50);
+    }
 
     // 配置陀螺仪电源模式
     uint8_t gyro_pwr = (uint8_t)gyro_power;
@@ -417,7 +482,6 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
     uint8_t dummy;
     if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1))
     {
-        ESP_LOGE(TAG, "Failed to perform dummy read for accelerometer");
         DEBUG_PRINT("Failed to read accelerometer chip ID\n");
         return false;
     }
@@ -427,15 +491,12 @@ bool bmi088_spi_check_chip_id(bmi088_dev_t *dev)
 
     if (!bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &acc_chip_id, 1))
     {
-        ESP_LOGE(TAG, "Failed to read accelerometer chip ID");
         DEBUG_PRINT("Failed to read accelerometer chip ID\n");
         return false;
     }
 
     if (acc_chip_id != BMI088_ACC_CHIP_ID_VALUE)
     {
-        ESP_LOGE(TAG, "Invalid accelerometer chip ID: 0x%02X (expected: 0x%02X)",
-                 acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
         DEBUG_PRINT("Invalid accelerometer chip ID: 0x%02X (expected: 0x%02X)\n",
                     acc_chip_id, BMI088_ACC_CHIP_ID_VALUE);
         return false;
@@ -481,7 +542,90 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
-    BMI088_DELAY_MS(2); // 加速度计需要 1ms，增加到 2ms 以确保稳定
+    BMI088_DELAY_MS(1); // 数据手册：软复位后等待1ms
+
+    // 【关键】软复位后必须再次读取寄存器来重新激活SPI模式！
+    // 加速度计复位后会回到默认状态（I2C模式），需要通过SPI读取来切换
+    // 根据BMI088数据手册，第一次读取会返回无效数据，必须读两次
+    uint8_t dummy;
+
+    // 第一次读取：切换到SPI模式（返回无效数据）
+    bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1);
+    BMI088_DELAY_MS(2);
+
+    // 第二次读取：获取有效数据
+    bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1);
+    BMI088_DELAY_MS(2);
+
+    // 第三次读取：确保SPI模式完全激活
+    bmi088_acc_read_reg(dev, BMI088_ACC_CHIP_ID_REG, &dummy, 1);
+    ESP_LOGI(TAG, "ACC SPI mode re-activated after soft reset (chip_id=0x%02X, expect 0x1E)", dummy);
+
+    if (dummy != 0x1E)
+    {
+        ESP_LOGE(TAG, "ACC chip ID mismatch! SPI communication may have issues!");
+    }
+
+    // 【关键启动序列】参考数据手册和社区经验：
+    // 1. 写PWR_CONF=0x00 (退出suspend模式)
+    // 2. 等待450us
+    // 3. 写PWR_CTRL=0x04 (使能加速度计)
+    // 4. 等待50ms（数据手册要求，让模拟部分完全稳定）
+    // 注意：不要使用0x59配置文件加载功能，会导致初始化失败！
+
+    // Step 1: 退出Suspend模式
+    uint8_t pwr_conf = 0x00; // Active模式
+    for (int retry = 0; retry < 3; retry++)
+    {
+        bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf, 1);
+        BMI088_DELAY_MS(1); // 等待寄存器更新
+
+        // 读回验证
+        uint8_t pwr_conf_read = 0xFF;
+        bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf_read, 1);
+        ESP_LOGI(TAG, "PWR_CONF write attempt %d: wrote 0x%02X, read 0x%02X", retry, pwr_conf, pwr_conf_read);
+
+        if (pwr_conf_read == 0x00)
+        {
+            ESP_LOGI(TAG, "PWR_CONF successfully set to Active mode");
+            break;
+        }
+
+        if (retry == 2)
+        {
+            ESP_LOGE(TAG, "ERROR: Failed to set PWR_CONF after 3 retries!");
+            return false;
+        }
+    }
+
+    // Step 2: 使能加速度计
+    uint8_t pwr_ctrl = 0x04; // 使能加速度计
+    for (int retry = 0; retry < 3; retry++)
+    {
+        bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl, 1);
+        BMI088_DELAY_MS(1);
+
+        // 读回验证
+        uint8_t pwr_ctrl_read = 0xFF;
+        bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl_read, 1);
+        ESP_LOGI(TAG, "PWR_CTRL write attempt %d: wrote 0x%02X, read 0x%02X", retry, pwr_ctrl, pwr_ctrl_read);
+
+        if (pwr_ctrl_read == 0x04)
+        {
+            ESP_LOGI(TAG, "PWR_CTRL successfully enabled");
+            break;
+        }
+
+        if (retry == 2)
+        {
+            ESP_LOGE(TAG, "ERROR: Failed to set PWR_CTRL after 3 retries!");
+            return false;
+        }
+    }
+
+    // Step 3: 等待加速度计完全启动（关键！）
+    // 数据手册要求切换到Normal Mode后等待50ms让模拟部分完全稳定
+    BMI088_DELAY_MS(50);
 
     // 软复位陀螺仪
     uint8_t gyro_reset_cmd = 0xB6;
@@ -489,7 +633,7 @@ bool bmi088_spi_soft_reset(bmi088_dev_t *dev)
     {
         return false;
     }
-    BMI088_DELAY_MS(30); // 陀螺仪需要 30ms 启动时间（数据手册要求）
+    BMI088_DELAY_MS(80); // 陀螺仪需要 30ms 启动时间，增加到80ms确保稳定
 
     DEBUG_PRINT("BMI088 soft reset completed\n");
     return true;
@@ -575,7 +719,31 @@ static bool bmi088_acc_configure_data_ready_interrupt(bmi088_dev_t *dev)
         return false;
     }
 
-    // 步骤1: 配置INT1引脚为推挽输出,低电平有效
+    // 【诊断】读取错误寄存器和状态寄存器
+    uint8_t acc_err = 0, acc_status = 0;
+    bmi088_acc_read_reg(dev, 0x02, &acc_err, 1);    // ACC_ERR_REG
+    bmi088_acc_read_reg(dev, 0x03, &acc_status, 1); // ACC_STATUS
+    ESP_LOGI(TAG, "ACC_ERR_REG(0x02)=0x%02X, ACC_STATUS(0x03)=0x%02X", acc_err, acc_status);
+    // ACC_ERR_REG: bit0=fatal_err, bit1=reserved, bit2-4=error_code, bit5-7=reserved
+    // ACC_STATUS: bit7=drdy (data ready)
+    if (acc_err != 0x00)
+    {
+        ESP_LOGE(TAG, "ACC has error! error_code=%d, fatal=%d", (acc_err >> 2) & 0x07, acc_err & 0x01);
+    }
+
+    // 先读取当前电源和配置状态
+    uint8_t pwr_ctrl = 0, pwr_conf = 0, acc_conf = 0, acc_range = 0;
+    bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_CONF_REG, &acc_conf, 1);
+    bmi088_acc_read_reg(dev, BMI088_ACC_RANGE_REG, &acc_range, 1);
+    ESP_LOGI(TAG, "ACC before INT cfg: PWR_CTRL=0x%02X PWR_CONF=0x%02X ACC_CONF=0x%02X RANGE=0x%02X",
+             pwr_ctrl, pwr_conf, acc_conf, acc_range);
+
+    // 注意：上电序列已在bmi088_spi_set_power_mode()中正确完成
+    // 这里只配置中断，不再重复激活
+
+    // 步骤1: 配置INT1引脚为推挽输出,低电平有效(符合BMI088默认极性)
     // Bit 3: output enable (1=output enabled)
     // Bit 2: output mode (0=push-pull, 1=open-drain)
     // Bit 1: active level (0=active low, 1=active high)
@@ -587,7 +755,13 @@ static bool bmi088_acc_configure_data_ready_interrupt(bmi088_dev_t *dev)
     }
     BMI088_DELAY_MS(1);
 
+    // 读回验证
+    uint8_t verify = 0;
+    bmi088_acc_read_reg(dev, BMI088_ACC_INT1_IO_CONF_REG, &verify, 1);
+    ESP_LOGI(TAG, "ACC INT1_IO_CONF(0x53) readback: 0x%02X (expect 0x08)", verify);
+
     // 步骤2: 将数据就绪中断映射到INT1引脚
+    // 注意: 不需要写0x54寄存器！0x54是INT2的配置寄存器，与INT1无关！
     uint8_t int_map = BMI088_ACC_DRDY_INT1;
     if (!bmi088_acc_write_reg(dev, BMI088_ACC_INT1_INT2_MAP_DATA_REG, &int_map, 1))
     {
@@ -596,7 +770,92 @@ static bool bmi088_acc_configure_data_ready_interrupt(bmi088_dev_t *dev)
     }
     BMI088_DELAY_MS(1);
 
-    DEBUG_PRINT("ACC INT1 configured for data ready interrupt (active low)\n");
+    // 读回验证
+    bmi088_acc_read_reg(dev, BMI088_ACC_INT1_INT2_MAP_DATA_REG, &verify, 1);
+    ESP_LOGI(TAG, "ACC INT_MAP(0x58) readback: 0x%02X (expect 0x04)", verify);
+
+    // 【关键修复】配置完中断后，必须先读取一次数据激活数据通路，再清除INT_STAT_1
+    // 参考Bitcraze: 配置中断后立即读一次数据，启动数据通路
+    uint8_t dummy_data[6];
+    bmi088_acc_read_reg(dev, BMI088_ACC_X_LSB_REG, dummy_data, 6);
+    BMI088_DELAY_MS(2); // 等待下一次采样周期
+
+    // 清除INT_STAT_1中挂起的标志，解锁数据寄存器
+    uint8_t int_status = 0;
+    bmi088_acc_read_reg(dev, BMI088_ACC_INT_STAT_1_REG, &int_status, 1);
+    ESP_LOGI(TAG, "ACC INT_STAT_1(0x1D) after INT config: 0x%02X (bit7=1 means drdy)", int_status);
+
+    // 再次读取确保数据通路激活
+    bmi088_acc_read_reg(dev, BMI088_ACC_X_LSB_REG, dummy_data, 6);
+    BMI088_DELAY_MS(2);
+
+    // 最后再读一次INT_STAT_1确保清除
+    bmi088_acc_read_reg(dev, BMI088_ACC_INT_STAT_1_REG, &int_status, 1);
+    ESP_LOGI(TAG, "ACC INT_STAT_1(0x1D) after data read: 0x%02X", int_status);
+
+    // 诊断：连续读取加速度计数据3次，检查是否更新
+    int16_t acc_x[3], acc_y[3], acc_z[3];
+    for (int i = 0; i < 3; i++)
+    {
+        uint8_t data[6];
+        bmi088_acc_read_reg(dev, BMI088_ACC_X_LSB_REG, data, 6);
+        acc_x[i] = (int16_t)((data[1] << 8) | data[0]);
+        acc_y[i] = (int16_t)((data[3] << 8) | data[2]);
+        acc_z[i] = (int16_t)((data[5] << 8) | data[4]);
+        vTaskDelay(pdMS_TO_TICKS(20)); // 等待20ms（大于100Hz的采样周期）
+    }
+    ESP_LOGI(TAG, "ACC data test: [0] X=%d Y=%d Z=%d", acc_x[0], acc_y[0], acc_z[0]);
+    ESP_LOGI(TAG, "ACC data test: [1] X=%d Y=%d Z=%d", acc_x[1], acc_y[1], acc_z[1]);
+    ESP_LOGI(TAG, "ACC data test: [2] X=%d Y=%d Z=%d", acc_x[2], acc_y[2], acc_z[2]);
+
+    if (acc_x[0] == acc_x[1] && acc_x[1] == acc_x[2] &&
+        acc_y[0] == acc_y[1] && acc_z[0] == acc_z[1])
+    {
+        ESP_LOGE(TAG, "ACC DATA NOT UPDATING! Accelerometer may be in SUSPEND mode!");
+
+        // 额外诊断：再次检查 ACC_STATUS 和所有关键寄存器
+        uint8_t diag_status = 0, diag_err = 0, diag_pwr_ctrl = 0, diag_pwr_conf = 0;
+        bmi088_acc_read_reg(dev, 0x03, &diag_status, 1); // ACC_STATUS
+        bmi088_acc_read_reg(dev, 0x02, &diag_err, 1);    // ACC_ERR_REG
+        bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CTRL_REG, &diag_pwr_ctrl, 1);
+        bmi088_acc_read_reg(dev, BMI088_ACC_PWR_CONF_REG, &diag_pwr_conf, 1);
+        ESP_LOGE(TAG, "DIAG: STATUS=0x%02X(drdy=%d) ERR=0x%02X PWR_CTRL=0x%02X PWR_CONF=0x%02X",
+                 diag_status, (diag_status >> 7) & 1, diag_err, diag_pwr_ctrl, diag_pwr_conf);
+
+        // 尝试重新激活加速度计
+        ESP_LOGW(TAG, "Attempting to re-activate accelerometer...");
+        uint8_t pwr_conf_val = 0x00;
+        uint8_t pwr_ctrl_val = 0x04;
+        bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CONF_REG, &pwr_conf_val, 1);
+        BMI088_DELAY_MS(1);
+        bmi088_acc_write_reg(dev, BMI088_ACC_PWR_CTRL_REG, &pwr_ctrl_val, 1);
+        BMI088_DELAY_MS(50);
+
+        // 再次测试
+        for (int i = 0; i < 3; i++)
+        {
+            uint8_t data[6];
+            bmi088_acc_read_reg(dev, BMI088_ACC_X_LSB_REG, data, 6);
+            acc_x[i] = (int16_t)((data[1] << 8) | data[0]);
+            acc_y[i] = (int16_t)((data[3] << 8) | data[2]);
+            acc_z[i] = (int16_t)((data[5] << 8) | data[4]);
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        ESP_LOGW(TAG, "After re-activate: [0] X=%d Y=%d Z=%d", acc_x[0], acc_y[0], acc_z[0]);
+        ESP_LOGW(TAG, "After re-activate: [1] X=%d Y=%d Z=%d", acc_x[1], acc_y[1], acc_z[1]);
+        ESP_LOGW(TAG, "After re-activate: [2] X=%d Y=%d Z=%d", acc_x[2], acc_y[2], acc_z[2]);
+
+        if (acc_x[0] == acc_x[1] && acc_x[1] == acc_x[2])
+        {
+            ESP_LOGE(TAG, "Re-activation FAILED! Hardware issue possible.");
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Re-activation SUCCESS! Data is now updating.");
+        }
+    }
+
+    ESP_LOGI(TAG, "ACC INT1 configured: active LOW, push-pull");
     return true;
 }
 
@@ -612,10 +871,10 @@ static bool bmi088_gyro_configure_data_ready_interrupt(bmi088_dev_t *dev)
         return false;
     }
 
-    // 步骤1: 配置INT3引脚为推挽输出,低电平有效
+    // 步骤1: 配置INT3引脚为推挽输出,高电平有效
     // Bit 1-0: int3_lvl and int3_od
-    // 0x00: active low, push-pull
-    uint8_t int3_io_conf = BMI088_GYRO_INT3_PUSH_PULL; // INT3: active low, push-pull
+    // 0x01: active high, push-pull
+    uint8_t int3_io_conf = BMI088_GYRO_INT3_ACTIVE_HIGH | BMI088_GYRO_INT3_PUSH_PULL; // INT3: active high, push-pull
     if (!bmi088_gyro_write_reg(dev, BMI088_GYRO_INT3_INT4_IO_CONF_REG, &int3_io_conf, 1))
     {
         DEBUG_PRINT("Failed to configure GYRO INT3 IO\n");
@@ -623,7 +882,22 @@ static bool bmi088_gyro_configure_data_ready_interrupt(bmi088_dev_t *dev)
     }
     BMI088_DELAY_MS(1);
 
-    // 步骤2: 将数据就绪中断映射到INT3引脚
+    // 读回验证
+    uint8_t verify = 0;
+    bmi088_gyro_read_reg(dev, BMI088_GYRO_INT3_INT4_IO_CONF_REG, &verify, 1);
+    ESP_LOGI(TAG, "GYRO INT3_IO_CONF(0x16) readback: 0x%02X (expect 0x01)", verify);
+
+    // 步骤2: 使能数据就绪中断 (直接写入0x80)
+    // 根据Bitcraze参考代码，直接写入DRDY_INT_ENABLE_VAL即可
+    uint8_t int_ctrl = 0x80; // BMI088_GYRO_DRDY_INT_ENABLE_VAL
+    if (!bmi088_gyro_write_reg(dev, BMI088_GYRO_INT_CTRL_REG, &int_ctrl, 1))
+    {
+        DEBUG_PRINT("Failed to enable GYRO data ready interrupt\n");
+        return false;
+    }
+    BMI088_DELAY_MS(1);
+
+    // 步骤3: 将数据就绪中断映射到INT3引脚
     uint8_t int_map = BMI088_GYRO_DRDY_INT3;
     if (!bmi088_gyro_write_reg(dev, BMI088_GYRO_INT3_INT4_IO_MAP_REG, &int_map, 1))
     {
@@ -632,6 +906,20 @@ static bool bmi088_gyro_configure_data_ready_interrupt(bmi088_dev_t *dev)
     }
     BMI088_DELAY_MS(1);
 
-    DEBUG_PRINT("GYRO INT3 configured for data ready interrupt (active low)\n");
+    // 读回验证
+    bmi088_gyro_read_reg(dev, BMI088_GYRO_INT3_INT4_IO_MAP_REG, &verify, 1);
+    ESP_LOGI(TAG, "GYRO INT_MAP(0x18) readback: 0x%02X (expect 0x01)", verify);
+
+    // 读取INT_CTRL寄存器验证
+    uint8_t int_ctrl_rb = 0;
+    bmi088_gyro_read_reg(dev, BMI088_GYRO_INT_CTRL_REG, &int_ctrl_rb, 1);
+    ESP_LOGI(TAG, "GYRO INT_CTRL(0x15) readback: 0x%02X (expect 0x80)", int_ctrl_rb);
+
+    // 读取中断状态
+    uint8_t int_status = 0;
+    bmi088_gyro_read_reg(dev, BMI088_GYRO_INT_STAT_1_REG, &int_status, 1);
+    ESP_LOGI(TAG, "GYRO INT_STAT_1(0x0A): 0x%02X (bit7=1 means drdy)", int_status);
+
+    ESP_LOGI(TAG, "GYRO INT3 configured: active HIGH, push-pull");
     return true;
 }

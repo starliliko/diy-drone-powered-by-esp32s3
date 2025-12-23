@@ -34,7 +34,6 @@ bool bmi088_init_with_default_config(bmi088_dev_t *dev)
 
     if (!result)
     {
-        ESP_LOGE(TAG, "bmi088_spi_init returned false");
         DEBUG_PRINT("bmi088_spi_init returned false\n");
     }
 
