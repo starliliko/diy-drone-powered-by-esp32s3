@@ -73,10 +73,11 @@
 // #define DEBUG_STATE_CHECK
 
 // the reversion of pitch and roll to zero
+// 设为0禁用自动回归水平，允许IMU维持任意姿态（用于测试/非飞行场景）
 #ifdef LPS_2D_POSITION_HEIGHT
 #define ROLLPITCH_ZERO_REVERSION (0.0f)
 #else
-#define ROLLPITCH_ZERO_REVERSION (0.001f)
+#define ROLLPITCH_ZERO_REVERSION (0.0f) // 原0.001f，改为0禁用强制水平
 #endif
 
 /**
@@ -136,11 +137,12 @@ static float procNoiseAcc_xy = 0.5f;
 static float procNoiseAcc_z = 1.0f;
 static float procNoiseVel = 0;
 static float procNoisePos = 0;
-static float procNoiseAtt = 0;
+static float procNoiseAtt = 0;     // 姿态过程噪声（保持0，避免无根据的姿态漂移）
 static float measNoiseBaro = 2.0f; // meters
-// BMI088陀螺仪噪声比MPU6050大，增大测量噪声使滤波器更信任加速度计校正
-static float measNoiseGyro_rollpitch = 0.5f; // radians per second (原0.1f，BMI088适配)
-static float measNoiseGyro_yaw = 0.5f;       // radians per second (原0.1f，BMI088适配)
+// BMI088: 增大测量噪声=减少加速度计校正强度，允许维持非水平姿态
+// 注意：这会增加长期漂移，需要配合ROLLPITCH_ZERO_REVERSION使用
+static float measNoiseGyro_rollpitch = 2.0f; // radians per second (增大=减弱重力校正)
+static float measNoiseGyro_yaw = 0.5f;       // radians per second
 
 static float initialX = 0.0;
 static float initialY = 0.0;
