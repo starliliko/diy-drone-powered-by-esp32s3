@@ -31,23 +31,34 @@
 #include "param.h"
 
 // The bounds on states, these shouldn't be hit...
-float maxPosition = 100; //meters
-float maxVelocity = 10; //meters per second
+// 注意：没有气压计/光流时位置会发散，设为0禁用检查
+float maxPosition = 0; // meters (0=禁用检查)
+float maxVelocity = 0; // meters per second (0=禁用检查)
 
-bool kalmanSupervisorIsStateWithinBounds(const kalmanCoreData_t* this) {
-  for (int i = 0; i < 3; i++) {
-    if (maxPosition > 0.0f) {
-      if (this->S[KC_STATE_X + i] > maxPosition) {
+bool kalmanSupervisorIsStateWithinBounds(const kalmanCoreData_t *this)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    if (maxPosition > 0.0f)
+    {
+      if (this->S[KC_STATE_X + i] > maxPosition)
+      {
         return false;
-      } else if (this->S[KC_STATE_X + i] < -maxPosition) {
+      }
+      else if (this->S[KC_STATE_X + i] < -maxPosition)
+      {
         return false;
       }
     }
 
-    if (maxVelocity > 0.0f) {
-      if (this->S[KC_STATE_PX + i] > maxVelocity) {
+    if (maxVelocity > 0.0f)
+    {
+      if (this->S[KC_STATE_PX + i] > maxVelocity)
+      {
         return false;
-      } else if (this->S[KC_STATE_PX + i] < -maxVelocity) {
+      }
+      else if (this->S[KC_STATE_PX + i] < -maxVelocity)
+      {
         return false;
       }
     }
@@ -57,6 +68,6 @@ bool kalmanSupervisorIsStateWithinBounds(const kalmanCoreData_t* this) {
 }
 
 PARAM_GROUP_START(kalman)
-  PARAM_ADD(PARAM_FLOAT, maxPos, &maxPosition)
-  PARAM_ADD(PARAM_FLOAT, maxVel, &maxVelocity)
+PARAM_ADD(PARAM_FLOAT, maxPos, &maxPosition)
+PARAM_ADD(PARAM_FLOAT, maxVel, &maxVelocity)
 PARAM_GROUP_STOP(kalman)

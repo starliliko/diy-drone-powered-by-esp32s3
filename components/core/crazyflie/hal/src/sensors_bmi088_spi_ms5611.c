@@ -5,6 +5,7 @@
 #include "sensors_bmi088_spi_ms5611.h"
 #include "debug_cf.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -51,7 +52,11 @@
 #define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000) // 陀螺仪最小偏置超时时间
 #define SENSORS_NBR_OF_BIAS_SAMPLES 1024       // 偏置样本数量
 
-#define GYRO_VARIANCE_BASE 10000                       // 陀螺仪方差基准值
+// BMI088噪声差异：
+//   - BMI088噪声密度: 0.014 °/s/√Hz, 带宽116Hz, 灵敏度32.8 LSB/°/s → ~5 LSB RMS
+//   - MPU6050噪声密度: 0.005 °/s/√Hz, 带宽42Hz,  灵敏度16.4 LSB/°/s → ~0.5 LSB RMS
+// 实测静止时方差: X~50, Y~70, Z~50 (已归一化)
+#define GYRO_VARIANCE_BASE 3000                        // 方差阈值（适配BMI088噪声特性）
 #define GYRO_VARIANCE_THRESHOLD_X (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值X
 #define GYRO_VARIANCE_THRESHOLD_Y (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Y
 #define GYRO_VARIANCE_THRESHOLD_Z (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Z
@@ -133,6 +138,9 @@ static float cosRoll;
 static float sinRoll;
 #define PITCH_CALIB (CONFIG_PITCH_CALIB * 1.0 / 100) // 俯仰校准角度 单位1度
 #define ROLL_CALIB (CONFIG_ROLL_CALIB * 1.0 / 100)
+
+// 气压计跳过开关：设为1则跳过气压计检查（可通过地面站修改）
+static uint8_t skipBaroCheck = 1;
 // CONFIG_PITCH_CALIB  单位0.01度
 
 static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBiasOut);
@@ -190,7 +198,6 @@ static void sensorsTask(void *param)
 {
     systemWaitStart();
 
-    ESP_LOGI("SENSORS", "[sensorsTask] Started, waiting for interrupts...");
     vTaskDelay(M2T(200)); // 200ms等待系统稳定
 
     // sensorsDeviceInit(); // 传感器设备初始化
@@ -200,13 +207,9 @@ static void sensorsTask(void *param)
     uint32_t interruptCount = 0;
     while (1)
     {
-        ESP_LOGI("SENSORS", "[sensorsTask] Waiting... AccInt=%u GyroInt=%u", accIntCount, gyroIntCount);
         if (pdTRUE == xSemaphoreTake(sensorsDataReady, M2T(1000))) // 1秒超时
         {
             interruptCount++;
-            ESP_LOGI("SENSORS", "[sensorsTask] Got interrupt #%u (AccInt=%u GyroInt=%u)",
-                     interruptCount, accIntCount, gyroIntCount);
-
             sensorData.interruptTimestamp = imuIntTimestamp;
 
             // 读取BMI088数据
@@ -235,6 +238,7 @@ static void sensorsTask(void *param)
             accScaled.x = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
             accScaled.y = accelRaw.y * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
             accScaled.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
+
             sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
             applyAxis3fLpf((lpf2pData *)(&accLpf), &sensorData.acc);
         }
@@ -247,6 +251,15 @@ static void sensorsTask(void *param)
             {
                 sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
+
+                // // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
+                // static uint8_t baroLogCount = 0;
+                // if (++baroLogCount >= 50)
+                // {
+                //     ESP_LOGI("MS5611", "Pressure: %.2f hPa, Temp: %.2f °C, ASL: %.2f m",
+                //              sensorData.baro.pressure, sensorData.baro.temperature, sensorData.baro.asl);
+                //     baroLogCount = 0;
+                // }
             }
         }
 
@@ -258,6 +271,9 @@ static void sensorsTask(void *param)
         }
 
         xSemaphoreGive(dataReady);
+
+        // 喂狗并让出CPU时间，防止看门狗超时
+        taskYIELD();
     }
 }
 
@@ -280,27 +296,33 @@ static void sensorsDeviceInit(void)
     // 初始化BMI088 (SPI)
     if (!bmi088_init())
     {
-        DEBUG_PRINT("BMI088 SPI init [FAIL]\n");
+        DEBUG_PRINTI("BMI088 SPI init [FAIL]\n");
         isInit = false;
         return;
     }
     else
     {
-        DEBUG_PRINT("BMI088 SPI init [OK]\n");
+        DEBUG_PRINTI("BMI088 SPI init [OK]\n");
     }
 
-    // 初始化MS5611 (I2C)
+    // 初始化MS5611 (I2C) - 可通过 skipBaroCheck 参数跳过检查
     if (ms5611Init(I2C0_DEV))
     {
         isBarometerPresent = true;
-        DEBUG_PRINT("MS5611 I2C init [OK]\n");
+        DEBUG_PRINTI("MS5611 I2C init [OK]\n");
         baroMeasDelayMin = SENSORS_DELAY_BARO;
     }
     else
     {
-        DEBUG_PRINT("MS5611 I2C init [FAIL]\n");
-        isInit = false;
-        return;
+        isBarometerPresent = false;
+        DEBUG_PRINTI("MS5611 I2C init [FAIL]\n");
+        if (!skipBaroCheck)
+        {
+            DEBUG_PRINTI("Barometer required! Set imu_sensors.skipBaro=1 to bypass\n");
+            isInit = false;
+            return;
+        }
+        DEBUG_PRINTI("skipBaroCheck=1, continuing without barometer\n");
     }
 
     // 初始化低通滤波器
@@ -432,8 +454,6 @@ static void sensorsInterruptInit(void)
     // 绑定中断处理函数
     gpio_isr_handler_add(BMI088_INT1_PIN, bmi088_acc_int_handler, NULL);
     gpio_isr_handler_add(BMI088_INT3_PIN, bmi088_gyro_int_handler, NULL);
-
-    ESP_LOGI("SENSORS", "BMI088 interrupt init done (HIGH_LEVEL mode)");
 }
 
 bool sensorsBmi088SpiMs5611Test(void)
@@ -534,9 +554,11 @@ static void sensorsCalculateVarianceAndMean(BiasObj *bias, Axis3f *varOut, Axis3
         sumSq[2] += bias->buffer[i].z * bias->buffer[i].z;
     }
 
-    varOut->x = (sumSq[0] - ((int64_t)sum[0] * sum[0]) / SENSORS_NBR_OF_BIAS_SAMPLES);
-    varOut->y = (sumSq[1] - ((int64_t)sum[1] * sum[1]) / SENSORS_NBR_OF_BIAS_SAMPLES);
-    varOut->z = (sumSq[2] - ((int64_t)sum[2] * sum[2]) / SENSORS_NBR_OF_BIAS_SAMPLES);
+    // 方差公式: Var = [Σx² - (Σx)²/N] / N
+    // 注意：必须用浮点运算，避免整数除法截断导致负方差
+    varOut->x = ((float)sumSq[0] - ((float)sum[0] * (float)sum[0]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
+    varOut->y = ((float)sumSq[1] - ((float)sum[1] * (float)sum[1]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
+    varOut->z = ((float)sumSq[2] - ((float)sum[2] * (float)sum[2]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
 
     meanOut->x = (float)sum[0] / SENSORS_NBR_OF_BIAS_SAMPLES;
     meanOut->y = (float)sum[1] / SENSORS_NBR_OF_BIAS_SAMPLES;
@@ -657,4 +679,5 @@ LOG_GROUP_STOP(gyro)
 
 PARAM_GROUP_START(imu_sensors)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, MS5611, &isBarometerPresent)
+PARAM_ADD(PARAM_UINT8, skipBaro, &skipBaroCheck)
 PARAM_GROUP_STOP(imu_sensors)

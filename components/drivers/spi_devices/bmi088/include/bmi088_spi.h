@@ -30,7 +30,6 @@ extern "C"
 #define BMI088_ACC_CONF_REG 0x40
 #define BMI088_ACC_RANGE_REG 0x41
 #define BMI088_ACC_INT1_IO_CONF_REG 0x53       // INT1引脚配置(包含输出使能)
-#define BMI088_ACC_INT2_IO_CONF_REG 0x54       // INT2引脚配置(不用于INT1!)
 #define BMI088_ACC_INT1_INT2_MAP_DATA_REG 0x58 // 数据就绪中断映射
 #define BMI088_ACC_PWR_CONF_REG 0x7C
 #define BMI088_ACC_PWR_CTRL_REG 0x7D

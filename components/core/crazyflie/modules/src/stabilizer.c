@@ -203,8 +203,6 @@ void stabilizerInit(StateEstimatorType estimator) // 在system.c中调用
   if (isInit)
     return;
 
-  ESP_LOGI("STAB", "stabilizerInit() called");
-
   sensorsInit(); // 初始化传感器模块
   if (estimator == anyEstimator)
   {
@@ -218,9 +216,7 @@ void stabilizerInit(StateEstimatorType estimator) // 在system.c中调用
   estimatorType = getStateEstimator();
   controllerType = getControllerType();
 
-  ESP_LOGI("STAB", "Creating stabilizer task...");
   STATIC_MEM_TASK_CREATE(stabilizerTask, stabilizerTask, STABILIZER_TASK_NAME, NULL, STABILIZER_TASK_PRI);
-  ESP_LOGI("STAB", "Stabilizer task created");
 
   isInit = true;
 }
@@ -265,8 +261,6 @@ static void stabilizerTask(void *param)
   uint32_t tick;
   uint32_t lastWakeTime;
 
-  ESP_LOGI("STAB", "[0] Stabilizer task started!");
-
 #ifdef configUSE_APPLICATION_TASK_TAG
 #if configUSE_APPLICATION_TASK_TAG == 1
   vTaskSetApplicationTaskTag(0, (void *)TASK_STABILIZER_ID_NBR);
@@ -274,11 +268,8 @@ static void stabilizerTask(void *param)
 #endif // 设置任务标签
 
   // Wait for the system to be fully started to start stabilization loop
-  ESP_LOGI("STAB", "[0.5] Calling systemWaitStart()...");
   systemWaitStart();
-  ESP_LOGI("STAB", "[0.9] systemWaitStart() returned");
 
-  ESP_LOGI("STAB", "[1] System started, waiting for sensor calibration...");
   DEBUG_PRINTI("Wait for sensor calibration...\n");
 
   // Wait for sensors to be calibrated
@@ -287,12 +278,8 @@ static void stabilizerTask(void *param)
   while (!sensorsAreCalibrated())
   {
     vTaskDelayUntil(&lastWakeTime, F2T(RATE_MAIN_LOOP)); // 周期性延时，控制周期精准
-    if (++calibWaitCount % 1000 == 0)
-    {
-      ESP_LOGI("STAB", "[1.5] Still waiting for sensor calibration... (%u iterations)", calibWaitCount);
-    }
   }
-  ESP_LOGI("STAB", "[1.9] Sensor calibration completed after %u iterations", calibWaitCount);
+
   // Initialize tick to something else then 0
   tick = 1;
   // 等待传感器校准完成
@@ -300,21 +287,13 @@ static void stabilizerTask(void *param)
   rateSupervisorInit(&rateSupervisorContext, xTaskGetTickCount(), M2T(1000), 997, 1003, 1);
   // 初始化速率监控器，用于监控稳定器循环的执行频率是否在预期范围内
 
-  ESP_LOGI("STAB", "[2] Sensors calibrated, entering main loop...");
   DEBUG_PRINTI("Ready to fly.\n");
 
   while (1)
   {
     // The sensor should unlock at 1kHz
-    if (tick == 1)
-    {
-      ESP_LOGI("STAB", "[3] First loop iteration, waiting for sensor ready...");
-    }
     sensorsWaitDataReady(); // 等待传感器数据准备 //中断触发 1kHz
-    if (tick == 1)
-    {
-      ESP_LOGI("STAB", "[4] Sensor ready! Loop is running.");
-    }
+
     // 整个控制环的节拍驱动源
     /*
     这里存在一个问题，bim088中断的驱动频率无法明确确定是1kHz还是800Hz
@@ -355,14 +334,10 @@ static void stabilizerTask(void *param)
       KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       */
 
-      // 临时调试：输出欧拉角（每100个tick输出一次，避免刷屏）
-      if (tick % 100 == 0)
-      {
-        ESP_LOGI("EULER", "R=%.2f P=%.2f Y=%.2f",
-                 state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
-      }
-
       compressState(); // 压缩状态数据以便传输
+
+      printf("euler:%.2f,%.2f,%.2f\n",
+             state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
 
       commanderGetSetpoint(&setpoint, &state); // 获取目标设定点
       compressSetpoint();                      // 压缩设定点数据以便传输
