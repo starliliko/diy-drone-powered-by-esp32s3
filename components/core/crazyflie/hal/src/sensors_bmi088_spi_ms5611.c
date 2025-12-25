@@ -140,7 +140,7 @@ static float sinRoll;
 #define ROLL_CALIB (CONFIG_ROLL_CALIB * 1.0 / 100)
 
 // 气压计跳过开关：设为1则跳过气压计检查（可通过地面站修改）
-static uint8_t skipBaroCheck = 1;
+static uint8_t skipBaroCheck = 0;
 // CONFIG_PITCH_CALIB  单位0.01度
 
 static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBiasOut);

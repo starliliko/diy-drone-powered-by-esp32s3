@@ -82,7 +82,7 @@
 #define DEBUG_MODULE "ESTKALMAN"
 #include "debug_cf.h"
 
-// #define KALMAN_USE_BARO_UPDATE
+#define KALMAN_USE_BARO_UPDATE // 启用气压计更新（室内定高飞行必需）
 
 /**
  * Additionally, the filter supports the incorporation of additional sensors into the state estimate
