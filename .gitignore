@@ -8,6 +8,7 @@ docs/en/md/_build
 docs/zh_CN/md/sphinx-warning-log.txt
 docs/__pycache__
 docs/en/md/sphinx-warning-log.txt
+managed_components/
 
 # MacOS directory files
 .DS_Store
