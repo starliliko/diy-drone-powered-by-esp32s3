@@ -32,10 +32,32 @@ extern "C"
 #define SBUS_HEADER 0x0F
 #define SBUS_FOOTER 0x00
 #define SBUS_NUM_CHANNELS 16
-#define SBUS_CHANNEL_MIN 172    // Typical min value
-#define SBUS_CHANNEL_MAX 1811   // Typical max value
-#define SBUS_CHANNEL_CENTER 992 // Typical center value
 #define SBUS_BAUDRATE 100000
+
+/* SBUS channel endpoints - configurable via Kconfig (menuconfig) */
+#ifdef CONFIG_SBUS_CHANNEL_MIN
+#define SBUS_CHANNEL_MIN CONFIG_SBUS_CHANNEL_MIN
+#else
+#define SBUS_CHANNEL_MIN 240 // Default: your transmitter's actual min
+#endif
+
+#ifdef CONFIG_SBUS_CHANNEL_MAX
+#define SBUS_CHANNEL_MAX CONFIG_SBUS_CHANNEL_MAX
+#else
+#define SBUS_CHANNEL_MAX 1807 // Default: your transmitter's actual max
+#endif
+
+#ifdef CONFIG_SBUS_CHANNEL_CENTER
+#define SBUS_CHANNEL_CENTER CONFIG_SBUS_CHANNEL_CENTER
+#else
+#define SBUS_CHANNEL_CENTER 1024 // Default: your transmitter's actual center
+#endif
+
+#ifdef CONFIG_SBUS_DEADBAND
+#define SBUS_DEADBAND CONFIG_SBUS_DEADBAND
+#else
+#define SBUS_DEADBAND 20 // Default deadband
+#endif
 
 /* SBUS flags (byte 23) */
 #define SBUS_FLAG_CH17 (1 << 0)

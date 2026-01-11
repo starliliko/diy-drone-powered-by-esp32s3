@@ -64,5 +64,4 @@ void stabilizerResetEmergencyStop();
  */
 void stabilizerSetEmergencyStopTimeout(int timeout);
 
-
 #endif /* STABILIZER_H_ */

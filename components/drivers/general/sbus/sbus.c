@@ -10,6 +10,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "sbus.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
@@ -21,6 +22,12 @@
 
 #define DEBUG_MODULE "SBUS"
 #include "debug_cf.h"
+
+/* Debug options - set to 1 to enable detailed debugging */
+#define SBUS_DEBUG_RAW_DATA 0 // Print raw UART bytes
+#define SBUS_DEBUG_FRAMES 0   // Print parsed frame data (DISABLED for performance)
+#define SBUS_DEBUG_CHANNELS 0 // Print all channel values
+#define SBUS_DEBUG_STATS 1    // Print frame statistics (every 500 frames)
 
 /* Configuration - can be overridden in Kconfig */
 #ifndef CONFIG_SBUS_UART_NUM
@@ -50,6 +57,15 @@ static uint8_t rxBuffer[SBUS_FRAME_SIZE];
 static uint8_t rxBufferIndex = 0;
 static TickType_t lastByteTime = 0;
 
+/* Debug statistics */
+#if SBUS_DEBUG_STATS
+static uint32_t framesReceived = 0;
+static uint32_t framesValid = 0;
+static uint32_t framesInvalid = 0;
+static uint32_t failsafeCount = 0;
+static uint32_t frameLostCount = 0;
+#endif
+
 /**
  * @brief Initialize SBUS driver
  */
@@ -74,14 +90,14 @@ void sbusInit(void)
     esp_err_t err = uart_driver_install(CONFIG_SBUS_UART_NUM, SBUS_RX_BUFFER_SIZE, 0, 0, NULL, 0);
     if (err != ESP_OK)
     {
-        DEBUG_PRINT("UART driver install failed: %d\n", err);
+        printf("[SBUS] UART driver install failed: %d\n", err);
         return;
     }
 
     err = uart_param_config(CONFIG_SBUS_UART_NUM, &uart_config);
     if (err != ESP_OK)
     {
-        DEBUG_PRINT("UART param config failed: %d\n", err);
+        printf("[SBUS] UART param config failed: %d\n", err);
         return;
     }
 
@@ -90,19 +106,18 @@ void sbusInit(void)
                        UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (err != ESP_OK)
     {
-        DEBUG_PRINT("UART set pin failed: %d\n", err);
+        printf("[SBUS] UART set pin failed: %d\n", err);
         return;
     }
 
-    /* Note: Hardware inverter is used, no need for software inversion */
-    /* If no hardware inverter, uncomment the following:
+    /* SBUS uses inverted signal - enable RX inversion if no hardware inverter */
     err = uart_set_line_inverse(CONFIG_SBUS_UART_NUM, UART_SIGNAL_RXD_INV);
     if (err != ESP_OK)
     {
-        DEBUG_PRINT("UART set inverse failed: %d\n", err);
+        printf("[SBUS] UART set inverse failed: %d\n", err);
         return;
     }
-    */
+    printf("[SBUS] RX signal inversion enabled\n");
 
     /* Initialize frame data */
     memset(&latestFrame, 0, sizeof(latestFrame));
@@ -116,7 +131,9 @@ void sbusInit(void)
     lastByteTime = 0;
 
     isInit = true;
-    DEBUG_PRINT("SBUS initialized on UART%d, RX pin %d\n", CONFIG_SBUS_UART_NUM, CONFIG_SBUS_RX_PIN);
+    printf("[SBUS] SBUS initialized on UART%d, RX pin %d\n", CONFIG_SBUS_UART_NUM, CONFIG_SBUS_RX_PIN);
+    printf("[SBUS] Debug enabled - RAW:%d FRAMES:%d CHANNELS:%d STATS:%d\n",
+           SBUS_DEBUG_RAW_DATA, SBUS_DEBUG_FRAMES, SBUS_DEBUG_CHANNELS, SBUS_DEBUG_STATS);
 }
 
 /**
@@ -235,9 +252,22 @@ float sbusConvertToRange(uint16_t value, float minOutput, float maxOutput)
  */
 bool sbusParseFrame(const uint8_t *buffer, sbusFrame_t *frame)
 {
+#if SBUS_DEBUG_RAW_DATA
+    /* Print raw buffer - use printf for hex dump */
+    printf("SBUS raw [%d bytes]: ", SBUS_FRAME_SIZE);
+    for (int i = 0; i < SBUS_FRAME_SIZE; i++)
+    {
+        printf("%02X ", buffer[i]);
+    }
+    printf("\n");
+#endif
+
     /* Validate header */
     if (buffer[0] != SBUS_HEADER)
     {
+#if SBUS_DEBUG_FRAMES
+        printf("[SBUS] Invalid header: 0x%02X (expected 0x%02X)\n", buffer[0], SBUS_HEADER);
+#endif
         return false;
     }
 
@@ -270,6 +300,19 @@ bool sbusParseFrame(const uint8_t *buffer, sbusFrame_t *frame)
 
     frame->timestamp = xTaskGetTickCount();
 
+#if SBUS_DEBUG_FRAMES
+    printf("[SBUS] Frame parsed - Flags:0x%02X FS:%d FL:%d CH17:%d CH18:%d\n",
+           buffer[23], frame->failsafe, frame->frameLost, frame->ch17, frame->ch18);
+#endif
+
+#if SBUS_DEBUG_CHANNELS
+    printf("[SBUS] Channels: ");
+    {
+        printf("CH%d:%4d ", i, frame->channels[i]);
+    }
+    printf("\n");
+#endif
+
     return true;
 }
 
@@ -297,8 +340,6 @@ BaseType_t sbusReadFrame(sbusFrame_t *frame, uint32_t timeoutMs)
         if (len > 0)
         {
             TickType_t currentTime = xTaskGetTickCount();
-
-            /* Detect frame start: gap > 2ms indicates new frame */
             if ((currentTime - lastByteTime) > pdMS_TO_TICKS(2) || rxBufferIndex >= SBUS_FRAME_SIZE)
             {
                 rxBufferIndex = 0;
@@ -319,8 +360,33 @@ BaseType_t sbusReadFrame(sbusFrame_t *frame, uint32_t timeoutMs)
             /* Check if we have a complete frame */
             if (rxBufferIndex == SBUS_FRAME_SIZE)
             {
+#if SBUS_DEBUG_STATS
+                framesReceived++;
+#endif
                 if (sbusParseFrame(rxBuffer, frame))
                 {
+#if SBUS_DEBUG_STATS
+                    framesValid++;
+                    if (frame->failsafe)
+                        failsafeCount++;
+                    if (frame->frameLost)
+                        frameLostCount++;
+
+                    /* Print stats every 500 frames */
+                    if (framesReceived % 500 == 0)
+                    {
+                        printf("[SBUS] Stats: Total=%lu Valid=%lu Invalid=%lu FS=%lu FL=%lu\n",
+                               framesReceived, framesValid, framesInvalid, failsafeCount, frameLostCount);
+                    }
+#endif
+
+#if SBUS_DEBUG_FRAMES
+                    printf("[SBUS] CH0=%d CH1=%d CH2=%d CH3=%d Thr=%d\n",
+                           frame->channels[0], frame->channels[1],
+                           frame->channels[2], frame->channels[3],
+                           sbusConvertToUint16(frame->channels[2]));
+#endif
+
                     /* Update latest frame and state */
                     memcpy(&latestFrame, frame, sizeof(sbusFrame_t));
                     lastFrameTime = currentTime;
@@ -328,9 +394,22 @@ BaseType_t sbusReadFrame(sbusFrame_t *frame, uint32_t timeoutMs)
                     rxBufferIndex = 0;
                     return pdTRUE;
                 }
+                else
+                {
+#if SBUS_DEBUG_STATS
+                    framesInvalid++;
+#endif
+                }
                 rxBufferIndex = 0;
             }
         }
+#if SBUS_DEBUG_RAW_DATA
+        else
+        {
+            /* No data available */
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+#endif
     }
 
     /* Check timeout for signal availability */

@@ -178,42 +178,51 @@ static void extRxTask(void *param)
 {
 #ifdef CONFIG_ENABLE_SBUS
   sbusFrame_t frame;
+  static uint32_t loopCount = 0;
 #endif
 
   /* Wait for the system to be fully started */
   systemWaitStart();
 
-  DEBUG_PRINT("External receiver task started\n");
+  printf("[EXTRX] External receiver task started, waiting for SBUS data...\n");
 
   while (true)
   {
 #ifdef CONFIG_ENABLE_SBUS
+    loopCount++;
+
+    /* Print status every 1000 loops (~20 seconds) */
+    if (loopCount % 1000 == 0)
+    {
+      printf("[EXTRX] Active: loops=%lu, armed=%d, thr=%d\n",
+             loopCount, isArmed, extrxSetpoint.thrust);
+    }
+
     /* Read SBUS frame (blocking with timeout) */
     if (sbusReadFrame(&frame, 20) == pdTRUE)
     {
-      /* Check failsafe */
-      if (frame.failsafe || frame.frameLost)
+      /* Copy channel values */
+      for (int i = 0; i < EXTRX_NR_CHANNELS && i < SBUS_NUM_CHANNELS; i++)
       {
-        /* Failsafe active - set safe values */
-        extrxSetpoint.thrust = 0;
-        extrxSetpoint.attitude.roll = 0;
-        extrxSetpoint.attitude.pitch = 0;
-        extrxSetpoint.attitude.yaw = 0;
-        isArmed = false;
+        ch[i] = frame.channels[i];
       }
-      else
+
+      /* Check arm switch */
+      isArmed = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
+
+      /* Decode channels to setpoint */
+      extRxDecodeChannels();
+
+      /* Output VOFA FireWater format: Raw channels + Converted values */
+      if (loopCount % 10 == 0) /* Output every 10 loops (~200ms) */
       {
-        /* Copy channel values */
-        for (int i = 0; i < EXTRX_NR_CHANNELS && i < SBUS_NUM_CHANNELS; i++)
-        {
-          ch[i] = frame.channels[i];
-        }
-
-        /* Check arm switch */
-        isArmed = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
-
-        /* Decode channels to setpoint */
-        extRxDecodeChannels();
+        printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%.2f,%.2f,%.2f\n",
+               ch[0], ch[1], ch[2], ch[3], ch[4], // Raw CH0-CH4
+               ch[5], ch[6], ch[7], ch[8], ch[9], // Raw CH5-CH9
+               extrxSetpoint.thrust,              // Thrust (float, 0-65535)
+               extrxSetpoint.attitude.roll,       // Roll (degrees)
+               extrxSetpoint.attitude.pitch,      // Pitch (degrees)
+               extrxSetpoint.attitude.yaw);       // Yaw (deg/s)
       }
     }
     else if (!sbusIsAvailable())
@@ -238,16 +247,16 @@ static void extRxDecodeChannels(void)
   /* Only send commands if armed */
   if (!isArmed)
   {
-    extrxSetpoint.thrust = 0;
-    extrxSetpoint.attitude.roll = 0;
-    extrxSetpoint.attitude.pitch = 0;
-    extrxSetpoint.attitude.yaw = 0;
+    extrxSetpoint.thrust = 0.0f;
+    extrxSetpoint.attitude.roll = 0.0f;
+    extrxSetpoint.attitude.pitch = 0.0f;
+    extrxSetpoint.attitude.yaw = 0.0f;
     return;
   }
 
   /* Convert SBUS values to setpoint */
-  /* Thrust: 0-65535 */
-  extrxSetpoint.thrust = sbusConvertToUint16(ch[EXTRX_CH_THRUST]);
+  /* Thrust: 0-65535 as float */
+  extrxSetpoint.thrust = (float)sbusConvertToUint16(ch[EXTRX_CH_THRUST]);
 
   /* Roll: -SCALE to +SCALE degrees */
   extrxSetpoint.attitude.roll = EXTRX_SIGN_ROLL *

@@ -411,6 +411,45 @@ menu "ESPDrone Config"
             default 5
             help
                 SBUS channel for flight mode switch (typically channel 6, index 5)
+
+        menu "SBUS Endpoint Calibration"
+            depends on ENABLE_SBUS
+
+            config SBUS_CHANNEL_MIN
+                int "Channel minimum value"
+                range 0 1000
+                default 240
+                help
+                    SBUS channel value when stick is at minimum position.
+                    Standard: 172, Common range: 172-300.
+                    Use VOFA or serial monitor to check your transmitter's actual value.
+
+            config SBUS_CHANNEL_MAX
+                int "Channel maximum value"
+                range 1500 2047
+                default 1807
+                help
+                    SBUS channel value when stick is at maximum position.
+                    Standard: 1811, Common range: 1700-1811.
+                    Use VOFA or serial monitor to check your transmitter's actual value.
+
+            config SBUS_CHANNEL_CENTER
+                int "Channel center value"
+                range 800 1200
+                default 1024
+                help
+                    SBUS channel value when stick is centered.
+                    Standard: 992, Common range: 992-1024.
+                    Use VOFA or serial monitor to check your transmitter's actual value.
+
+            config SBUS_DEADBAND
+                int "Stick deadband"
+                range 0 100
+                default 20
+                help
+                    Deadband around center position (in SBUS units).
+                    Prevents drift when sticks are released to center.
+        endmenu
     endmenu
 
 

@@ -227,9 +227,11 @@ void systemTask(void *arg)
   DEBUG_PRINTI("soundTest = %d ", pass);
   pass &= memTest();
   DEBUG_PRINTI("memTest = %d ", pass);
-  // pass &= watchdogNormalStartTest();
-  // pass &= extRxTest();
-  // DEBUG_PRINTI("extRxTest = %d ", pass);
+// pass &= watchdogNormalStartTest();
+#ifdef CONFIG_ENABLE_SBUS
+  pass &= extRxTest();
+  DEBUG_PRINTI("extRxTest = %d ", pass);
+#endif
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();
 
