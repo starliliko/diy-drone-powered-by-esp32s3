@@ -54,3 +54,30 @@ typedef struct
     uint16_t reserved2;   // 预留
 } MICOLINK_PAYLOAD_RANGE_SENSOR_t;
 #pragma pack()
+
+/**
+ * 数据回调函数类型
+ * @param payload 解析后的传感器数据
+ */
+typedef void (*mtf01_data_callback_t)(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload);
+
+/**
+ * 初始化 MTF01 驱动
+ * @param callback 数据接收回调函数
+ */
+void mtf01_init(mtf01_data_callback_t callback);
+
+/**
+ * 处理接收到的串口字节
+ * 内部解析 Micolink 协议，解析成功后调用回调函数
+ * @param data 接收到的字节
+ */
+void mtf01_process_byte(uint8_t data);
+
+/**
+ * Parse a single byte using Micolink protocol
+ * @param msg Message structure to store parsed data
+ * @param data Byte to parse
+ * @return true if a complete message was parsed successfully
+ */
+bool micolink_parse_char(MICOLINK_MSG_t *msg, uint8_t data);

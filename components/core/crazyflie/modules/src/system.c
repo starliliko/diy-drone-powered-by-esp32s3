@@ -59,6 +59,7 @@
 #include "app.h"
 #include "stm32_legacy.h"
 #include "extrx.h"
+#include "flow_mtf01.h"
 #include "esp_log.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
@@ -206,6 +207,10 @@ void systemTask(void *arg)
   proximityInit(); // 接近/距离传感器初始化
 #endif
 
+#ifdef CONFIG_ENABLE_MTF01
+  mtf01TaskInit(); // MTF01 光流/测距模块初始化
+#endif
+
   // 测试每个模块
   pass &= wifiTest();
   DEBUG_PRINTI("wifilinkTest = %d ", pass);
@@ -231,6 +236,10 @@ void systemTask(void *arg)
 #ifdef CONFIG_ENABLE_SBUS
   pass &= extRxTest();
   DEBUG_PRINTI("extRxTest = %d ", pass);
+#endif
+#ifdef CONFIG_ENABLE_MTF01
+  pass &= mtf01TaskTest();
+  DEBUG_PRINTI("mtf01TaskTest = %d ", pass);
 #endif
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();

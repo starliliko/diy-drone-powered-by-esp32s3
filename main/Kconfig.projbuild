@@ -263,16 +263,17 @@ menu "ESPDrone Config"
                 int "MTF01 UART port number"
                 depends on ENABLE_MTF01
                 range 0 2
-                default 1
+                default 2
                 help
                     UART port number for MTF01 module (0, 1, or 2).
                     Avoid using UART0 as it is typically used for console/debug.
+                    UART1 may be used by SBUS, so UART2 is recommended.
 
             config MTF01_RX_PIN
                 int "MTF01 RX GPIO number"
                 depends on ENABLE_MTF01
                 range 0 48
-                default 18
+                default 19
                 help
                     GPIO number (IOxx) for MTF01 UART RX pin.
                     Connect to MTF01 TX pin.
@@ -281,7 +282,7 @@ menu "ESPDrone Config"
                 int "MTF01 TX GPIO number"
                 depends on ENABLE_MTF01
                 range 0 48
-                default 19
+                default 20
                 help
                     GPIO number (IOxx) for MTF01 UART TX pin.
                     Connect to MTF01 RX pin.
@@ -297,12 +298,12 @@ menu "ESPDrone Config"
             config MTF01_MIN_DISTANCE
                 int "MTF01 minimum valid distance (mm)"
                 depends on ENABLE_MTF01
-                range 5 50
-                default 10
+                range 2 50
+                default 2
                 help
                     Minimum valid distance measurement in millimeters.
                     Distance values below this threshold are considered invalid.
-                    MTF01 default minimum: 10mm.
+                    MTF01 default minimum: 2mm (0 means data unavailable).
 
             config MTF01_MAX_DISTANCE
                 int "MTF01 maximum valid distance (mm)"

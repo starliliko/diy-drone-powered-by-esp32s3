@@ -1,42 +1,54 @@
 #include "mtf01.h"
 
 /*
-说明： 用户使用micolink_decode作为串口数据处理函数即可
+MTF01 Micolink 协议驱动 (消息ID: 0x51)
 
-距离有效值最小为10(mm),为0说明此时距离值不可用
-光流速度值单位：cm/s@1m
-飞控中只需要将光流速度值*高度，即可得到真实水平位移速度
-计算公式：实际速度(cm/s)=光流速度*高度(m)
+使用方法：
+- 使用 mtf01_init() 注册数据回调
+- 使用 mtf01_process_byte() 处理串口接收的字节
+- 数据解析成功后自动调用回调函数
+
+数据说明：
+- 距离值: 单位mm，最小值为2，0表示数据不可用
+- tof_status: 1=测距数据可用，0=不可用
+- 光流速度: 单位cm/s@1m高度
+- flow_status: 1=光流数据可用，0=不可用
+- 光流质量: 越大表示可信度越高
+
+计算公式：实际速度(cm/s) = 光流速度 * 高度(m)
 */
 
-bool micolink_parse_char(MICOLINK_MSG_t *msg, uint8_t data);
+/* 内部状态 */
+static MICOLINK_MSG_t s_msg;
+static mtf01_data_callback_t s_callback = NULL;
 
-void micolink_decode(uint8_t data)
+/**
+ * 初始化 MTF01 驱动
+ */
+void mtf01_init(mtf01_data_callback_t callback)
 {
-    static MICOLINK_MSG_t msg;
+    s_callback = callback;
+    memset(&s_msg, 0, sizeof(s_msg));
+}
 
-    if (micolink_parse_char(&msg, data) == false)
+/**
+ * 处理接收到的串口字节
+ */
+void mtf01_process_byte(uint8_t data)
+{
+    if (micolink_parse_char(&s_msg, data) == false)
         return;
 
-    switch (msg.msg_id)
+    switch (s_msg.msg_id)
     {
     case MICOLINK_MSG_ID_RANGE_SENSOR:
     {
-        MICOLINK_PAYLOAD_RANGE_SENSOR_t payload;
-        memcpy(&payload, msg.payload, msg.len);
-
-        /*
-            此处可获取传感器数据:
-
-            距离        = payload.distance;
-            强度        = payload.strength;
-            精度        = payload.precision;
-            距离状态    = payload.tof_status;
-            光流速度x轴 = payload.flow_vel_x;
-            光流速度y轴 = payload.flow_vel_y;
-            光流质量    = payload.flow_quality;
-            光流状态    = payload.flow_status;
-        */
+        if (s_callback != NULL)
+        {
+            MICOLINK_PAYLOAD_RANGE_SENSOR_t payload;
+            memcpy(&payload, s_msg.payload, s_msg.len);
+            s_callback(&payload);
+        }
         break;
     }
 
@@ -122,6 +134,7 @@ bool micolink_parse_char(MICOLINK_MSG_t *msg, uint8_t data)
         {
             return true;
         }
+        break;
 
     default:
         msg->status = 0;
