@@ -2,7 +2,6 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./hal/src/freeRTOSdebug.c" 
                 "./hal/src/ledseq.c" 
                 "./hal/src/pm_esplane.c" 
-                "./hal/src/sensors_mpu6050_hm5883L_ms5611.c" 
                 "./hal/src/sensors_bmi088_spi_ms5611.c"
                 "./hal/src/sensors.c" 
                 "./hal/src/usec_time.c" 
@@ -71,7 +70,8 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./utils/src/version.c"
                 "./utils/src/rateSupervisor.c"
                 INCLUDE_DIRS "./hal/interface" "./modules/interface" "./utils/interface"
-                REQUIRES i2c_bus deck mpu6050 bmi088 ms5611 hmc5883l pmw3901 vl53l1 vl53l0 platform config led eeprom dsp_lib motors wifi adc esp_timer sbus)
+                REQUIRES i2c_bus mpu6050 bmi088 ms5611 platform config led eeprom sbus
+                dsp_lib motors wifi adc esp_timer)
 
 idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
 target_include_directories(${COMPONENT_TARGET} PUBLIC

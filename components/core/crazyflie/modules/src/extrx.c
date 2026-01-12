@@ -213,17 +213,17 @@ static void extRxTask(void *param)
       /* Decode channels to setpoint */
       extRxDecodeChannels();
 
-      /* Output VOFA FireWater format: Raw channels + Converted values */
-      if (loopCount % 10 == 0) /* Output every 10 loops (~200ms) */
-      {
-        printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%.2f,%.2f,%.2f\n",
-               ch[0], ch[1], ch[2], ch[3], ch[4], // Raw CH0-CH4
-               ch[5], ch[6], ch[7], ch[8], ch[9], // Raw CH5-CH9
-               extrxSetpoint.thrust,              // Thrust (float, 0-65535)
-               extrxSetpoint.attitude.roll,       // Roll (degrees)
-               extrxSetpoint.attitude.pitch,      // Pitch (degrees)
-               extrxSetpoint.attitude.yaw);       // Yaw (deg/s)
-      }
+      // /* Output VOFA FireWater format: Raw channels + Converted values */
+      // if (loopCount % 10 == 0) /* Output every 10 loops (~200ms) */
+      // {
+      //   printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%.2f,%.2f,%.2f\n",
+      //          ch[0], ch[1], ch[2], ch[3], ch[4], // Raw CH0-CH4
+      //          ch[5], ch[6], ch[7], ch[8], ch[9], // Raw CH5-CH9
+      //          extrxSetpoint.thrust,              // Thrust (float, 0-65535)
+      //          extrxSetpoint.attitude.roll,       // Roll (degrees)
+      //          extrxSetpoint.attitude.pitch,      // Pitch (degrees)
+      //          extrxSetpoint.attitude.yaw);       // Yaw (deg/s)
+      // }
     }
     else if (!sbusIsAvailable())
     {

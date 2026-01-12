@@ -38,13 +38,13 @@
 #define DEFAULT_PLATFORM_STRING "0;EP30" // 平台配置
 
 static const platformConfig_t platformConfigs[] = {
-    {
-        .deviceType = "EP20",
-        .deviceTypeName = "ESP-Drone EP20",
-        .sensorImplementation = SensorImplementation_mpu6050_HMC5883L_MS5611, //,
-        .physicalLayoutAntennasAreClose = false,
-        .motorMap = NULL, // 根据实际情况填写
-    },
+    // {
+    //     .deviceType = "EP20",
+    //     .deviceTypeName = "ESP-Drone EP20",
+    //     .sensorImplementation =  ensorImplementation_mpu6050_HMC5883L_MS5611, //,
+    //     .physicalLayoutAntennasAreClose = false,
+    //     .motorMap = NULL, // 根据实际情况填写
+    // },
 
     {
         .deviceType = "EP30",

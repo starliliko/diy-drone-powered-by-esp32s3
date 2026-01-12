@@ -133,19 +133,20 @@ menu "ESPDrone Config"
     endmenu
 
     menu "sensors config"
+        menu "I2C Config"
         config I2C0_PIN_SDA
             int "I2C0_PIN_SDA GPIO number"
             range 0 43 
             default 41 
             help
-                GPIO number (IOxx) I2C0_PIN_SDA (避免与SPI冲突)
+                GPIO number (IOxx) I2C0_PIN_SDA 
 
         config I2C0_PIN_SCL
             int "I2C0_PIN_SCL GPIO number"
             range 0 43 
             default 40 
             help
-                GPIO number (IOxx) I2C0_PIN_SCL (避免与SPI冲突)
+                GPIO number (IOxx) I2C0_PIN_SCL 
 
         config I2C1_PIN_SDA
             int "I2C1_PIN_SDA GPIO number"
@@ -161,6 +162,8 @@ menu "ESPDrone Config"
             help
                 GPIO number (IOxx) I2C1_PIN_SCL
 
+        endmenu
+        menu "SPI Config"
         config SPI_PIN_MISO
             int "SPI_PIN_MISO GPIO number"
             range 0 48 
@@ -209,18 +212,21 @@ menu "ESPDrone Config"
             default 14 
             help
                 GPIO number (IOxx) BMI088_INT3_PIN
+        endmenu
 
-        config MPU_PIN_INT
-            int "MPU_PIN_INT GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 19 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 12 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 12 if TARGET_ESP32_S2_DRONE_V1_2
-            help
-                GPIO number (IOxx) MPU_PIN_INT
+        
+        # config MPU_PIN_INT
+        #     int "MPU_PIN_INT GPIO number"
+        #     range 0 34 if TARGET_ESPLANE_V1
+        #     default 19 if TARGET_ESPLANE_V1
+        #     range 0 43 if TARGET_ESPLANE_V2_S2
+        #     default 12 if TARGET_ESPLANE_V2_S2
+        #     range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
+        #     default 12 if TARGET_ESP32_S2_DRONE_V1_2
+        #     help
+        #         GPIO number (IOxx) MPU_PIN_INT
 
+        menu "ADC config"
         config ADC1_PIN
             int "EXT01_PIN GPIO number"
             range 32 39 if TARGET_ESPLANE_V1
@@ -231,17 +237,82 @@ menu "ESPDrone Config"
             default 2 if TARGET_ESP32_S2_DRONE_V1_2
             help
                 GPIO number (IOxx) ADC1_PIN
+        endmenu
 
-        config EXT01_PIN
-            int "EXT01_PIN GPIO number"
-            range 0 34 if TARGET_ESPLANE_V1
-            default 34 if TARGET_ESPLANE_V1
-            range 0 43 if TARGET_ESPLANE_V2_S2
-            default 1 if TARGET_ESPLANE_V2_S2
-            range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 1 if TARGET_ESP32_S2_DRONE_V1_2
-            help
-                GPIO number (IOxx) EXT01_PIN
+        # config EXT01_PIN
+        #     int "EXT01_PIN GPIO number"
+        #     range 0 34 if TARGET_ESPLANE_V1
+        #     default 34 if TARGET_ESPLANE_V1
+        #     range 0 43 if TARGET_ESPLANE_V2_S2
+        #     default 1 if TARGET_ESPLANE_V2_S2
+        #     range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
+        #     default 1 if TARGET_ESP32_S2_DRONE_V1_2
+        #     help
+        #         GPIO number (IOxx) EXT01_PIN
+
+        menu "MTF01 Optical Flow Config"
+            config ENABLE_MTF01
+                bool "Enable MTF01 optical flow & rangefinder module"
+                default n
+                help
+                    Enable MTF01 UART optical flow and rangefinder module.
+                    MTF01 provides: distance(mm), flow velocity(cm/s@1m), signal strength.
+                    Uses UART communication with custom Micolink protocol.
+
+            config MTF01_UART_NUM
+                int "MTF01 UART port number"
+                depends on ENABLE_MTF01
+                range 0 2
+                default 1
+                help
+                    UART port number for MTF01 module (0, 1, or 2).
+                    Avoid using UART0 as it is typically used for console/debug.
+
+            config MTF01_RX_PIN
+                int "MTF01 RX GPIO number"
+                depends on ENABLE_MTF01
+                range 0 48
+                default 18
+                help
+                    GPIO number (IOxx) for MTF01 UART RX pin.
+                    Connect to MTF01 TX pin.
+
+            config MTF01_TX_PIN
+                int "MTF01 TX GPIO number"
+                depends on ENABLE_MTF01
+                range 0 48
+                default 19
+                help
+                    GPIO number (IOxx) for MTF01 UART TX pin.
+                    Connect to MTF01 RX pin.
+
+            config MTF01_BAUDRATE
+                int "MTF01 UART baudrate"
+                depends on ENABLE_MTF01
+                default 115200
+                help
+                    UART baudrate for MTF01 communication.
+                    Default: 115200 (check MTF01 datasheet for supported rates).
+
+            config MTF01_MIN_DISTANCE
+                int "MTF01 minimum valid distance (mm)"
+                depends on ENABLE_MTF01
+                range 5 50
+                default 10
+                help
+                    Minimum valid distance measurement in millimeters.
+                    Distance values below this threshold are considered invalid.
+                    MTF01 default minimum: 10mm.
+
+            config MTF01_MAX_DISTANCE
+                int "MTF01 maximum valid distance (mm)"
+                depends on ENABLE_MTF01
+                range 1000 5000
+                default 2000
+                help
+                    Maximum valid distance measurement in millimeters.
+                    Distance values above this threshold are considered invalid.
+            endmenu
     endmenu
 
     menu "led config"
@@ -345,7 +416,7 @@ menu "ESPDrone Config"
             help
                 Enable SBUS protocol support for external RC receiver.
                 SBUS uses inverted UART at 100000 baud, 8E2 format.
-
+            
         config SBUS_UART_NUM
             int "SBUS UART port number"
             depends on ENABLE_SBUS
@@ -451,6 +522,7 @@ menu "ESPDrone Config"
                     Prevents drift when sticks are released to center.
         endmenu
     endmenu
+                    
 
 
 endmenu
