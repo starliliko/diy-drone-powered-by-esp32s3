@@ -163,6 +163,10 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
 
     rxCount++;
 
+    // // Debug output
+    // printf("%d, %d, %d ,%d, %d,%d\n",
+    //        distance_mm, tofStatus, flowVelX, flowVelY, flowStatus, flowQuality);
+
     // Submit ToF data to estimator
     if (distanceValid)
     {
