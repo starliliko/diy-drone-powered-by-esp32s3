@@ -339,7 +339,7 @@ PARAM_GROUP_STOP(mtf01)
 
 #else /* CONFIG_ENABLE_MTF01 not defined */
 
-#include "mtf01_task.h"
+#include "flow_mtf01.h"
 
 void mtf01TaskInit(void) {}
 bool mtf01TaskTest(void) { return false; }

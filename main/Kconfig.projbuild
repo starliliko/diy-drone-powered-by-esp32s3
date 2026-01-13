@@ -353,17 +353,6 @@ menu "ESPDrone Config"
     endmenu
 
     menu "motors config"
-        choice
-            prompt "Motor type"
-            default MOTOR_BRUSHED_715 if TARGET_ESPLANE_V1 || TARGET_ESPLANE_V2_S2
-            default MOTOR_BRUSHED_720 if TARGET_ESP32_S2_DRONE_V1_2
-            
-            config MOTOR_BRUSHED_715
-                bool "brushed 715 motor"
-    
-            config MOTOR_BRUSHED_720
-                bool "brushed 720 motor"
-        endchoice
 
         config MOTOR01_PIN
             int "MOTOR01_PIN GPIO number"
@@ -472,7 +461,7 @@ menu "ESPDrone Config"
             int "Arm switch channel (0-15)"
             depends on ENABLE_SBUS
             range 0 15
-            default 4
+            default 6
             help
                 SBUS channel for arm/disarm switch (typically channel 5, index 4)
 

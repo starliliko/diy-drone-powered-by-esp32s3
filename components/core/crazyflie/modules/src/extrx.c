@@ -52,41 +52,13 @@
 #define EXTRX_NR_CHANNELS 10
 
 /* Channel mapping - use Kconfig values or defaults */
-#ifdef CONFIG_SBUS_CH_THROTTLE
+
 #define EXTRX_CH_THRUST CONFIG_SBUS_CH_THROTTLE
-#else
-#define EXTRX_CH_THRUST 2
-#endif
-
-#ifdef CONFIG_SBUS_CH_ROLL
 #define EXTRX_CH_ROLL CONFIG_SBUS_CH_ROLL
-#else
-#define EXTRX_CH_ROLL 0
-#endif
-
-#ifdef CONFIG_SBUS_CH_PITCH
 #define EXTRX_CH_PITCH CONFIG_SBUS_CH_PITCH
-#else
-#define EXTRX_CH_PITCH 1
-#endif
-
-#ifdef CONFIG_SBUS_CH_YAW
 #define EXTRX_CH_YAW CONFIG_SBUS_CH_YAW
-#else
-#define EXTRX_CH_YAW 3
-#endif
-
-#ifdef CONFIG_SBUS_CH_ARM
 #define EXTRX_CH_ARM CONFIG_SBUS_CH_ARM
-#else
-#define EXTRX_CH_ARM 4
-#endif
-
-#ifdef CONFIG_SBUS_CH_MODE
 #define EXTRX_CH_MODE CONFIG_SBUS_CH_MODE
-#else
-#define EXTRX_CH_MODE 5
-#endif
 
 /* Control direction signs (adjust if controls are reversed) */
 #define EXTRX_SIGN_ROLL (-1)
@@ -213,17 +185,17 @@ static void extRxTask(void *param)
       /* Decode channels to setpoint */
       extRxDecodeChannels();
 
-      // /* Output VOFA FireWater format: Raw channels + Converted values */
-      // if (loopCount % 10 == 0) /* Output every 10 loops (~200ms) */
-      // {
-      //   printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%.2f,%.2f,%.2f\n",
-      //          ch[0], ch[1], ch[2], ch[3], ch[4], // Raw CH0-CH4
-      //          ch[5], ch[6], ch[7], ch[8], ch[9], // Raw CH5-CH9
-      //          extrxSetpoint.thrust,              // Thrust (float, 0-65535)
-      //          extrxSetpoint.attitude.roll,       // Roll (degrees)
-      //          extrxSetpoint.attitude.pitch,      // Pitch (degrees)
-      //          extrxSetpoint.attitude.yaw);       // Yaw (deg/s)
-      // }
+      /* Output VOFA FireWater format: Raw channels + Converted values */
+      if (loopCount % 10 == 0) /* Output every 10 loops (~200ms) */
+      {
+        printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%.2f,%.2f,%.2f\n",
+               ch[0], ch[1], ch[2], ch[3], ch[4], // Raw CH0-CH4
+               ch[5], ch[6], ch[7], ch[8], ch[9], // Raw CH5-CH9
+               extrxSetpoint.thrust,              // Thrust (float, 0-65535)
+               extrxSetpoint.attitude.roll,       // Roll (degrees)
+               extrxSetpoint.attitude.pitch,      // Pitch (degrees)
+               extrxSetpoint.attitude.yaw);       // Yaw (deg/s)
+      }
     }
     else if (!sbusIsAvailable())
     {
