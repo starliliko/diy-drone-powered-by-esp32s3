@@ -224,10 +224,10 @@ void motorsSetRatio(uint32_t id, uint16_t ithrust)
 #ifdef DEBUG_EP2
         DEBUG_PRINT_LOCAL("Motor %d: thrust=%d, pulse=%ldus\n", id, ithrust, pulse_us);
 #endif
-        // 添加实时输出
-        printf("M%d:%d ", id + 1, ithrust);
-        if (id == 3)
-            printf("\n"); // 4个电机输出完换行
+        // // 添加实时输出
+        // printf("M%d:%d ", id + 1, ithrust);
+        // if (id == 3)
+        //     printf("\n"); // 4个电机输出完换行
     }
 }
 
