@@ -192,7 +192,7 @@ static StaticSemaphore_t dataMutexBuffer;
 /**
  * Tuning parameters
  */
-#define PREDICT_RATE RATE_100_HZ // this is slower than the IMU update rate of 500Hz
+#define PREDICT_RATE RATE_500_HZ // 提高预测频率减少积分误差（原100Hz）
 #define BARO_RATE RATE_25_HZ
 #define ACCEL_ATTITUDE_RATE RATE_100_HZ // Rate for accelerometer attitude correction
 
@@ -393,6 +393,10 @@ static void kalmanTask(void *parameters)
       accAvg.x = accAccumulator.x / accAccumulatorCount;
       accAvg.y = accAccumulator.y / accAccumulatorCount;
       accAvg.z = accAccumulator.z / accAccumulatorCount;
+
+      // 重要：清零累加器，避免重复使用旧数据
+      accAccumulator = (Axis3f){.axis = {0}};
+      accAccumulatorCount = 0;
       xSemaphoreGive(dataMutex);
 
       // Standard deviation for accelerometer attitude measurement (tunable)

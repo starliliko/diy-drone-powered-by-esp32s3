@@ -549,9 +549,10 @@ static bool processAccScale(int16_t ax, int16_t ay, int16_t az)
 #ifdef GYRO_DYNAMIC_CALIBRATION_ENABLED
 /**
  * 陀螺仪动态校准更新函数
- * 使用低通滤波器在着陆且静止时持续更新零点偏差，适应温漂变化
+ * 使用低通滤波器在静止时持续更新零点偏差，适应温漂变化
+ * 改进：基于陀螺仪实际数据检测静止状态，而不仅依赖飞行标志
  *
- * @param gx, gy, gz 陀螺仪原始读数
+ * @param gx, gy, gz 陀螺仪原始读数（LSB）
  * @param quadIsFlying 飞行状态标志
  */
 static void gyroDynamicCalibUpdate(int16_t gx, int16_t gy, int16_t gz, bool quadIsFlying)
@@ -561,29 +562,43 @@ static void gyroDynamicCalibUpdate(int16_t gx, int16_t gy, int16_t gz, bool quad
         return; // 动态校准未使能
     }
 
-    uint32_t currentTime = xTaskGetTickCount();
+    // 基于陀螺仪数据判断是否静止
+    // 计算陀螺仪读数与当前偏置的偏差
+    float dx = (float)(gx)-gyroBias.x;
+    float dy = (float)(gy)-gyroBias.y;
+    float dz = (float)(gz)-gyroBias.z;
 
-    // 检测着陆状态变化
-    if (!quadIsFlying && !isLanded)
-    {
-        // 刚着陆：记录时间戳
-        landedTime = currentTime;
-        isLanded = true;
-    }
-    else if (quadIsFlying && isLanded)
-    {
-        // 刚起飞：重置状态
-        isLanded = false;
-    }
+    // 角速度幅值（LSB单位），静止时应接近0
+    float gyroMagnitude = sqrtf(dx * dx + dy * dy + dz * dz);
 
-    // 仅在着陆且超过延迟时间后进行动态校准
-    if (isLanded && (currentTime - landedTime > GYRO_DYNAMIC_CALIB_DELAY_MS))
+    // 静止阈值：约 5°/s 对应的 LSB 值（保守设置避免误判）
+    // 2000DPS量程下：1 LSB = 2000/32768 ≈ 0.061°/s
+    // 5°/s ≈ 82 LSB
+    const float STATIC_THRESHOLD_LSB = 80.0f; // 约 5°/s
+
+    static uint32_t staticCount = 0;
+    const uint32_t STATIC_CONFIRM_COUNT = 800; // 约 0.8秒 @ 1kHz（充分确认静止）
+
+    if (gyroMagnitude < STATIC_THRESHOLD_LSB)
     {
-        // 使用低通滤波器更新零点偏差（一阶IIR滤波）
-        // bias_new = bias_old + α * (gyro_raw - bias_old)
-        gyroBias.x += gyroDynamicCalibAlpha * (gx - gyroBias.x);
-        gyroBias.y += gyroDynamicCalibAlpha * (gy - gyroBias.y);
-        gyroBias.z += gyroDynamicCalibAlpha * (gz - gyroBias.z);
+        staticCount++;
+        if (staticCount > STATIC_CONFIRM_COUNT)
+        {
+            // 确认静止，进行偏置更新
+            // 使用更大的 alpha 加速收敛（静止时可以更激进）
+            float alpha = gyroDynamicCalibAlpha * 2.0f;
+            gyroBias.x += alpha * dx;
+            gyroBias.y += alpha * dy;
+            gyroBias.z += alpha * dz;
+
+            // 防止计数器溢出
+            staticCount = STATIC_CONFIRM_COUNT + 1;
+        }
+    }
+    else
+    {
+        // 运动中，重置静止计数
+        staticCount = 0;
     }
 }
 #endif

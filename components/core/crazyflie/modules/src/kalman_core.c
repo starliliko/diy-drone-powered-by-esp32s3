@@ -142,7 +142,7 @@ static float measNoiseBaro = 2.0f; // meters
 // BMI088: 增大测量噪声=减少加速度计校正强度，允许维持非水平姿态
 // 注意：这会增加长期漂移，需要配合ROLLPITCH_ZERO_REVERSION使用
 static float measNoiseGyro_rollpitch = 2.0f; // radians per second (增大=减弱重力校正)
-static float measNoiseGyro_yaw = 0.5f;       // radians per second
+static float measNoiseGyro_yaw = 0.1f;       // radians per second (降低=减少YAW协方差增长)
 
 static float initialX = 0.0;
 static float initialY = 0.0;
