@@ -61,7 +61,6 @@ void estimatorKalmanInit(void);
 bool estimatorKalmanTest(void);
 void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
 
-
 void estimatorKalmanTaskInit();
 bool estimatorKalmanTaskTest();
 
@@ -75,14 +74,19 @@ bool estimatorKalmanEnqueueDistance(const distanceMeasurement_t *dist);
 bool estimatorKalmanEnqueueTOF(const tofMeasurement_t *tof);
 bool estimatorKalmanEnqueueAbsoluteHeight(const heightMeasurement_t *height);
 bool estimatorKalmanEnqueueFlow(const flowMeasurement_t *flow);
-bool estimatorKalmanEnqueueYawError(const yawErrorMeasurement_t* error);
-//bool estimatorKalmanEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
+bool estimatorKalmanEnqueueYawError(const yawErrorMeasurement_t *error);
+// bool estimatorKalmanEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
 
-void estimatorKalmanGetEstimatedPos(point_t* pos);
+void estimatorKalmanGetEstimatedPos(point_t *pos);
 
 /**
  * Copies 9 floats representing the current state rotation matrix
  */
-void estimatorKalmanGetEstimatedRot(float * rotationMatrix);
+void estimatorKalmanGetEstimatedRot(float *rotationMatrix);
+
+/**
+ * 飞行状态标志（供其他模块访问，如传感器动态校准）
+ */
+extern bool quadIsFlying;
 
 #endif // __ESTIMATOR_KALMAN_H__

@@ -231,7 +231,7 @@ static uint32_t accAccumulatorCount;
 static uint32_t thrustAccumulatorCount;
 static uint32_t gyroAccumulatorCount;
 static uint32_t baroAccumulatorCount;
-static bool quadIsFlying = false;
+bool quadIsFlying = false; // 非静态，供传感器模块访问
 static uint32_t lastFlightCmd;
 static uint32_t takeoffTime;
 
