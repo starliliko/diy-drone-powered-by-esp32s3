@@ -212,9 +212,27 @@ static void sensorsTask(void *param)
             interruptCount++;
             sensorData.interruptTimestamp = imuIntTimestamp;
 
-            // 读取BMI088数据
-            bmi088_get_gyro_data(&gyroRaw.x, &gyroRaw.y, &gyroRaw.z);
-            bmi088_get_accel_data(&accelRaw.x, &accelRaw.y, &accelRaw.z);
+            // 读取BMI088原始数据
+            int16_t raw_ax, raw_ay, raw_az;
+            int16_t raw_gx, raw_gy, raw_gz;
+            bmi088_get_gyro_data(&raw_gx, &raw_gy, &raw_gz);
+            bmi088_get_accel_data(&raw_ax, &raw_ay, &raw_az);
+
+            // === 轴向重映射 ===
+            // 根据BMI088安装方向调整坐标系，使其符合Crazyflie坐标系：
+            // Crazyflie: X=前, Y=左, Z=上; 静止水平时acc=(0,0,+1g)
+            // 实测: 水平时 raw_az ≈ +5400 (正值), 所以Z轴不需要取反
+            accelRaw.x = raw_ax; // 直接使用原始轴向
+            accelRaw.y = raw_ay;
+            accelRaw.z = raw_az; // Z轴保持正向（水平时为+1g）
+
+            gyroRaw.x = raw_gx; // 陀螺仪轴向映射需与加速度计一致
+            gyroRaw.y = raw_gy;
+            gyroRaw.z = raw_gz;
+
+            // 调试输出已禁用（减少串口负载）
+            // static uint16_t rawDebugCount = 0;
+            // if (++rawDebugCount >= 100) { ... }
 
             // 数据读取完成后重新启用中断(电平触发模式需要)
             gpio_intr_enable(BMI088_INT1_PIN);

@@ -372,12 +372,12 @@ BaseType_t sbusReadFrame(sbusFrame_t *frame, uint32_t timeoutMs)
                     if (frame->frameLost)
                         frameLostCount++;
 
-                    /* Print stats every 500 frames */
-                    if (framesReceived % 500 == 0)
-                    {
-                        printf("[SBUS] Stats: Total=%lu Valid=%lu Invalid=%lu FS=%lu FL=%lu\n",
-                               framesReceived, framesValid, framesInvalid, failsafeCount, frameLostCount);
-                    }
+                    // /* Print stats every 500 frames */
+                    // if (framesReceived % 500 == 0)
+                    // {
+                    //     printf("[SBUS] Stats: Total=%lu Valid=%lu Invalid=%lu FS=%lu FL=%lu\n",
+                    //            framesReceived, framesValid, framesInvalid, failsafeCount, frameLostCount);
+                    // }
 #endif
 
 #if SBUS_DEBUG_FRAMES

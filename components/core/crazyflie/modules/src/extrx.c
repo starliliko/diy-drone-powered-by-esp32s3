@@ -163,12 +163,12 @@ static void extRxTask(void *param)
 #ifdef CONFIG_ENABLE_SBUS
     loopCount++;
 
-    /* Print status every 1000 loops (~20 seconds) */
-    if (loopCount % 1000 == 0)
-    {
-      printf("[EXTRX] Active: loops=%lu, armed=%d, thr=%d\n",
-             loopCount, isArmed, extrxSetpoint.thrust);
-    }
+    // /* Print status every 1000 loops (~20 seconds) */
+    // if (loopCount % 1000 == 0)
+    // {
+    //   printf("[EXTRX] Active: loops=%lu, armed=%d, thr=%d\n",
+    //          loopCount, isArmed, extrxSetpoint.thrust);
+    // }
 
     /* Read SBUS frame (blocking with timeout) */
     if (sbusReadFrame(&frame, 20) == pdTRUE)
