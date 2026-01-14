@@ -40,7 +40,7 @@
 #define SENSORS_DELAY_BARO (SENSORS_READ_RATE_HZ / SENSORS_READ_BARO_HZ) // 气压计读取延迟
 
 #define SENSORS_BMI088_GYRO_FS_CFG BMI088_CONFIG_GYRO_RANGE
-#define SENSORS_BMI088_GYRO_RANGE_DPS 1000.0f                                              // 陀螺仪量程（度每秒）
+#define SENSORS_BMI088_GYRO_RANGE_DPS 2000.0f                                              // 陀螺仪量程（度每秒）
 #define SENSORS_BMI088_DEG_PER_LSB_CFG ((2.0f * SENSORS_BMI088_GYRO_RANGE_DPS) / 65536.0f) // 每LSB对应的度数
 
 #define SENSORS_BMI088_ACCEL_FS_CFG BMI088_CONFIG_ACC_RANGE // 加速度计量程配置

@@ -190,14 +190,11 @@ void systemTask(void *arg)
 #endif
 
   // 选择估计器：
-  // - complementaryEstimator: 使用Mahony AHRS，加速度计直接校正姿态，不依赖外部传感器
-  // - kalmanEstimator: 需要TOF/光流等外部传感器校正，否则会漂移
-#ifdef CONFIG_ENABLE_MTF01
-  StateEstimatorType estimator = kalmanEstimator; // 有光流模块，使用卡尔曼
+  // - kalmanEstimator: 使用卡尔曼滤波器，现已添加加速度计姿态校正，无需外部传感器也能正常工作
+  // - complementaryEstimator: 使用Mahony AHRS互补滤波
+  StateEstimatorType estimator = kalmanEstimator;
   estimatorKalmanTaskInit();
-#else
-  StateEstimatorType estimator = complementaryEstimator; // 无光流，使用互补滤波
-#endif
+
   // deckInit();
   // estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator); // 稳定器初始化

@@ -337,16 +337,16 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
 
       compressState(); // 压缩状态数据以便传输
 
-      // 输出姿态和传感器数据 (10Hz)
-      static uint16_t debugCount = 0;
-      if (++debugCount >= 100)
-      {
-        printf("RPY: %.1f,%.1f,%.1f | ACC: %.2f,%.2f,%.2f | GYRO: %.1f,%.1f,%.1f\n",
-               state.attitude.roll, state.attitude.pitch, state.attitude.yaw,
-               sensorData.acc.x, sensorData.acc.y, sensorData.acc.z,
-               sensorData.gyro.x, sensorData.gyro.y, sensorData.gyro.z);
-        debugCount = 0;
-      }
+      // // 输出姿态和传感器数据 (10Hz)
+      // static uint16_t debugCount = 0;
+      // if (++debugCount >= 100)
+      // {
+      //   printf("RPY: %.1f,%.1f,%.1f | ACC: %.2f,%.2f,%.2f | GYRO: %.1f,%.1f,%.1f\n",
+      //          state.attitude.roll, state.attitude.pitch, state.attitude.yaw,
+      //          sensorData.acc.x, sensorData.acc.y, sensorData.acc.z,
+      //          sensorData.gyro.x, sensorData.gyro.y, sensorData.gyro.z);
+      //   debugCount = 0;
+      // }
 
       // // 主动读取气压计数据（因为 estimator 内部 useBaroUpdate=false 不会读取）
       // sensorsReadBaro(&sensorData.baro);
@@ -361,6 +361,7 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       //          sensorData.baro.pressure, sensorData.baro.temperature);
       //   altOutputCount = 0;
       // }
+      printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
 
       commanderGetSetpoint(&setpoint, &state); // 获取目标设定点
       compressSetpoint();                      // 压缩设定点数据以便传输

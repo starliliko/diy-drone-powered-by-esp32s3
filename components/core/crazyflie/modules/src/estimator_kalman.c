@@ -194,6 +194,7 @@ static StaticSemaphore_t dataMutexBuffer;
  */
 #define PREDICT_RATE RATE_100_HZ // this is slower than the IMU update rate of 500Hz
 #define BARO_RATE RATE_25_HZ
+#define ACCEL_ATTITUDE_RATE RATE_100_HZ // Rate for accelerometer attitude correction
 
 // the point at which the dynamics change from stationary to flying
 #define IN_FLIGHT_THRUST_THRESHOLD (GRAVITY_MAGNITUDE * 0.1f)
@@ -302,6 +303,7 @@ static void kalmanTask(void *parameters)
   uint32_t nextPrediction = xTaskGetTickCount();
   uint32_t lastPNUpdate = xTaskGetTickCount();
   uint32_t nextBaroUpdate = xTaskGetTickCount();
+  uint32_t nextAccelAttitudeUpdate = xTaskGetTickCount();
 
   rateSupervisorInit(&rateSupervisorContext, xTaskGetTickCount(), M2T(1000), 99, 101, 1);
 
@@ -378,6 +380,29 @@ static void kalmanTask(void *parameters)
 
         STATS_CNT_RATE_EVENT(&baroUpdateCounter);
       }
+    }
+
+    /**
+     * Update attitude using accelerometer (gravity direction)
+     * This provides attitude correction when no external sensors (TOF/flow) are available
+     */
+    if (osTick > nextAccelAttitudeUpdate && accAccumulatorCount > 0)
+    {
+      xSemaphoreTake(dataMutex, portMAX_DELAY);
+      Axis3f accAvg;
+      accAvg.x = accAccumulator.x / accAccumulatorCount;
+      accAvg.y = accAccumulator.y / accAccumulatorCount;
+      accAvg.z = accAccumulator.z / accAccumulatorCount;
+      xSemaphoreGive(dataMutex);
+
+      // Standard deviation for accelerometer attitude measurement (tunable)
+      // Lower value = trust accelerometer more (0.05 = strong correction)
+      // Higher value = trust gyro integration more (1.0 = weak correction)
+      const float accelAttitudeStdDev = 0.05f;
+      kalmanCoreUpdateWithAccel(&coreData, &accAvg, accelAttitudeStdDev);
+
+      nextAccelAttitudeUpdate = osTick + S2T(1.0f / ACCEL_ATTITUDE_RATE);
+      doneUpdate = true;
     }
 
     {

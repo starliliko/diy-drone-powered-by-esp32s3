@@ -595,6 +595,57 @@ void kalmanCoreUpdateWithYawError(kalmanCoreData_t *this, yawErrorMeasurement_t 
   scalarUpdate(this, &H, this->S[KC_STATE_D2] - error->yawError, error->stdDev);
 }
 
+/**
+ * Update the attitude using accelerometer measurements (gravity direction)
+ * This corrects Roll and Pitch when no external sensors (TOF/flow) are available
+ * Uses cross product error similar to Mahony AHRS
+ */
+void kalmanCoreUpdateWithAccel(kalmanCoreData_t *this, const Axis3f *acc, float stdDev)
+{
+  // Only update if accelerometer reading is valid (close to 1g magnitude)
+  float accMag = sqrtf(acc->x * acc->x + acc->y * acc->y + acc->z * acc->z);
+  if (accMag < 0.8f || accMag > 1.2f)
+  {
+    return; // Skip update during high acceleration (not just gravity)
+  }
+
+  // Normalize accelerometer reading (measured gravity direction in body frame)
+  float ax = acc->x / accMag;
+  float ay = acc->y / accMag;
+  float az = acc->z / accMag;
+
+  // Expected gravity direction in body frame from current attitude estimate
+  // This is the third column of R (which rotates body to world)
+  // transposed back to get world z-axis in body frame
+  float gx_pred = this->R[2][0];
+  float gy_pred = this->R[2][1];
+  float gz_pred = this->R[2][2];
+
+  // Cross product between measured and predicted gravity gives rotation error
+  // error = measured × predicted (axis of rotation to align predicted to measured)
+  float ex = ay * gz_pred - az * gy_pred; // Error around x-axis (roll error)
+  float ey = az * gx_pred - ax * gz_pred; // Error around y-axis (pitch error)
+  // Note: ez would be yaw error, but accelerometer cannot measure yaw
+
+  // Scale errors - these are approximately the attitude errors in radians
+  // when errors are small
+
+  float h[KC_STATE_DIM] = {0};
+  xtensa_matrix_instance_f32 H = {1, KC_STATE_DIM, h};
+
+  // Roll correction (D0)
+  h[KC_STATE_D0] = 1.0f;
+  scalarUpdate(this, &H, ex, stdDev);
+
+  // Reset H for pitch update
+  for (int i = 0; i < KC_STATE_DIM; i++)
+    h[i] = 0;
+
+  // Pitch correction (D1)
+  h[KC_STATE_D1] = 1.0f;
+  scalarUpdate(this, &H, ey, stdDev);
+}
+
 // void kalmanCoreUpdateWithSweepAngles(kalmanCoreData_t *this, sweepAngleMeasurement_t *sweepInfo, const uint32_t tick) {
 //  Rotate the sensor position from CF reference frame to global reference frame,
 //  using the CF roatation matrix
