@@ -235,12 +235,12 @@ void systemTask(void *arg)
 #endif
   // pass &= deckTest();
   // 可选测试：sound、mem、extrx 失败不影响主功能
-  // bool optionalPass = true;
-  // optionalPass &= soundTest();
-  // DEBUG_PRINTI("soundTest = %d ", optionalPass);
-  // optionalPass &= memTest();
-  // DEBUG_PRINTI("memTest = %d ", optionalPass);
-// pass &= watchdogNormalStartTest();
+  bool optionalPass = true;
+  optionalPass &= soundTest();
+  DEBUG_PRINTI("soundTest = %d ", optionalPass);
+  optionalPass &= memTest();
+  DEBUG_PRINTI("memTest = %d ", optionalPass);
+  // pass &= watchdogNormalStartTest();
 #ifdef CONFIG_ENABLE_SBUS
   optionalPass &= extRxTest();
   DEBUG_PRINTI("extRxTest = %d ", optionalPass);

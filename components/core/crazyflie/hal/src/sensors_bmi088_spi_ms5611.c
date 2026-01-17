@@ -5,7 +5,6 @@
 #include "sensors_bmi088_spi_ms5611.h"
 #include "debug_cf.h"
 #include "esp_log.h"
-#include "esp_task_wdt.h"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -287,14 +286,14 @@ static void sensorsTask(void *param)
                 sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
 
-                // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
-                static uint8_t baroLogCount = 0;
-                if (++baroLogCount >= 50)
-                {
-                    printf("%.2f, %.2f, %.2f \n",
-                           sensorData.baro.pressure, sensorData.baro.temperature, sensorData.baro.asl);
-                    baroLogCount = 0;
-                }
+                // // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
+                // static uint8_t baroLogCount = 0;
+                // if (++baroLogCount >= 50)
+                // {
+                //     printf("%.2f, %.2f, %.2f \n",
+                //            sensorData.baro.pressure, sensorData.baro.temperature, sensorData.baro.asl);
+                //     baroLogCount = 0;
+                // }
             }
         }
 
@@ -306,9 +305,6 @@ static void sensorsTask(void *param)
         }
 
         xSemaphoreGive(dataReady);
-
-        // 喂狗并让出CPU时间，防止看门狗超时
-        taskYIELD();
     }
 }
 
