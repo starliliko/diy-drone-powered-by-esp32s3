@@ -287,14 +287,14 @@ static void sensorsTask(void *param)
                 sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
 
-                // // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
-                // static uint8_t baroLogCount = 0;
-                // if (++baroLogCount >= 50)
-                // {
-                //     ESP_LOGI("MS5611", "Pressure: %.2f hPa, Temp: %.2f °C, ASL: %.2f m",
-                //              sensorData.baro.pressure, sensorData.baro.temperature, sensorData.baro.asl);
-                //     baroLogCount = 0;
-                // }
+                // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
+                static uint8_t baroLogCount = 0;
+                if (++baroLogCount >= 50)
+                {
+                    printf("%.2f, %.2f, %.2f \n",
+                           sensorData.baro.pressure, sensorData.baro.temperature, sensorData.baro.asl);
+                    baroLogCount = 0;
+                }
             }
         }
 

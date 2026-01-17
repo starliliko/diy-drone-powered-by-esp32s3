@@ -348,20 +348,7 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       //   debugCount = 0;
       // }
 
-      // // 主动读取气压计数据（因为 estimator 内部 useBaroUpdate=false 不会读取）
-      // sensorsReadBaro(&sensorData.baro);
-
-      // // 输出Kalman滤波器估计的高度和原始气压高度（10Hz）
-      // static uint16_t altOutputCount = 0;
-      // if (++altOutputCount >= 100)
-      // {
-      //   // 格式: KF_Z(m), Baro_ASL(m), Baro_Pressure(hPa), Baro_Temp(°C)
-      //   printf("ALT: KF=%.3f, Baro=%.2f, P=%.1f, T=%.1f\n",
-      //          state.position.z, sensorData.baro.asl,
-      //          sensorData.baro.pressure, sensorData.baro.temperature);
-      //   altOutputCount = 0;
-      // }
-      printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
+      // printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
 
       commanderGetSetpoint(&setpoint, &state); // 获取目标设定点
       compressSetpoint();                      // 压缩设定点数据以便传输

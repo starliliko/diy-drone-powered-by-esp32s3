@@ -63,6 +63,11 @@ static int32_t tempCache;
 static uint8_t readState = 0;
 static uint32_t lastConv = 0;
 static int32_t tempDeltaT;
+static bool conversionStarted;
+static bool allowAddrSwitch = true;
+
+static bool ms5611WriteByte(uint8_t value);
+static bool ms5611ReadBytes(uint8_t *buffer, uint8_t length);
 
 bool ms5611Init(I2C_Dev *i2cPort)
 {
@@ -79,6 +84,31 @@ bool ms5611Init(I2C_Dev *i2cPort)
 
     if (ms5611ReadPROM() == false)
     { // reads the PROM into object variables for later use
+        // 尝试备用地址(0x76)，适配 CSB 拉高的硬件
+        devAddr = MS5611_ADDR_CSB_HIGH;
+        ms5611Reset();
+        vTaskDelay(M2T(5));
+        if (ms5611ReadPROM() == false)
+        {
+            return false;
+        }
+    }
+
+    // 初始化状态机与转换状态
+    lastPresConv = 0;
+    lastTempConv = 0;
+    tempCache = 0;
+    readState = 0;
+    lastConv = 0;
+    tempDeltaT = 0;
+    conversionStarted = false;
+    allowAddrSwitch = false;
+
+    // 校验 PROM 系数是否有效（全 0 或全 0xFFFF 表示读取失败）
+    if ((calReg.psens == 0 && calReg.off == 0 && calReg.tcs == 0) ||
+        (calReg.psens == 0xFFFF && calReg.off == 0xFFFF && calReg.tcs == 0xFFFF))
+    {
+        DEBUG_PRINTI("MS5611 PROM invalid!\n");
         return false;
     }
 
@@ -136,6 +166,50 @@ bool ms5611EvaluateSelfTest(float min, float max, float value, char *string)
     }
 
     return true;
+}
+
+static bool ms5611WriteByte(uint8_t value)
+{
+    if (i2cdevWriteByte(I2Cx, devAddr, I2CDEV_NO_MEM_ADDR, value))
+    {
+        return true;
+    }
+
+    // 地址异常时，切换到备用地址重试
+    if (!allowAddrSwitch)
+    {
+        return false;
+    }
+    uint8_t altAddr = (devAddr == MS5611_ADDR_CSB_LOW) ? MS5611_ADDR_CSB_HIGH : MS5611_ADDR_CSB_LOW;
+    if (i2cdevWriteByte(I2Cx, altAddr, I2CDEV_NO_MEM_ADDR, value))
+    {
+        devAddr = altAddr;
+        return true;
+    }
+
+    return false;
+}
+
+static bool ms5611ReadBytes(uint8_t *buffer, uint8_t length)
+{
+    if (i2cdevRead(I2Cx, devAddr, length, buffer))
+    {
+        return true;
+    }
+
+    // 地址异常时，切换到备用地址重试
+    if (!allowAddrSwitch)
+    {
+        return false;
+    }
+    uint8_t altAddr = (devAddr == MS5611_ADDR_CSB_LOW) ? MS5611_ADDR_CSB_HIGH : MS5611_ADDR_CSB_LOW;
+    if (i2cdevRead(I2Cx, altAddr, length, buffer))
+    {
+        devAddr = altAddr;
+        return true;
+    }
+
+    return false;
 }
 
 float ms5611GetPressure(uint8_t osr)
@@ -280,7 +354,7 @@ int32_t ms5611RawTemperature(uint8_t osr)
 void ms5611StartConversion(uint8_t command)
 {
     // initialize pressure conversion
-    i2cdevWriteByte(I2Cx, devAddr, I2CDEV_NO_MEM_ADDR, command);
+    ms5611WriteByte(command);
 }
 
 int32_t ms5611GetConversion(uint8_t command)
@@ -289,9 +363,15 @@ int32_t ms5611GetConversion(uint8_t command)
     uint8_t buffer[MS5611_D1D2_SIZE];
 
     // start read sequence
-    i2cdevWriteByte(I2Cx, devAddr, I2CDEV_NO_MEM_ADDR, 0);
+    if (!ms5611WriteByte(0))
+    {
+        return 0;
+    }
     // Read conversion
-    i2cdevRead(I2Cx, devAddr, MS5611_D1D2_SIZE, buffer);
+    if (!ms5611ReadBytes(buffer, MS5611_D1D2_SIZE))
+    {
+        return 0;
+    }
     conversion = ((int32_t)buffer[0] << 16) |
                  ((int32_t)buffer[1] << 8) | buffer[2];
 
@@ -306,20 +386,24 @@ bool ms5611ReadPROM()
     uint8_t buffer[MS5611_PROM_REG_SIZE];
     uint16_t *pCalRegU16 = (uint16_t *)&calReg;
     int32_t i = 0;
-    bool status = false;
+    bool status = true;
 
     for (i = 0; i < MS5611_PROM_REG_COUNT; i++)
     {
         // start read sequence
-        status = i2cdevWriteByte(I2Cx, devAddr, I2CDEV_NO_MEM_ADDR,
-                                 MS5611_PROM_BASE_ADDR + (i * MS5611_PROM_REG_SIZE));
+        status = ms5611WriteByte(MS5611_PROM_BASE_ADDR + (i * MS5611_PROM_REG_SIZE));
+        if (!status)
+        {
+            break;
+        }
 
         // Read conversion
-        if (status)
+        status = ms5611ReadBytes(buffer, MS5611_PROM_REG_SIZE);
+        if (!status)
         {
-            status = i2cdevRead(I2Cx, devAddr, MS5611_PROM_REG_SIZE, buffer);
-            pCalRegU16[i] = ((uint16_t)buffer[0] << 8) | buffer[1];
+            break;
         }
+        pCalRegU16[i] = ((uint16_t)buffer[0] << 8) | buffer[1];
     }
 
     return status;
@@ -331,7 +415,7 @@ bool ms5611ReadPROM()
  */
 void ms5611Reset()
 {
-    i2cdevWriteByte(I2Cx, devAddr, I2CDEV_NO_MEM_ADDR, MS5611_RESET);
+    ms5611WriteByte(MS5611_RESET);
 }
 
 /**
@@ -347,10 +431,23 @@ void ms5611GetData(float *pressure, float *temperature, float *asl)
     // Dont reader faster than we can
     uint32_t now = xTaskGetTickCount();
 
+    // 首次调用时先启动温度转换，避免读取到未更新的 ADC 数据
+    if (!conversionStarted)
+    {
+        ms5611StartConversion(MS5611_D2 + MS5611_OSR_DEFAULT);
+        conversionStarted = true;
+        lastConv = now;
+        *pressure = savedPress;
+        *temperature = savedTemp;
+        *asl = ms5611PressureToAltitude(&savedPress);
+        return;
+    }
+
     if ((now - lastConv) < CONVERSION_TIME_MS)
     {
         *pressure = savedPress;
         *temperature = savedTemp;
+        *asl = ms5611PressureToAltitude(&savedPress);
         return;
     }
 
@@ -365,6 +462,7 @@ void ms5611GetData(float *pressure, float *temperature, float *asl)
         *temperature = ms5611CalcTemp(tempDeltaT);
         savedTemp = *temperature;
         *pressure = savedPress;
+        *asl = ms5611PressureToAltitude(&savedPress);
         // cmd to read pressure
         ms5611StartConversion(MS5611_D1 + MS5611_OSR_DEFAULT);
     }
