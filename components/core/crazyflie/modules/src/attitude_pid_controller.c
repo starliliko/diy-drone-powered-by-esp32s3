@@ -126,6 +126,15 @@ void attitudeControllerCorrectAttitudePID(
     float eulerRollDesired, float eulerPitchDesired, float eulerYawDesired,
     float *rollRateDesired, float *pitchRateDesired, float *yawRateDesired)
 {
+  // // Debug output for attitude diagnostics
+  // static uint32_t attDebugCount = 0;
+  // if (++attDebugCount % 100 == 0)
+  // {
+  //   printf("[ATT] Actual: R:%.1f P:%.1f Y:%.1f | Desired: R:%.1f P:%.1f Y:%.1f\n",
+  //          eulerRollActual, eulerPitchActual, eulerYawActual,
+  //          eulerRollDesired, eulerPitchDesired, eulerYawDesired);
+  // }
+
   pidSetDesired(&pidRoll, eulerRollDesired);
   *rollRateDesired = pidUpdate(&pidRoll, eulerRollActual, true);
 

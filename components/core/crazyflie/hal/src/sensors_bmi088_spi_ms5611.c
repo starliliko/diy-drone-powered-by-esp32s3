@@ -243,10 +243,6 @@ static void sensorsTask(void *param)
             gyroRaw.y = raw_gy;
             gyroRaw.z = raw_gz;
 
-            // 调试输出已禁用（减少串口负载）
-            // static uint16_t rawDebugCount = 0;
-            // if (++rawDebugCount >= 100) { ... }
-
             // 数据读取完成后重新启用中断(电平触发模式需要)
             gpio_intr_enable(BMI088_INT1_PIN);
             gpio_intr_enable(BMI088_INT3_PIN);
@@ -286,7 +282,7 @@ static void sensorsTask(void *param)
                 sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
 
-                // // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
+                // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
                 // static uint8_t baroLogCount = 0;
                 // if (++baroLogCount >= 50)
                 // {
