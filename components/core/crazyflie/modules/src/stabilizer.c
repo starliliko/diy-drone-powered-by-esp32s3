@@ -56,6 +56,12 @@
 #include "static_mem.h"
 #include "rateSupervisor.h"
 
+// ESP-IDF 硬件看门狗
+#include "esp_task_wdt.h"
+
+// 硬件看门狗配置
+#define STABILIZER_WDT_TIMEOUT_SEC 3 // 3秒无响应则复位
+
 static bool isInit;
 static bool emergencyStop = false;                                 // 紧急停止标志
 static int emergencyStopTimeout = EMERGENCY_STOP_TIMEOUT_DISABLED; // 紧急停止超时计数器
@@ -216,6 +222,18 @@ void stabilizerInit(StateEstimatorType estimator) // 在system.c中调用
   estimatorType = getStateEstimator();
   controllerType = getControllerType();
 
+  // 初始化ESP-IDF任务看门狗（Task Watchdog Timer）
+  // 如果stabilizer任务在指定时间内没有喂狗，系统会触发警告或复位
+#ifdef CONFIG_ESP_TASK_WDT_EN
+  esp_task_wdt_config_t twdt_config = {
+      .timeout_ms = STABILIZER_WDT_TIMEOUT_SEC * 1000,
+      .idle_core_mask = 0,   // 不监控空闲任务
+      .trigger_panic = true, // 超时触发panic（重启）
+  };
+  esp_task_wdt_reconfigure(&twdt_config);
+  DEBUG_PRINT("Hardware watchdog configured: %d sec timeout\n", STABILIZER_WDT_TIMEOUT_SEC);
+#endif
+
   STATIC_MEM_TASK_CREATE(stabilizerTask, stabilizerTask, STABILIZER_TASK_NAME, NULL, STABILIZER_TASK_PRI);
 
   isInit = true;
@@ -266,6 +284,12 @@ static void stabilizerTask(void *param)
   vTaskSetApplicationTaskTag(0, (void *)TASK_STABILIZER_ID_NBR);
 #endif
 #endif // 设置任务标签
+
+  // 将当前任务添加到看门狗监控
+#ifdef CONFIG_ESP_TASK_WDT_EN
+  esp_task_wdt_add(NULL); // NULL表示当前任务
+  DEBUG_PRINT("Stabilizer task added to hardware watchdog\n");
+#endif
 
   // Wait for the system to be fully started to start stabilization loop
   systemWaitStart();
@@ -383,6 +407,11 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
     calcSensorToOutputLatency(&sensorData); // 计算从传感器数据采集到电机输出的完整延迟时间
     tick++;
     STATS_CNT_RATE_EVENT(&stabilizerRate); // 统计稳定器循环频率
+
+    // 喂狗 - 证明stabilizer任务正常运行
+#ifdef CONFIG_ESP_TASK_WDT_EN
+    esp_task_wdt_reset();
+#endif
 
     if (!rateSupervisorValidate(&rateSupervisorContext, xTaskGetTickCount()))
     {

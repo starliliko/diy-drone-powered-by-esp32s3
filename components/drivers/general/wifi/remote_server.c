@@ -45,6 +45,22 @@
 #include "debug_cf.h"
 
 /*===========================================================================
+ * 辅助宏
+ *===========================================================================*/
+
+#ifndef CLAMP
+#define CLAMP(x, min, max) ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
+#endif
+
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+
+/*===========================================================================
  * 配置参数
  *===========================================================================*/
 
@@ -126,6 +142,20 @@ static void handleControlPacket(const uint8_t *data, uint16_t size);
 static void handleCRTPPacket(const uint8_t *data, uint16_t size);
 static bool sendPacketInternal(RemotePacketType type, const uint8_t *data, uint16_t size);
 static void updateConnectionState(RemoteConnectionState newState);
+static bool validateControlCmd(const RemoteControlCmd *cmd);
+
+/*===========================================================================
+ * 控制指令安全限制
+ *===========================================================================*/
+
+#define REMOTE_MAX_ROLL_RAW 4500     // ±45度 * 100
+#define REMOTE_MAX_PITCH_RAW 4500    // ±45度 * 100
+#define REMOTE_MAX_YAW_RATE_RAW 2000 // ±200度/秒 * 10
+#define REMOTE_MAX_THRUST 60000      // 留10%安全裕度
+#define REMOTE_MIN_THRUST 0
+
+// 统计变量
+static uint32_t invalidCmdCount = 0;
 
 /*===========================================================================
  * 公开 API 实现
@@ -164,7 +194,7 @@ void remoteServerStart(void)
     }
 
     DEBUG_PRINT("Starting remote server tasks\n");
-    
+
     // 创建任务
     xTaskCreate(remoteServerRxTask, REMOTE_RX_TASK_NAME, REMOTE_RX_TASK_STACK,
                 NULL, REMOTE_RX_TASK_PRI, NULL);
@@ -172,7 +202,7 @@ void remoteServerStart(void)
                 NULL, REMOTE_TX_TASK_PRI, NULL);
     xTaskCreate(remoteServerTelemetryTask, REMOTE_TELEM_TASK_NAME, REMOTE_TELEM_TASK_STACK,
                 NULL, REMOTE_TELEM_TASK_PRI, NULL);
-    
+
     DEBUG_PRINT("Remote server tasks started\n");
 }
 
@@ -568,10 +598,19 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
 {
     if (size < sizeof(RemoteControlCmd))
     {
+        DEBUG_PRINT("Control packet too small: %d\n", size);
         return;
     }
 
     const RemoteControlCmd *cmd = (const RemoteControlCmd *)data;
+
+    // 输入验证
+    if (!validateControlCmd(cmd))
+    {
+        invalidCmdCount++;
+        DEBUG_PRINT("Invalid control command rejected (total: %lu)\n", invalidCmdCount);
+        return;
+    }
 
     // 如果注册了回调，调用回调
     if (controlCallback)
@@ -588,20 +627,24 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         setpoint.mode.roll = modeAbs;
         setpoint.mode.pitch = modeAbs;
         setpoint.mode.yaw = modeVelocity;
-        setpoint.attitude.roll = cmd->roll / 100.0f;
-        setpoint.attitude.pitch = cmd->pitch / 100.0f;
-        setpoint.attitudeRate.yaw = cmd->yaw / 10.0f;
-        setpoint.thrust = cmd->thrust;
-        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
+        // 钳位到安全范围
+        setpoint.attitude.roll = ((float)CLAMP(cmd->roll, -REMOTE_MAX_ROLL_RAW, REMOTE_MAX_ROLL_RAW)) / 100.0f;
+        setpoint.attitude.pitch = ((float)CLAMP(cmd->pitch, -REMOTE_MAX_PITCH_RAW, REMOTE_MAX_PITCH_RAW)) / 100.0f;
+        setpoint.attitudeRate.yaw = ((float)CLAMP(cmd->yaw, -REMOTE_MAX_YAW_RATE_RAW, REMOTE_MAX_YAW_RATE_RAW)) / 10.0f;
+        setpoint.thrust = CLAMP(cmd->thrust, REMOTE_MIN_THRUST, REMOTE_MAX_THRUST);
+        // 使用新的REMOTE优先级（高于普通CRTP）
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
         break;
 
     case CTRL_CMD_EMERGENCY:
-        // 紧急停机
+        // 紧急停机 - 最高优先级立即执行
         setpoint.thrust = 0;
         setpoint.mode.roll = modeDisable;
         setpoint.mode.pitch = modeDisable;
         setpoint.mode.yaw = modeDisable;
-        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
+        // 紧急停机使用EXTRX优先级确保能覆盖任何控制
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+        DEBUG_PRINT("EMERGENCY STOP received!\n");
         break;
 
     case CTRL_CMD_HOVER:
@@ -611,13 +654,74 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         setpoint.mode.z = modeAbs;
         setpoint.velocity.x = 0;
         setpoint.velocity.y = 0;
-        setpoint.position.z = cmd->thrust / 1000.0f; // 目标高度（米）
-        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
+        // 高度限制在合理范围内 (0.1m - 3m)
+        {
+            float targetHeight = cmd->thrust / 1000.0f;
+            targetHeight = (targetHeight < 0.1f) ? 0.1f : ((targetHeight > 3.0f) ? 3.0f : targetHeight);
+            setpoint.position.z = targetHeight;
+        }
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
+        break;
+
+    case CTRL_CMD_LAND:
+        // 降落模式
+        setpoint.mode.z = modeVelocity;
+        setpoint.velocity.z = -0.3f; // 下降速度 0.3m/s
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
+        DEBUG_PRINT("LAND command received\n");
+        break;
+
+    case CTRL_CMD_DISARM:
+        // 锁定电机
+        setpoint.thrust = 0;
+        setpoint.mode.roll = modeDisable;
+        setpoint.mode.pitch = modeDisable;
+        setpoint.mode.yaw = modeDisable;
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
+        DEBUG_PRINT("DISARM command received\n");
         break;
 
     default:
+        DEBUG_PRINT("Unknown control command type: %d\n", cmd->cmdType);
         break;
     }
+}
+
+/**
+ * @brief 验证控制指令是否在安全范围内
+ */
+static bool validateControlCmd(const RemoteControlCmd *cmd)
+{
+    if (cmd == NULL)
+    {
+        return false;
+    }
+
+    // 检查指令类型是否有效
+    if (cmd->cmdType > CTRL_CMD_DISARM)
+    {
+        return false;
+    }
+
+    // 对于RPYT模式，检查范围（允许一定裕度）
+    if (cmd->cmdType == CTRL_CMD_RPYT)
+    {
+        // 超出范围200%视为无效（可能是数据损坏）
+        if (abs(cmd->roll) > REMOTE_MAX_ROLL_RAW * 2 ||
+            abs(cmd->pitch) > REMOTE_MAX_PITCH_RAW * 2 ||
+            abs(cmd->yaw) > REMOTE_MAX_YAW_RATE_RAW * 2)
+        {
+            return false;
+        }
+
+        // 推力超出最大值150%视为无效
+        if (cmd->thrust > 65535)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static void handleCRTPPacket(const uint8_t *data, uint16_t size)
@@ -690,6 +794,7 @@ LOG_GROUP_START(remote)
 LOG_ADD(LOG_UINT8, connected, &logConnected)
 LOG_ADD(LOG_UINT16, txRate, &logTxRate)
 LOG_ADD(LOG_UINT16, rxRate, &logRxRate)
+LOG_ADD(LOG_UINT32, invalidCmd, &invalidCmdCount)
 LOG_GROUP_STOP(remote)
 
 #endif /* CONFIG_REMOTE_SERVER_ENABLE */
