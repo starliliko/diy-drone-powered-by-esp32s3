@@ -23,9 +23,6 @@
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
 #include "esp_mac.h"
 #endif
-#include "espnow.h"
-#include "espnow_ctrl.h"
-#include "espnow_utils.h"
 
 #ifdef CONFIG_REMOTE_SERVER_ENABLE
 #include "remote_server.h"
@@ -274,57 +271,6 @@ static void udp_server_tx_task(void *pvParameters)
     }
 }
 
-static void espnow_ctrl_data_cb(espnow_attribute_t initiator_attribute,
-                                espnow_attribute_t responder_attribute,
-                                uint32_t status1,
-                                int status2,
-                                int lx_value,
-                                int ly_value,
-                                int rx_value,
-                                int ry_value,
-                                int channel_one_value,
-                                int channel_two_value)
-{
-    UDPPacket inPacket;
-    inPacket.size = 7;
-    inPacket.data[0] = 'n';
-    inPacket.data[1] = 'o';
-    inPacket.data[2] = 'w';
-    inPacket.data[3] = lx_value & 0xFF;
-    inPacket.data[4] = ly_value & 0xFF;
-    inPacket.data[5] = ry_value & 0xFF;
-    inPacket.data[6] = rx_value & 0xFF;
-    xQueueSend(udpDataRx, &inPacket, 0);
-}
-
-static void app_espnow_event_handler(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
-{
-    if (base != ESP_EVENT_ESPNOW)
-    {
-        return;
-    }
-
-    switch (id)
-    {
-    case ESP_EVENT_ESPNOW_CTRL_BIND:
-    {
-        espnow_ctrl_bind_info_t *info = (espnow_ctrl_bind_info_t *)event_data;
-        DEBUG_PRINT_LOCAL("bind, uuid: " MACSTR ", initiator_type: %d", MAC2STR(info->mac), info->initiator_attribute);
-        break;
-    }
-
-    case ESP_EVENT_ESPNOW_CTRL_UNBIND:
-    {
-        espnow_ctrl_bind_info_t *info = (espnow_ctrl_bind_info_t *)event_data;
-        DEBUG_PRINT_LOCAL("unbind, uuid: " MACSTR ", initiator_type: %d", MAC2STR(info->mac), info->initiator_attribute);
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
 void wifiInit(void)
 {
     if (isInit)
@@ -336,8 +282,6 @@ void wifiInit(void)
     DEBUG_QUEUE_MONITOR_REGISTER(udpDataRx);
     udpDataTx = xQueueCreate(16, sizeof(UDPPacket));
     DEBUG_QUEUE_MONITOR_REGISTER(udpDataTx);
-
-    espnow_storage_init();
 
 #ifdef CONFIG_WIFI_ENABLE_STA_MODE
     // ============ STA+AP 模式 ============
@@ -443,14 +387,6 @@ void wifiInit(void)
         DEBUG_PRINT_LOCAL("STA connection timeout, AP mode still available");
     }
 
-    // ESP-NOW 初始化
-    esp_wifi_set_channel(WIFI_CH, WIFI_SECOND_CHAN_NONE);
-    espnow_config_t espnow_config = ESPNOW_INIT_CONFIG_DEFAULT();
-    espnow_init(&espnow_config);
-    esp_event_handler_register(ESP_EVENT_ESPNOW, ESP_EVENT_ANY_ID, app_espnow_event_handler, NULL);
-    ESP_ERROR_CHECK(espnow_ctrl_responder_bind(30 * 1000, -55, NULL));
-    espnow_ctrl_responder_data(espnow_ctrl_data_cb);
-
 #else
     // ============ 仅 AP 模式（原有逻辑）============
     esp_netif_t *ap_netif = NULL;
@@ -491,12 +427,6 @@ void wifiInit(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_channel(WIFI_CH, WIFI_SECOND_CHAN_NONE);
-    espnow_config_t espnow_config = ESPNOW_INIT_CONFIG_DEFAULT();
-    espnow_init(&espnow_config);
-    esp_event_handler_register(ESP_EVENT_ESPNOW, ESP_EVENT_ANY_ID, app_espnow_event_handler, NULL);
-    ESP_ERROR_CHECK(espnow_ctrl_responder_bind(30 * 1000, -55, NULL));
-    espnow_ctrl_responder_data(espnow_ctrl_data_cb);
     esp_netif_ip_info_t ip_info = {
         .ip.addr = ipaddr_addr("192.168.43.42"),
         .netmask.addr = ipaddr_addr("255.255.255.0"),
