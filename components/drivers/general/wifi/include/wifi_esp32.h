@@ -2,9 +2,10 @@
 #define WIFI_ESP32_H_
 #include <stdbool.h>
 #include <stdint.h>
+#include "sdkconfig.h"
 
 // 32 bytes is enough for CRTP packets (30+1) + checksum 1
-#define WIFI_RX_TX_PACKET_SIZE   (32)
+#define WIFI_RX_TX_PACKET_SIZE (32)
 
 /* Structure used for in/out data via USB */
 typedef struct
@@ -32,7 +33,7 @@ bool wifiTest(void);
  *
  * @return Address of the crtp link operations structure.
  */
-//struct crtpLinkOperations * wifiGetLink();
+// struct crtpLinkOperations * wifiGetLink();
 
 /**
  * Get data from rx queue with timeout.
@@ -51,6 +52,15 @@ bool wifiGetDataBlocking(UDPPacket *in);
  *
  * @note If WIFI Crtp link is activated this function does nothing
  */
-bool wifiSendData(uint32_t size, uint8_t* data);
+bool wifiSendData(uint32_t size, uint8_t *data);
+
+#ifdef CONFIG_WIFI_ENABLE_STA_MODE
+/**
+ * Check if STA is connected to router
+ *
+ * @return true if connected to router
+ */
+bool wifiIsSTAConnected(void);
+#endif
 
 #endif

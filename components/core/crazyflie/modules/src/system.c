@@ -67,6 +67,10 @@
 #include "cfassert.h"
 #include "extrx.h"
 
+#ifdef CONFIG_REMOTE_SERVER_ENABLE
+#include "remote_server.h"
+#endif
+
 #ifndef START_DISARMED
 #define ARM_INIT true
 #else
@@ -214,6 +218,10 @@ void systemTask(void *arg)
   mtf01TaskInit(); // MTF01 光流/测距模块初始化
 #endif
 
+#ifdef CONFIG_REMOTE_SERVER_ENABLE
+  remoteServerInit(); // 远程服务器资源初始化
+#endif
+
   // 测试每个模块
   pass &= wifiTest();
   DEBUG_PRINTI("wifilinkTest = %d ", pass);
@@ -249,6 +257,12 @@ void systemTask(void *arg)
   pass &= mtf01TaskTest();
   DEBUG_PRINTI("mtf01TaskTest = %d ", pass);
 #endif
+
+#ifdef CONFIG_REMOTE_SERVER_ENABLE
+  pass &= remoteServerTest();
+  DEBUG_PRINTI("remoteServerTest = %d ", pass);
+#endif
+
   pass &= cfAssertNormalStartTest();
   //  pass &= peerLocalizationTest();
 
@@ -262,6 +276,20 @@ void systemTask(void *arg)
     systemStart(); // 启动系统
     ESP_LOGI("SYS", "[SYSTEM] systemStart() returned");
     DEBUG_PRINTI("systemStart ! selftestPassed = %d", selftestPassed);
+    
+#if defined(CONFIG_REMOTE_SERVER_ENABLE) && defined(CONFIG_WIFI_ENABLE_STA_MODE)
+    // 启动远程服务器任务（需要 STA 模式连接成功）
+    if (wifiIsSTAConnected())
+    {
+      ESP_LOGI("SYS", "Starting remote server tasks...");
+      remoteServerStart();
+    }
+    else
+    {
+      ESP_LOGI("SYS", "STA not connected, remote server disabled");
+    }
+#endif
+    
     soundSetEffect(SND_STARTUP); // 播放启动音效
     ledseqRun(&seq_alive);       // 运行存活LED灯效果
     ledseqRun(&seq_testPassed);

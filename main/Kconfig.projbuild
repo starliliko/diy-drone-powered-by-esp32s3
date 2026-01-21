@@ -73,6 +73,84 @@ menu "ESPDrone Config"
             default 3
             help
                 Wi-Fi Max Station Connection, 1-6
+
+        menu "STA Mode & Remote Server"
+            config WIFI_ENABLE_STA_MODE
+                bool "Enable STA+AP Mode (connect to router)"
+                default n
+                help
+                    Enable STA+AP mode. The drone will connect to a router for internet access
+                    while still providing AP for local control.
+
+            config WIFI_STA_SSID
+                string "Router SSID to connect"
+                depends on WIFI_ENABLE_STA_MODE
+                default "YourRouterSSID"
+                help
+                    The SSID of the router to connect to.
+
+            config WIFI_STA_PASSWORD
+                string "Router Password"
+                depends on WIFI_ENABLE_STA_MODE
+                default "YourRouterPassword"
+                help
+                    The password of the router to connect to.
+
+            config WIFI_STA_RETRY_MAX
+                int "STA connection retry count"
+                depends on WIFI_ENABLE_STA_MODE
+                range 3 20
+                default 10
+                help
+                    Maximum number of retries to connect to the router.
+
+            config REMOTE_SERVER_ENABLE
+                bool "Enable Remote Server Connection"
+                depends on WIFI_ENABLE_STA_MODE
+                default n
+                help
+                    Enable TCP connection to a remote server for telemetry upload
+                    and remote control.
+
+            config REMOTE_SERVER_IP
+                string "Remote Server IP Address"
+                depends on REMOTE_SERVER_ENABLE
+                default "192.168.1.100"
+                help
+                    IP address of the remote server.
+
+            config REMOTE_SERVER_PORT
+                int "Remote Server Port"
+                depends on REMOTE_SERVER_ENABLE
+                range 1 65535
+                default 8080
+                help
+                    TCP port of the remote server.
+
+            config REMOTE_SERVER_RECONNECT_INTERVAL
+                int "Reconnect interval (seconds)"
+                depends on REMOTE_SERVER_ENABLE
+                range 1 60
+                default 5
+                help
+                    Interval between reconnection attempts when disconnected.
+
+            config REMOTE_SERVER_HEARTBEAT_INTERVAL
+                int "Heartbeat interval (ms)"
+                depends on REMOTE_SERVER_ENABLE
+                range 100 10000
+                default 1000
+                help
+                    Interval between heartbeat packets sent to the server.
+
+            config REMOTE_SERVER_TELEMETRY_INTERVAL
+                int "Telemetry upload interval (ms)"
+                depends on REMOTE_SERVER_ENABLE
+                range 20 1000
+                default 100
+                help
+                    Interval between telemetry data uploads to the server.
+        endmenu
     endmenu
 
     menu "calibration angle"
