@@ -1,0 +1,17 @@
+{
+  "name": "apptest",
+  "version": "1.0.0",
+  "description": "ESP-Drone Remote Server - 飞控数据接收服务器",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "ws": "^8.19.0"
+  }
+}

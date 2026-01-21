@@ -744,14 +744,23 @@ static void handleCRTPPacket(const uint8_t *data, uint16_t size)
  * 遥测上报任务
  *===========================================================================*/
 
-// 外部日志变量引用（需要确保这些日志组存在）
-extern float stateEstimatorGetRoll(void);
-extern float stateEstimatorGetPitch(void);
-extern float stateEstimatorGetYaw(void);
+// 使用 log 系统获取状态数据
+#include "log.h"
 
 static void remoteServerTelemetryTask(void *param)
 {
     RemoteTelemetryData telemetry;
+
+    // 获取日志变量ID（只需要获取一次）
+    static bool logIdsInit = false;
+    static logVarId_t rollId, pitchId, yawId;
+    static logVarId_t gyroXId, gyroYId, gyroZId;
+    static logVarId_t accXId, accYId, accZId;
+    static logVarId_t posXId, posYId, posZId;
+    static logVarId_t velXId, velYId, velZId;
+
+    // 等待一段时间让日志系统初始化
+    vTaskDelay(M2T(2000));
 
     while (true)
     {
@@ -762,23 +771,70 @@ static void remoteServerTelemetryTask(void *param)
             continue;
         }
 
+        // 初始化日志变量ID
+        if (!logIdsInit)
+        {
+            rollId = logGetVarId("stabilizer", "roll");
+            pitchId = logGetVarId("stabilizer", "pitch");
+            yawId = logGetVarId("stabilizer", "yaw");
+
+            gyroXId = logGetVarId("gyro", "x");
+            gyroYId = logGetVarId("gyro", "y");
+            gyroZId = logGetVarId("gyro", "z");
+
+            accXId = logGetVarId("acc", "x");
+            accYId = logGetVarId("acc", "y");
+            accZId = logGetVarId("acc", "z");
+
+            posXId = logGetVarId("stateEstimate", "x");
+            posYId = logGetVarId("stateEstimate", "y");
+            posZId = logGetVarId("stateEstimate", "z");
+
+            velXId = logGetVarId("stateEstimate", "vx");
+            velYId = logGetVarId("stateEstimate", "vy");
+            velZId = logGetVarId("stateEstimate", "vz");
+
+            logIdsInit = true;
+            DEBUG_PRINT("Telemetry log IDs initialized\n");
+        }
+
         // 填充遥测数据
-        // 注意：这里需要根据实际的日志系统获取数据
-        // 以下是示例，实际实现需要对接你的估计器和传感器
-        memset(&telemetry, 0, sizeof(telemetry));
+        // 姿态角（从日志获取，单位：度）
+        telemetry.roll = (int16_t)(logGetFloat(rollId) * 100);
+        telemetry.pitch = (int16_t)(logGetFloat(pitchId) * 100);
+        telemetry.yaw = (int16_t)(logGetFloat(yawId) * 100);
+
+        // 角速度（从陀螺仪获取，单位：deg/s）
+        telemetry.gyroX = (int16_t)(logGetFloat(gyroXId) * 10);
+        telemetry.gyroY = (int16_t)(logGetFloat(gyroYId) * 10);
+        telemetry.gyroZ = (int16_t)(logGetFloat(gyroZId) * 10);
+
+        // 加速度（单位：g，转换为 mg）
+        telemetry.accX = (int16_t)(logGetFloat(accXId) * 1000);
+        telemetry.accY = (int16_t)(logGetFloat(accYId) * 1000);
+        telemetry.accZ = (int16_t)(logGetFloat(accZId) * 1000);
+
+        // 位置估计（单位：m，转换为 mm）
+        telemetry.posX = (int32_t)(logGetFloat(posXId) * 1000);
+        telemetry.posY = (int32_t)(logGetFloat(posYId) * 1000);
+        telemetry.posZ = (int32_t)(logGetFloat(posZId) * 1000);
+
+        // 速度估计（单位：m/s，转换为 mm/s）
+        telemetry.velX = (int16_t)(logGetFloat(velXId) * 1000);
+        telemetry.velY = (int16_t)(logGetFloat(velYId) * 1000);
+        telemetry.velZ = (int16_t)(logGetFloat(velZId) * 1000);
+
+        // 电池状态（暂时固定为100%）
+        telemetry.battVoltage = 4200; // 4.2V
+        telemetry.battPercent = 100;
+
+        // 飞行状态（简化：1=stabilize）
+        telemetry.flightMode = 1;   // stabilize mode
+        telemetry.isArmed = 1;      // 已解锁
+        telemetry.isLowBattery = 0; // 电量正常
 
         // 时间戳
         telemetry.timestamp = xTaskGetTickCount();
-
-        // 姿态数据（从估计器获取）
-        // 这里需要连接到实际的状态估计器
-        // telemetry.roll = (int16_t)(stateEstimatorGetRoll() * 100);
-        // telemetry.pitch = (int16_t)(stateEstimatorGetPitch() * 100);
-        // telemetry.yaw = (int16_t)(stateEstimatorGetYaw() * 100);
-
-        // 电池状态
-        // telemetry.battVoltage = pmGetBatteryVoltage() * 1000;
-        // telemetry.battPercent = pmGetBatteryLevel();
 
         // 发送遥测数据
         remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
