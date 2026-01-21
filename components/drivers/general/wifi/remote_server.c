@@ -814,15 +814,15 @@ static void remoteServerTelemetryTask(void *param)
         telemetry.accY = (int16_t)(logGetFloat(accYId) * 1000);
         telemetry.accZ = (int16_t)(logGetFloat(accZId) * 1000);
 
-        // 位置估计（单位：m，转换为 mm）
-        telemetry.posX = (int32_t)(logGetFloat(posXId) * 1000);
-        telemetry.posY = (int32_t)(logGetFloat(posYId) * 1000);
-        telemetry.posZ = (int32_t)(logGetFloat(posZId) * 1000);
+        // 位置估计（暂时固定为0）
+        telemetry.posX = 0;
+        telemetry.posY = 0;
+        telemetry.posZ = 0;
 
-        // 速度估计（单位：m/s，转换为 mm/s）
-        telemetry.velX = (int16_t)(logGetFloat(velXId) * 1000);
-        telemetry.velY = (int16_t)(logGetFloat(velYId) * 1000);
-        telemetry.velZ = (int16_t)(logGetFloat(velZId) * 1000);
+        // 速度估计（暂时固定为0）
+        telemetry.velX = 0;
+        telemetry.velY = 0;
+        telemetry.velZ = 0;
 
         // 电池状态（暂时固定为100%）
         telemetry.battVoltage = 4200; // 4.2V
