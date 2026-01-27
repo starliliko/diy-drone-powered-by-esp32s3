@@ -259,14 +259,18 @@ static void sensorsTask(void *param)
             }
 
             // 陀螺仪数据处理
-            sensorData.gyro.x = (gyroRaw.x - gyroBias.x) * SENSORS_BMI088_DEG_PER_LSB_CFG;
-            sensorData.gyro.y = (gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG;
-            sensorData.gyro.z = (gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG;
+            // 坐标轴映射修正：
+            //   - 原roll输出pitch，pitch输出roll → 交换x和y
+            //   - pitch抬头应为正 → 取反y(交换后)
+            //   - yaw顺时针应为正 → 取反z
+            sensorData.gyro.x = -(gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG; // pitch轴(原y) → roll，取反
+            sensorData.gyro.y = (gyroRaw.x - gyroBias.x) * SENSORS_BMI088_DEG_PER_LSB_CFG;  // roll轴(原x) → pitch
+            sensorData.gyro.z = -(gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG; // yaw轴取反
             applyAxis3fLpf((lpf2pData *)(&gyroLpf), &sensorData.gyro);
 
-            // 加速度计数据处理
-            accScaled.x = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
-            accScaled.y = accelRaw.y * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
+            // 加速度计数据处理 - 轴映射与陀螺仪一致
+            accScaled.x = -accelRaw.y * SENSORS_BMI088_G_PER_LSB_CFG / accScale; // 交换并取反
+            accScaled.y = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;  // 交换
             accScaled.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
 
             sensorsAccAlignToGravity(&accScaled, &sensorData.acc);

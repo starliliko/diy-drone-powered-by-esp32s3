@@ -372,7 +372,7 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       //   debugCount = 0;
       // }
 
-      // printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
+      printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
 
       commanderGetSetpoint(&setpoint, &state); // 获取目标设定点
       compressSetpoint();                      // 压缩设定点数据以便传输
