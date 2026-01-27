@@ -38,17 +38,17 @@
 #define DEBUG_MODULE "MODE"
 #include "debug_cf.h"
 
-#define MIN_THRUST  1000
-#define MAX_THRUST  60000
+#define MIN_THRUST 1000
+#define MAX_THRUST 60000
 
 /**
  * CRTP commander rpyt packet format
  */
 struct CommanderCrtpLegacyValues
 {
-  float roll;       // deg
-  float pitch;      // deg
-  float yaw;        // deg
+  float roll;  // deg
+  float pitch; // deg
+  float yaw;   // deg
   uint16_t thrust;
 } __attribute__((packed));
 
@@ -57,8 +57,8 @@ struct CommanderCrtpLegacyValues
  */
 typedef enum
 {
-  RATE    = 0,
-  ANGLE   = 1,
+  RATE = 0,
+  ANGLE = 1,
 } RPYType;
 
 /**
@@ -66,17 +66,17 @@ typedef enum
  */
 typedef enum
 {
-  CAREFREE  = 0, // Yaw is locked to world coordinates thus heading stays the same when yaw rotates
-  PLUSMODE  = 1, // Plus-mode. Motor M1 is defined as front
-  XMODE     = 2, // X-mode. M1 & M4 are defined as front
+  CAREFREE = 0, // Yaw is locked to world coordinates thus heading stays the same when yaw rotates
+  PLUSMODE = 1, // Plus-mode. Motor M1 is defined as front
+  XMODE = 2,    // X-mode. M1 & M4 are defined as front
 } YawModeType;
 
-static RPYType stabilizationModeRoll  = ANGLE; // Current stabilization type of roll (rate or angle)
+static RPYType stabilizationModeRoll = ANGLE;  // Current stabilization type of roll (rate or angle)
 static RPYType stabilizationModePitch = ANGLE; // Current stabilization type of pitch (rate or angle)
-static RPYType stabilizationModeYaw   = RATE;  // Current stabilization type of yaw (rate or angle)
+static RPYType stabilizationModeYaw = RATE;    // Current stabilization type of yaw (rate or angle)
 
 static YawModeType yawMode = DEFAULT_YAW_MODE; // Yaw mode configuration
-static bool carefreeResetFront;             // Reset what is front in carefree mode
+static bool carefreeResetFront;                // Reset what is front in carefree mode
 
 static bool thrustLocked = true;
 static bool altHoldMode = false;
@@ -88,9 +88,11 @@ static bool posSetMode = false;
  *
  * @param mode flight mode num
  */
-void setCommandermode(FlightMode mode){
+void setCommandermode(FlightMode mode)
+{
 #ifdef CONFIG_ENABLE_COMMAND_MODE_SET
-  switch (mode) {
+  switch (mode)
+  {
   case ALTHOLD_MODE:
     altHoldMode = true;
     posHoldMode = false;
@@ -101,25 +103,72 @@ void setCommandermode(FlightMode mode){
     altHoldMode = true;
     posHoldMode = true;
     posSetMode = false;
-    registerRequiredEstimator(kalmanEstimator); 
+    registerRequiredEstimator(kalmanEstimator);
     break;
   case POSSET_MODE:
     altHoldMode = false;
     posHoldMode = false;
     posSetMode = true;
-    registerRequiredEstimator(kalmanEstimator); 
+    registerRequiredEstimator(kalmanEstimator);
     break;
   default:
     altHoldMode = false;
     posHoldMode = false;
     posSetMode = false;
-    registerRequiredEstimator(complementaryEstimator);   
+    registerRequiredEstimator(complementaryEstimator);
     break;
   }
-  DEBUG_PRINTI("FlightMode = %d",mode);
+  DEBUG_PRINTI("FlightMode = %d", mode);
 #else
   DEBUG_PRINTI("set FlightMode disable");
 #endif
+}
+
+/**
+ * Get current flight mode
+ *
+ * @return Current flight mode
+ */
+FlightMode getFlightMode(void)
+{
+  if (posSetMode)
+  {
+    return POSSET_MODE;
+  }
+  else if (posHoldMode)
+  {
+    return POSHOLD_MODE;
+  }
+  else if (altHoldMode)
+  {
+    return ALTHOLD_MODE;
+  }
+  else
+  {
+    return STABILIZE_MODE;
+  }
+}
+
+/**
+ * Get current flight mode name as string
+ *
+ * @return Flight mode name string
+ */
+const char *getFlightModeName(void)
+{
+  switch (getFlightMode())
+  {
+  case STABILIZE_MODE:
+    return "STABILIZE";
+  case ALTHOLD_MODE:
+    return "ALTHOLD";
+  case POSHOLD_MODE:
+    return "POSHOLD";
+  case POSSET_MODE:
+    return "POSSET";
+  default:
+    return "UNKNOWN";
+  }
 }
 
 /**
@@ -145,62 +194,73 @@ static void yawModeUpdate(setpoint_t *setpoint)
 {
   switch (yawMode)
   {
-    case CAREFREE:
-      // TODO: Add frame of reference to setpoint
-      ASSERT(false);
-      break;
-    case PLUSMODE:
-      rotateYaw(setpoint, 45 * M_PI / 180);
-      break;
-    case XMODE: // Fall through
-    default:
-      // Default in x-mode. Do nothing
-      break;
+  case CAREFREE:
+    // TODO: Add frame of reference to setpoint
+    ASSERT(false);
+    break;
+  case PLUSMODE:
+    rotateYaw(setpoint, 45 * M_PI / 180);
+    break;
+  case XMODE: // Fall through
+  default:
+    // Default in x-mode. Do nothing
+    break;
   }
 }
 
 void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
 {
-  struct CommanderCrtpLegacyValues *values = (struct CommanderCrtpLegacyValues*)pk->data;
+  struct CommanderCrtpLegacyValues *values = (struct CommanderCrtpLegacyValues *)pk->data;
 
-  if (commanderGetActivePriority() == COMMANDER_PRIORITY_DISABLE) {
+  if (commanderGetActivePriority() == COMMANDER_PRIORITY_DISABLE)
+  {
     thrustLocked = true;
   }
-  if (values->thrust == 0) {
+  if (values->thrust == 0)
+  {
     thrustLocked = false;
   }
 
   // Thrust
   uint16_t rawThrust = values->thrust;
 
-  if (thrustLocked || (rawThrust < MIN_THRUST)) {
+  if (thrustLocked || (rawThrust < MIN_THRUST))
+  {
     setpoint->thrust = 0;
-  } else {
+  }
+  else
+  {
     setpoint->thrust = fminf(rawThrust, MAX_THRUST);
   }
 
-  if (altHoldMode) {
+  if (altHoldMode)
+  {
     setpoint->thrust = 0;
     setpoint->mode.z = modeVelocity;
 
-    setpoint->velocity.z = ((float) rawThrust - 32767.f) / 32767.f;
-  } else {
+    setpoint->velocity.z = ((float)rawThrust - 32767.f) / 32767.f;
+  }
+  else
+  {
     setpoint->mode.z = modeDisable;
   }
 
   // roll/pitch
-  if (posHoldMode) {
+  if (posHoldMode)
+  {
     setpoint->mode.x = modeVelocity;
     setpoint->mode.y = modeVelocity;
     setpoint->mode.roll = modeDisable;
     setpoint->mode.pitch = modeDisable;
     setpoint->velocity_body = true;
 
-    setpoint->velocity.x = -values->pitch/30.0f;
-    setpoint->velocity.y = -values->roll/30.0f;
-    setpoint->attitude.roll  = 0;
+    setpoint->velocity.x = -values->pitch / 30.0f;
+    setpoint->velocity.y = -values->roll / 30.0f;
+    setpoint->attitude.roll = 0;
     setpoint->attitude.pitch = 0;
-  } else if (posSetMode && values->thrust != 0) {
+  }
+  else if (posSetMode && values->thrust != 0)
+  {
     setpoint->mode.x = modeAbs;
     setpoint->mode.y = modeAbs;
     setpoint->mode.z = modeAbs;
@@ -210,31 +270,39 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
 
     setpoint->position.x = -values->pitch;
     setpoint->position.y = values->roll;
-    setpoint->position.z = values->thrust/1000.0f;
+    setpoint->position.z = values->thrust / 1000.0f;
 
-    setpoint->attitude.roll  = 0;
+    setpoint->attitude.roll = 0;
     setpoint->attitude.pitch = 0;
     setpoint->attitude.yaw = values->yaw;
     setpoint->thrust = 0;
-  } else {
+  }
+  else
+  {
     setpoint->mode.x = modeDisable;
     setpoint->mode.y = modeDisable;
 
-    if (stabilizationModeRoll == RATE) {
+    if (stabilizationModeRoll == RATE)
+    {
       setpoint->mode.roll = modeVelocity;
       setpoint->attitudeRate.roll = values->roll;
       setpoint->attitude.roll = 0;
-    } else {
+    }
+    else
+    {
       setpoint->mode.roll = modeAbs;
       setpoint->attitudeRate.roll = 0;
       setpoint->attitude.roll = values->roll;
     }
 
-    if (stabilizationModePitch == RATE) {
+    if (stabilizationModePitch == RATE)
+    {
       setpoint->mode.pitch = modeVelocity;
       setpoint->attitudeRate.pitch = values->pitch;
       setpoint->attitude.pitch = 0;
-    } else {
+    }
+    else
+    {
       setpoint->mode.pitch = modeAbs;
       setpoint->attitudeRate.pitch = 0;
       setpoint->attitude.pitch = values->pitch;
@@ -245,13 +313,17 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
   }
 
   // Yaw
-  if (!posSetMode) {
-    if (stabilizationModeYaw == RATE) {
+  if (!posSetMode)
+  {
+    if (stabilizationModeYaw == RATE)
+    {
       // legacy rate input is inverted
       setpoint->attitudeRate.yaw = -values->yaw;
       yawModeUpdate(setpoint);
       setpoint->mode.yaw = modeVelocity;
-    } else {
+    }
+    else
+    {
       setpoint->mode.yaw = modeAbs;
       setpoint->attitudeRate.yaw = 0;
       setpoint->attitude.yaw = values->yaw;

@@ -48,6 +48,7 @@
 // #include "collision_avoidance.h"
 
 #include "estimator.h"
+#include "crtp_commander.h"
 // #include "usddeck.h" //usddeckLoggingMode_e
 #include "quatcompress.h"
 #include "statsCnt.h"
@@ -313,6 +314,13 @@ static void stabilizerTask(void *param)
 
   DEBUG_PRINTI("Ready to fly.\n");
 
+  // 输出系统启动配置信息
+  DEBUG_PRINTI("=== System Config ===");
+  DEBUG_PRINTI("Flight Mode: %s", getFlightModeName());
+  DEBUG_PRINTI("Estimator: %s (type=%d)", stateEstimatorGetName(), estimatorType);
+  DEBUG_PRINTI("Controller: %s (type=%d)", controllerGetName(), controllerType);
+  DEBUG_PRINTI("====================");
+
   while (1)
   {
     // The sensor should unlock at 1kHz
@@ -372,7 +380,14 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       //   debugCount = 0;
       // }
 
-      printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
+      // printf("%.2f,%.2f,%.2f\n", state.attitude.roll, state.attitude.pitch, state.attitude.yaw);
+
+      // // 输出系统启动配置信息
+      // DEBUG_PRINTI("=== System Config ===");
+      // DEBUG_PRINTI("Flight Mode: %s", getFlightModeName());
+      // DEBUG_PRINTI("Estimator: %s (type=%d)", stateEstimatorGetName(), estimatorType);
+      // DEBUG_PRINTI("Controller: %s (type=%d)", controllerGetName(), controllerType);
+      // DEBUG_PRINTI("====================");
 
       commanderGetSetpoint(&setpoint, &state); // 获取目标设定点
       compressSetpoint();                      // 压缩设定点数据以便传输

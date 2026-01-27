@@ -34,6 +34,7 @@
 #include "config.h"
 #include "system.h"
 #include "commander.h"
+#include "crtp_commander.h"
 #include "static_mem.h"
 #include "sdkconfig.h"
 
@@ -73,15 +74,23 @@
 /* Arm switch threshold (SBUS value 0-2047, center ~992) */
 #define EXTRX_ARM_THRESHOLD 1500
 
+/* Mode switch thresholds for 3-position switch */
+/* Low position: ~240-600, Mid position: ~600-1400, High position: ~1400-1800 */
+#define EXTRX_MODE_LOW_THRESHOLD 600
+#define EXTRX_MODE_HIGH_THRESHOLD 1400
+
 /* Module state */
 static setpoint_t extrxSetpoint;
 static uint16_t ch[EXTRX_NR_CHANNELS];
 static bool isInit = false;
 static bool isArmed = false;
+static FlightMode currentMode = STABILIZE_MODE; // 当前飞行模式
+static FlightMode lastMode = STABILIZE_MODE;    // 上次飞行模式，用于检测变化
 
 /* Private function declarations */
 static void extRxTask(void *param);
 static void extRxDecodeChannels(void);
+static void extRxUpdateFlightMode(uint16_t modeChannel);
 
 STATIC_MEM_TASK_ALLOC(extRxTask, EXTRX_TASK_STACKSIZE);
 
@@ -182,6 +191,9 @@ static void extRxTask(void *param)
       /* Check arm switch */
       isArmed = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
 
+      /* Update flight mode based on mode switch */
+      extRxUpdateFlightMode(frame.channels[EXTRX_CH_MODE]);
+
       /* Decode channels to setpoint */
       extRxDecodeChannels();
 
@@ -208,6 +220,47 @@ static void extRxTask(void *param)
     vTaskDelay(pdMS_TO_TICKS(100));
 #endif
   }
+}
+
+/**
+ * @brief Update flight mode based on mode switch channel
+ *
+ * 根据遥控器模式开关位置切换飞行模式:
+ * - 低位 (Low):  STABILIZE_MODE - 自稳模式，仅姿态控制
+ * - 中位 (Mid):  ALTHOLD_MODE   - 定高模式，自动保持高度
+ * - 高位 (High): POSHOLD_MODE   - 定点模式，自动保持位置（需要光流/GPS）
+ *
+ * @param modeChannel Mode switch channel value (0-2047)
+ */
+static void extRxUpdateFlightMode(uint16_t modeChannel)
+{
+#ifdef CONFIG_ENABLE_SBUS
+  /* Determine flight mode based on switch position */
+  if (modeChannel < EXTRX_MODE_LOW_THRESHOLD)
+  {
+    /* Low position: Stabilize mode */
+    currentMode = STABILIZE_MODE;
+  }
+  else if (modeChannel < EXTRX_MODE_HIGH_THRESHOLD)
+  {
+    /* Mid position: Altitude hold mode */
+    currentMode = ALTHOLD_MODE;
+  }
+  else
+  {
+    /* High position: Position hold mode */
+    currentMode = POSHOLD_MODE;
+  }
+
+  /* Only update if mode changed (avoid repeated calls) */
+  if (currentMode != lastMode)
+  {
+    setCommandermode(currentMode);
+    DEBUG_PRINT("Flight mode changed: %s (switch=%d)\n",
+                getFlightModeName(), modeChannel);
+    lastMode = currentMode;
+  }
+#endif
 }
 
 /**
@@ -265,5 +318,6 @@ LOG_ADD(LOG_FLOAT, roll, &extrxSetpoint.attitude.roll)
 LOG_ADD(LOG_FLOAT, pitch, &extrxSetpoint.attitude.pitch)
 LOG_ADD(LOG_FLOAT, yaw, &extrxSetpoint.attitude.yaw)
 LOG_ADD(LOG_UINT8, armed, &isArmed)
+LOG_ADD(LOG_UINT8, mode, &currentMode)
 LOG_GROUP_STOP(extrx)
 #endif

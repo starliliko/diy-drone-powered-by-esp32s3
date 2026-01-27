@@ -451,171 +451,211 @@ class DroneServer {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP-Drone 远程监控</title>
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --success: #34d399;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding: 24px;
+            line-height: 1.5;
         }
         .container {
             max-width: 1400px;
             margin: 0 auto;
         }
         h1 {
-            color: white;
+            color: var(--text-main);
             text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            margin-bottom: 32px;
+            font-size: 2rem;
+            font-weight: 300;
+            letter-spacing: 1px;
         }
+        h1 span { color: var(--accent); font-weight: 600; }
+        
         .status {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(255,255,255,0.05);
         }
         .status h2 {
-            color: #667eea;
+            color: var(--accent);
             margin-bottom: 15px;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+            font-size: 1.2rem;
         }
+        
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
+            gap: 24px;
+            margin-bottom: 24px;
         }
         .card {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(255,255,255,0.05);
         }
         .card h3 {
-            color: #667eea;
-            margin-bottom: 15px;
-            font-size: 1.3em;
+            color: var(--accent);
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
         }
+        
+        /* 3D 模型容器 */
+        #model-container {
+            width: 100%;
+            height: 250px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+            position: relative;
+        }
+        
         .data-row {
             display: flex;
             justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #eee;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
         }
-        .data-row:last-child {
-            border-bottom: none;
-        }
-        .label {
-            color: #666;
-            font-weight: 500;
-        }
-        .value {
+        .data-row:last-child { border-bottom: none; }
+        
+        .label { color: var(--text-muted); font-size: 0.9em; }
+        .value { 
+            font-family: 'Consolas', monospace; 
             font-weight: bold;
-            color: #333;
+            color: var(--text-main);
         }
-        .armed { color: #e74c3c; }
-        .disarmed { color: #95a5a6; }
+        
+        .armed { color: var(--danger); animation: pulse 2s infinite; }
+        .disarmed { color: var(--success); }
         .mode { 
             padding: 4px 12px;
-            border-radius: 15px;
-            font-size: 0.85em;
-            background: #667eea;
-            color: white;
+            border-radius: 99px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(56, 189, 248, 0.3);
         }
+        
         .control-panel {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(255,255,255,0.05);
         }
+        
         .btn {
-            padding: 12px 24px;
-            margin: 5px;
+            padding: 12px 20px;
+            margin: 6px;
             border: none;
-            border-radius: 5px;
-            font-size: 1em;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 500;
+            transition: all 0.2s;
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-        }
-        .btn-danger {
-            background: #e74c3c;
-            color: white;
-        }
-        .btn-danger:hover {
-            background: #c0392b;
-        }
-        .btn-success {
-            background: #27ae60;
-            color: white;
-        }
-        .btn-success:hover {
-            background: #229954;
-        }
+        .btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .btn:active { transform: translateY(0); }
+        
+        .btn-primary { background: var(--accent); color: #0f172a; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-success { background: var(--success); color: #064e3b; }
+        
         .connection-status {
             display: inline-block;
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             margin-right: 8px;
+            box-shadow: 0 0 8px currentColor;
         }
-        .connected { background: #27ae60; }
-        .disconnected { background: #e74c3c; }
+        .connected { background: var(--success); color: var(--success); }
+        .disconnected { background: var(--danger); color: var(--danger); }
+        
         #console {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
+            background: #000;
+            color: #22d3ee;
+            padding: 20px;
+            border-radius: 12px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
             max-height: 300px;
             overflow-y: auto;
-            margin-top: 20px;
+            margin-top: 24px;
+            border: 1px solid #333;
         }
+        
         .attitude-display {
+            display: flex;
+            justify-content: space-around;
             text-align: center;
-            padding: 20px;
+            padding: 10px 0;
+            gap: 10px;
         }
         .attitude-value {
-            font-size: 2.5em;
+            font-family: 'Consolas', monospace;
+            font-size: 1.8rem;
             font-weight: bold;
-            color: #667eea;
-            margin: 10px 0;
+            color: var(--text-main);
+            margin: 5px 0;
         }
+        
         .progress-bar {
-            background: #ecf0f1;
-            border-radius: 10px;
-            height: 25px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            height: 24px;
             overflow: hidden;
-            margin: 10px 0;
+            margin: 12px 0;
         }
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(90deg, var(--accent) 0%, #2563eb 100%);
             transition: width 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            font-size: 0.8rem;
             font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            color: #fff;
         }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚁 ESP-Drone 远程监控系统</h1>
+        <h1>🚁 ESP-Drone <span>远程监控系统</span></h1>
         
         <div class="status">
             <h2>
@@ -639,6 +679,7 @@ class DroneServer {
         <div class="grid">
             <div class="card">
                 <h3>姿态角</h3>
+                <div id="model-container"></div>
                 <div class="attitude-display">
                     <div>
                         <div class="label">Roll (横滚)</div>
@@ -707,7 +748,7 @@ class DroneServer {
         </div>
 
         <div class="control-panel">
-            <h3 style="color: #667eea; margin-bottom: 15px;">快捷控制</h3>
+            <h3 style="margin-bottom: 20px;">快捷控制</h3>
             <button class="btn btn-success" onclick="sendArm()">🔓 解锁</button>
             <button class="btn btn-danger" onclick="sendDisarm()">🔒 上锁</button>
             <button class="btn btn-primary" onclick="sendHover()">🛑 悬停</button>
@@ -719,6 +760,133 @@ class DroneServer {
     </div>
 
     <script>
+        // Three.js 变量
+        let scene, camera, renderer, drone;
+        
+        function initThreeJS() {
+            const container = document.getElementById('model-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            // 场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e293b); // card-bg
+            
+            // 相机 (透视)
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+            camera.position.set(0, 2, 3);
+            camera.lookAt(0, 0, 0);
+            
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            container.appendChild(renderer.domElement);
+            
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(2, 5, 3);
+            scene.add(dirLight);
+            
+            // --- 构建精细简约模型 (Sleek High-Fidelity) ---
+            drone = new THREE.Group();
+
+            // 材质定义
+            const bodyMat = new THREE.MeshPhongMaterial({ color: 0x0f172a }); // Very Dark
+            const frameMat = new THREE.MeshPhongMaterial({ color: 0x334155 }); // Slate Frame
+            const motorMat = new THREE.MeshPhongMaterial({ color: 0x94a3b8, shininess: 80 }); // Metallic
+            const propMat = new THREE.MeshPhongMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.8 });
+            const accentMat = new THREE.MeshPhongMaterial({ color: 0x0ea5e9, emissive: 0x0c4a6e }); // Cyan Glow
+
+            // 1. 机身 (纤薄)
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.7), bodyMat);
+            drone.add(body);
+            
+            // 2. 顶板 (装饰)
+            const top = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.01, 0.4), accentMat);
+            top.position.y = 0.036;
+            drone.add(top);
+
+            // 3. 电池 (底部)
+            const batt = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.12, 0.6), frameMat);
+            batt.position.y = -0.09;
+            drone.add(batt);
+            
+            // 4. 机臂 (X型碳纤维杆)
+            const armGeo = new THREE.BoxGeometry(2.1, 0.04, 0.12); // Long thin strip
+            const arm1 = new THREE.Mesh(armGeo, frameMat);
+            arm1.rotation.y = Math.PI / 4;
+            drone.add(arm1);
+            
+            const arm2 = new THREE.Mesh(armGeo, frameMat);
+            arm2.rotation.y = -Math.PI / 4;
+            drone.add(arm2);
+
+            // 5. 电机与桨叶 (无旋转动画)
+            const motorGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.12, 32);
+            
+            // 桨叶几何: 中心座 + 两片桨叶
+            const hubGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.05, 16);
+            const bladeGeo = new THREE.BoxGeometry(1.4, 0.01, 0.12);
+
+            const positions = [
+                { x: -0.75, z: -0.75, cw: true },
+                { x: 0.75, z: -0.75, cw: false },
+                { x: 0.75, z: 0.75, cw: true }, 
+                { x: -0.75, z: 0.75, cw: false }
+            ];
+
+            positions.forEach(pos => {
+                const group = new THREE.Group();
+                group.position.set(pos.x, 0.02, pos.z);
+
+                // 电机
+                const motor = new THREE.Mesh(motorGeo, motorMat);
+                motor.position.y = 0.06;
+                group.add(motor);
+
+                // 桨帽
+                const hub = new THREE.Mesh(hubGeo, motorMat); // Silver hub
+                hub.position.y = 0.13;
+                group.add(hub);
+
+                // 桨叶 (白透)
+                const prop = new THREE.Mesh(bladeGeo, propMat);
+                prop.position.y = 0.13;
+                group.add(prop);
+
+                drone.add(group);
+            });
+
+            // 6. 头部摄像机/指示
+            const cam = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), accentMat);
+            cam.position.set(0, 0, -0.36);
+            drone.add(cam);
+
+            scene.add(drone);
+            
+            animate();
+            
+            // 窗口大小适配
+            window.addEventListener('resize', () => {
+                const newWidth = container.clientWidth;
+                const newHeight = container.clientHeight;
+                renderer.setSize(newWidth, newHeight);
+                camera.aspect = newWidth / newHeight;
+                camera.updateProjectionMatrix();
+            });
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        // 调用初始化
+        window.addEventListener('load', initThreeJS);
+
         let ws = null;
         const consoleDiv = document.getElementById('console');
         const maxConsoleLines = 50;
@@ -727,8 +895,8 @@ class DroneServer {
             const timestamp = new Date().toLocaleTimeString();
             const line = document.createElement('div');
             line.textContent = \`[\${timestamp}] \${msg}\`;
-            if (type === 'error') line.style.color = '#e74c3c';
-            if (type === 'success') line.style.color = '#27ae60';
+            if (type === 'error') line.style.color = '#f87171'; // Red-400
+            if (type === 'success') line.style.color = '#34d399'; // Emerald-400
             consoleDiv.appendChild(line);
             
             // 限制控制台行数
@@ -744,14 +912,18 @@ class DroneServer {
             
             ws.onopen = () => {
                 log('WebSocket 连接成功', 'success');
-                document.getElementById('ws-status').className = 'connection-status connected';
+                document.getElementById('ws-status').classList.remove('disconnected');
+                document.getElementById('ws-status').classList.add('connected');
                 document.getElementById('server-status').textContent = '在线';
+                document.getElementById('server-status').style.color = 'var(--success)';
             };
             
             ws.onclose = () => {
                 log('WebSocket 连接断开', 'error');
-                document.getElementById('ws-status').className = 'connection-status disconnected';
+                document.getElementById('ws-status').classList.remove('connected');
+                document.getElementById('ws-status').classList.add('disconnected');
                 document.getElementById('server-status').textContent = '离线';
+                document.getElementById('server-status').style.color = 'var(--danger)';
                 setTimeout(connectWebSocket, 3000);
             };
             
@@ -776,6 +948,19 @@ class DroneServer {
             document.getElementById('pitch').textContent = data.pitch.toFixed(1) + '°';
             document.getElementById('yaw').textContent = data.yaw.toFixed(1) + '°';
             
+            // 更新 3D 模型姿态
+            if (drone) {
+                const toRad = Math.PI / 180;
+                // 坐标映射: ThreeJS (Y-up, -Z forward) vs Drone (NED)
+                // Pitch: 绕 X 轴
+                // Yaw: 绕 Y 轴
+                // Roll: 绕 Z 轴 (负号修正方向)
+                drone.rotation.order = 'YXZ'; 
+                drone.rotation.x = data.pitch * toRad;
+                drone.rotation.y = -data.yaw * toRad; 
+                drone.rotation.z = -data.roll * toRad;
+            }
+            
             document.getElementById('flight-mode').textContent = data.flightModeName;
             
             const armedSpan = document.getElementById('armed-status');
@@ -794,7 +979,18 @@ class DroneServer {
             battBar.style.width = data.battPercent + '%';
             battBar.textContent = data.battPercent + '%';
             
+            // Adjust battery color based on percentage
+            if (data.battPercent < 20) {
+              battBar.style.background = 'var(--danger)';
+            } else if (data.battPercent < 50) {
+              battBar.style.background = 'var(--warning)';
+            } else {
+              battBar.style.background = 'linear-gradient(90deg, var(--accent) 0%, #2563eb 100%)';
+            }
+            
             document.getElementById('low-battery').textContent = data.isLowBattery ? '⚠️ 是' : '否';
+            if (data.isLowBattery) document.getElementById('low-battery').style.color = 'var(--danger)';
+            else document.getElementById('low-battery').style.color = 'var(--text-main)';
             
             document.getElementById('gyro').textContent = 
                 \`\${data.gyroX.toFixed(1)} / \${data.gyroY.toFixed(1)} / \${data.gyroZ.toFixed(1)} °/s\`;
