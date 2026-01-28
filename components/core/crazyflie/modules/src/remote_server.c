@@ -130,6 +130,9 @@ static uint8_t logConnected = 0;
 static uint16_t logTxRate = 0;
 static uint16_t logRxRate = 0;
 
+// 远程控制模式（默认启用，当连接后且无其他控制源时接管）
+static volatile RemoteControlMode remoteControlMode = REMOTE_CTRL_MODE_ENABLED;
+
 /*===========================================================================
  * 内部函数声明
  *===========================================================================*/
@@ -699,6 +702,19 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         DEBUG_PRINT("DISARM command received\n");
         break;
 
+    case CTRL_CMD_SET_CONTROL_MODE:
+        // 设置远程控制模式 - mode字段存储控制模式
+        if (cmd->mode <= REMOTE_CTRL_MODE_SHARED)
+        {
+            remoteControlMode = (RemoteControlMode)cmd->mode;
+            DEBUG_PRINT("Control mode set to: %d\n", remoteControlMode);
+        }
+        else
+        {
+            DEBUG_PRINT("Invalid control mode: %d\n", cmd->mode);
+        }
+        break;
+
     default:
         DEBUG_PRINT("Unknown control command type: %d\n", cmd->cmdType);
         break;
@@ -716,7 +732,8 @@ static bool validateControlCmd(const RemoteControlCmd *cmd)
     }
 
     // 检查指令类型是否有效
-    if (cmd->cmdType > CTRL_CMD_DISARM)
+    // CTRL_CMD_SET_CONTROL_MODE = 0x10, 其他命令在 0x00-0x07 范围
+    if (cmd->cmdType > CTRL_CMD_DISARM && cmd->cmdType != CTRL_CMD_SET_CONTROL_MODE)
     {
         return false;
     }
@@ -854,9 +871,39 @@ static void remoteServerTelemetryTask(void *param)
         // 时间戳
         telemetry.timestamp = xTaskGetTickCount();
 
+        // === V3 新增字段 ===
+        // 实际飞行姿态模式（由传感器能力决定）
+        FlightMode actualMode = getFlightMode();
+        telemetry.actualFlightMode = (uint8_t)actualMode;
+
+        // 控制来源（由当前活动的控制优先级决定）
+        int activePriority = commanderGetActivePriority();
+        telemetry.controlSource = (uint8_t)activePriority;
+
+        // 远程控制模式
+        telemetry.remoteCtrlMode = (uint8_t)remoteControlMode;
+
         // 发送遥测数据
         remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
                                (uint8_t *)&telemetry, sizeof(telemetry));
+    }
+}
+
+/*===========================================================================
+ * 控制模式管理 API
+ *===========================================================================*/
+
+RemoteControlMode remoteServerGetControlMode(void)
+{
+    return remoteControlMode;
+}
+
+void remoteServerSetControlMode(RemoteControlMode mode)
+{
+    if (mode <= REMOTE_CTRL_MODE_SHARED)
+    {
+        remoteControlMode = mode;
+        DEBUG_PRINT("Remote control mode set to: %d\n", mode);
     }
 }
 

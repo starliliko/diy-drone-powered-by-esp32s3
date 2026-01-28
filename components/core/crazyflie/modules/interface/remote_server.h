@@ -49,8 +49,25 @@ extern "C"
 
 #define REMOTE_MAGIC_0 0xAB
 #define REMOTE_MAGIC_1 0xCD
-#define REMOTE_PROTOCOL_VERSION 0x02 // 版本升级以支持新状态
+#define REMOTE_PROTOCOL_VERSION 0x03 // V3: 区分飞行姿态模式和控制来源
 #define REMOTE_MAX_PAYLOAD_SIZE 128
+
+    // 控制来源枚举 (对应 commander.h 中的优先级)
+    typedef enum
+    {
+        CONTROL_SOURCE_NONE = 0,   // 无控制/超时
+        CONTROL_SOURCE_CRTP = 1,   // CRTP协议（Wi-Fi UDP/手机APP）
+        CONTROL_SOURCE_REMOTE = 2, // 远程TCP服务器
+        CONTROL_SOURCE_SBUS = 3,   // SBUS遥控器
+    } ControlSource;
+
+    // 实际飞行姿态模式 (由传感器能力决定)
+    typedef enum
+    {
+        ACTUAL_MODE_STABILIZE = 0, // 自稳模式 (仅IMU)
+        ACTUAL_MODE_ALTHOLD = 1,   // 定高模式 (IMU + 气压计/ToF)
+        ACTUAL_MODE_POSHOLD = 2,   // 定点模式 (IMU + 气压计/ToF + 光流)
+    } ActualFlightMode;
 
     // 遥测数据结构（上行）- PX4/QGC 风格
     typedef struct __attribute__((packed))
@@ -80,7 +97,7 @@ extern "C"
         uint8_t battPercent;
         // PX4 风格状态标志
         uint8_t armingState;   // 解锁状态 (ArmingState 枚举)
-        uint8_t flightMode;    // 飞行模式 (VehicleFlightMode 枚举)
+        uint8_t flightMode;    // 目标飞行模式 (VehicleFlightMode 枚举, 前端发送的期望模式)
         uint8_t flightPhase;   // 飞行阶段 (FlightPhase 枚举)
         uint8_t failsafeState; // 故障安全状态 (FailsafeState 枚举)
         // 状态标志位
@@ -89,6 +106,10 @@ extern "C"
         // 时间戳 (ms)
         uint32_t timestamp;
         uint32_t flightTime; // 飞行时间 (ms)
+        // === V3 新增字段 ===
+        uint8_t actualFlightMode; // 实际飞行姿态模式 (ActualFlightMode 枚举)
+        uint8_t controlSource;    // 控制来源 (ControlSource 枚举)
+        uint8_t remoteCtrlMode;   // 远程控制模式 (RemoteControlMode 枚举)
     } RemoteTelemetryData;
 
 // 状态标志位定义
@@ -122,7 +143,17 @@ extern "C"
         CTRL_CMD_EMERGENCY = 0x05, // 紧急停机
         CTRL_CMD_ARM = 0x06,       // 解锁
         CTRL_CMD_DISARM = 0x07,    // 上锁
+        // === 控制模式管理命令 ===
+        CTRL_CMD_SET_CONTROL_MODE = 0x10, // 设置控制模式
     } RemoteControlCmdType;
+
+    // 远程控制模式（用于 CTRL_CMD_SET_CONTROL_MODE 命令）
+    typedef enum
+    {
+        REMOTE_CTRL_MODE_DISABLED = 0, // 服务器控制禁用
+        REMOTE_CTRL_MODE_ENABLED = 1,  // 服务器控制启用（默认，无其他控制源时接管）
+        REMOTE_CTRL_MODE_SHARED = 2,   // 共享控制（遥控器+服务器）
+    } RemoteControlMode;
 
     // 连接状态
     typedef enum
@@ -210,6 +241,18 @@ extern "C"
      */
     void remoteServerGetStats(uint32_t *txCount, uint32_t *rxCount,
                               uint32_t *reconnectCount, uint32_t *uptime);
+
+    /**
+     * @brief 获取当前远程控制模式
+     * @return RemoteControlMode 枚举值
+     */
+    RemoteControlMode remoteServerGetControlMode(void);
+
+    /**
+     * @brief 设置远程控制模式
+     * @param mode RemoteControlMode 枚举值
+     */
+    void remoteServerSetControlMode(RemoteControlMode mode);
 
 #ifdef __cplusplus
 }

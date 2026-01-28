@@ -70,6 +70,16 @@ static int lockedPriority = COMMANDER_PRIORITY_DISABLE;
 #define NUM_PRIORITY_LEVELS 4
 static CommanderPathStats pathStats[NUM_PRIORITY_LEVELS];
 
+// 自动切换和故障转移机制
+typedef struct
+{
+  uint32_t lastActiveTime; // 最后一次活跃时间
+  bool isAlive;            // 是否在线
+  uint32_t timeoutCount;   // 超时次数
+} ControlSourceHealth;
+
+static ControlSourceHealth sourceHealth[NUM_PRIORITY_LEVELS];
+
 // 日志变量
 static uint8_t logActivePriority = 0;
 static uint32_t logAcceptedTotal = 0;
@@ -81,6 +91,105 @@ static uint32_t logInvalidTotal = 0;
  *===========================================================================*/
 
 #define CLAMP(x, min, max) ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
+
+// 控制源超时阈值（毫秒）
+#define SOURCE_TIMEOUT_MS 1000        // 1秒无数据则认为控制源失联
+#define SOURCE_RETRY_INTERVAL_MS 5000 // 5秒后允许重试失联的控制源
+
+/*===========================================================================
+ * 控制源健康管理
+ *===========================================================================*/
+
+/**
+ * 更新控制源健康状态
+ */
+static void updateSourceHealth(int priority, uint32_t currentTime)
+{
+  if (priority >= 0 && priority < NUM_PRIORITY_LEVELS)
+  {
+    sourceHealth[priority].lastActiveTime = currentTime;
+    sourceHealth[priority].isAlive = true;
+    sourceHealth[priority].timeoutCount = 0;
+  }
+}
+
+/**
+ * 检查控制源是否超时
+ */
+static bool isSourceTimedOut(int priority, uint32_t currentTime)
+{
+  if (priority < 0 || priority >= NUM_PRIORITY_LEVELS)
+  {
+    return true;
+  }
+
+  if (!sourceHealth[priority].isAlive)
+  {
+    return true;
+  }
+
+  uint32_t timeSinceActive = currentTime - sourceHealth[priority].lastActiveTime;
+  return (timeSinceActive > M2T(SOURCE_TIMEOUT_MS));
+}
+
+/**
+ * 标记控制源为失联状态
+ */
+static void markSourceTimeout(int priority)
+{
+  if (priority >= 0 && priority < NUM_PRIORITY_LEVELS)
+  {
+    sourceHealth[priority].isAlive = false;
+    sourceHealth[priority].timeoutCount++;
+    DEBUG_PRINT("Control source %d timed out (count: %lu)\n",
+                priority, sourceHealth[priority].timeoutCount);
+  }
+}
+
+/**
+ * 查找最高优先级的可用控制源
+ */
+static int findBestAvailableSource(uint32_t currentTime)
+{
+  // 从高优先级到低优先级遍历
+  for (int priority = COMMANDER_PRIORITY_EXTRX; priority >= COMMANDER_PRIORITY_CRTP; priority--)
+  {
+    if (!isSourceTimedOut(priority, currentTime))
+    {
+      return priority;
+    }
+  }
+
+  return COMMANDER_PRIORITY_DISABLE;
+}
+
+/**
+ * 执行控制源故障转移
+ */
+static bool performSourceFailover(int currentPriority, uint32_t currentTime)
+{
+  // 检查当前控制源是否超时
+  if (!isSourceTimedOut(currentPriority, currentTime))
+  {
+    return false; // 当前控制源正常，无需切换
+  }
+
+  // 标记当前控制源为失联
+  markSourceTimeout(currentPriority);
+
+  // 查找次高优先级的可用控制源
+  int newPriority = findBestAvailableSource(currentTime);
+
+  if (newPriority != currentPriority)
+  {
+    DEBUG_PRINT("Failover: %d -> %d\n", currentPriority, newPriority);
+    xQueueOverwrite(priorityQueue, &newPriority);
+    logActivePriority = newPriority;
+    return true;
+  }
+
+  return false;
+}
 
 /* Public functions */
 void commanderInit(void)
@@ -95,6 +204,13 @@ void commanderInit(void)
 
   // 初始化路径统计
   memset(pathStats, 0, sizeof(pathStats));
+
+  // 初始化控制源健康状态
+  memset(sourceHealth, 0, sizeof(sourceHealth));
+  for (int i = 0; i < NUM_PRIORITY_LEVELS; i++)
+  {
+    sourceHealth[i].isAlive = false;
+  }
 
   // 初始化优先级锁定
   priorityLocked = false;
@@ -240,6 +356,9 @@ void commanderSetSetpoint(setpoint_t *setpoint, int priority)
   pathStats[statsIndex].packetCount++;
   pathStats[statsIndex].lastUpdateTime = currentTime;
 
+  // === 更新控制源健康状态 ===
+  updateSourceHealth(priority, currentTime);
+
   const BaseType_t peekResult = xQueuePeek(priorityQueue, &currentPriority, 0);
   ASSERT(peekResult == pdTRUE);
 
@@ -328,6 +447,18 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
   lastUpdate = setpoint->timestamp;
   uint32_t currentTime = xTaskGetTickCount();
 
+  // === 自动故障转移检查 ===
+  int currentPriority = commanderGetActivePriority();
+
+  // 检查当前控制源是否超时，如果超时则尝试切换
+  if (currentPriority > COMMANDER_PRIORITY_DISABLE)
+  {
+    if (isSourceTimedOut(currentPriority, currentTime))
+    {
+      performSourceFailover(currentPriority, currentTime);
+    }
+  }
+
   if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_SHUTDOWN)
   {
     if (enableHighLevel)
@@ -341,7 +472,21 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
   }
   else if ((currentTime - setpoint->timestamp) > COMMANDER_WDT_TIMEOUT_STABILIZE)
   {
-    xQueueOverwrite(priorityQueue, &priorityDisable);
+    // === 超时但未完全断开：尝试故障转移 ===
+    int bestSource = findBestAvailableSource(currentTime);
+    if (bestSource != COMMANDER_PRIORITY_DISABLE)
+    {
+      DEBUG_PRINT("Watchdog failover: %d -> %d\n", currentPriority, bestSource);
+      xQueueOverwrite(priorityQueue, &bestSource);
+      logActivePriority = bestSource;
+    }
+    else
+    {
+      // 所有控制源都失联，进入安全模式
+      xQueueOverwrite(priorityQueue, &priorityDisable);
+      logActivePriority = COMMANDER_PRIORITY_DISABLE;
+    }
+
     // Leveling ...
     setpoint->mode.x = modeDisable;
     setpoint->mode.y = modeDisable;
@@ -413,4 +558,11 @@ LOG_ADD(LOG_UINT8, activePri, &logActivePriority)
 LOG_ADD(LOG_UINT32, accepted, &logAcceptedTotal)
 LOG_ADD(LOG_UINT32, rejected, &logRejectedTotal)
 LOG_ADD(LOG_UINT32, invalid, &logInvalidTotal)
+// 控制源健康状态日志
+LOG_ADD(LOG_UINT8, extRxAlive, &sourceHealth[COMMANDER_PRIORITY_EXTRX].isAlive)
+LOG_ADD(LOG_UINT8, remoteAlive, &sourceHealth[COMMANDER_PRIORITY_REMOTE].isAlive)
+LOG_ADD(LOG_UINT8, crtpAlive, &sourceHealth[COMMANDER_PRIORITY_CRTP].isAlive)
+LOG_ADD(LOG_UINT32, extRxTimeout, &sourceHealth[COMMANDER_PRIORITY_EXTRX].timeoutCount)
+LOG_ADD(LOG_UINT32, remoteTimeout, &sourceHealth[COMMANDER_PRIORITY_REMOTE].timeoutCount)
+LOG_ADD(LOG_UINT32, crtpTimeout, &sourceHealth[COMMANDER_PRIORITY_CRTP].timeoutCount)
 LOG_GROUP_STOP(commander)

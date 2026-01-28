@@ -50,7 +50,21 @@ const ControlCmdType = {
     LAND: 0x04,
     EMERGENCY: 0x05,
     ARM: 0x06,
-    DISARM: 0x07
+    DISARM: 0x07,
+    SET_CONTROL_MODE: 0x10  // 设置远程控制模式
+};
+
+// 远程控制模式
+const RemoteControlMode = {
+    DISABLED: 0,    // 服务器控制禁用
+    ENABLED: 1,     // 服务器控制启用（默认，无其他控制源时接管）
+    SHARED: 2       // 共享控制（遥控器+服务器）
+};
+
+const RemoteControlModeNameCN = {
+    0: '禁用',
+    1: '启用',
+    2: '协同'
 };
 
 const FlightMode = {
@@ -75,6 +89,34 @@ const FlightModeNameCN = {
     6: '降落模式',
     7: '起飞模式',
     8: '外部控制'
+};
+
+// === V3 新增：实际飞行姿态模式（由传感器能力决定）===
+const ActualFlightMode = {
+    0: 'STABILIZE',      // 自稳（仅IMU）
+    1: 'ALTHOLD',        // 定高（IMU + 气压计/ToF）
+    2: 'POSHOLD'         // 定点（IMU + 气压计/ToF + 光流）
+};
+
+const ActualFlightModeNameCN = {
+    0: '自稳模式',
+    1: '定高模式',
+    2: '定点模式'
+};
+
+// === V3 新增：控制来源 ===
+const ControlSource = {
+    0: 'NONE',           // 无控制/超时
+    1: 'CRTP',           // Wi-Fi UDP/手机APP
+    2: 'REMOTE',         // TCP地面站
+    3: 'SBUS'            // SBUS遥控器
+};
+
+const ControlSourceNameCN = {
+    0: '无控制',
+    1: 'WiFi控制',
+    2: '地面站',
+    3: '遥控器'
 };
 
 // PX4风格解锁状态
@@ -208,7 +250,7 @@ function parseTelemetry(buffer) {
 
     // PX4风格状态字段 (新协议)
     if (buffer.length >= 52) {
-        // 新格式 Protocol V2
+        // 新格式 Protocol V2/V3
         telemetry.armingState = buffer.readUInt8(offset + 39);
         telemetry.flightMode = buffer.readUInt8(offset + 40);
         telemetry.flightPhase = buffer.readUInt8(offset + 41);
@@ -216,6 +258,22 @@ function parseTelemetry(buffer) {
         telemetry.statusFlags = buffer.readUInt8(offset + 43);
         telemetry.timestamp = buffer.readUInt32LE(offset + 44);
         telemetry.flightTime = buffer.readUInt32LE(offset + 48);
+
+        // === V3 新增字段 (55字节) ===
+        if (buffer.length >= 55) {
+            telemetry.actualFlightMode = buffer.readUInt8(offset + 52);
+            telemetry.controlSource = buffer.readUInt8(offset + 53);
+            telemetry.remoteCtrlMode = buffer.readUInt8(offset + 54);
+        } else if (buffer.length >= 54) {
+            telemetry.actualFlightMode = buffer.readUInt8(offset + 52);
+            telemetry.controlSource = buffer.readUInt8(offset + 53);
+            telemetry.remoteCtrlMode = 1;  // 默认启用
+        } else {
+            // V2兼容：无实际模式和控制来源信息
+            telemetry.actualFlightMode = 0;  // 默认自稳
+            telemetry.controlSource = 0;     // 默认无控制
+            telemetry.remoteCtrlMode = 1;    // 默认启用
+        }
 
         // 从状态标志位解析
         telemetry.isArmed = !!(telemetry.statusFlags & STATUS_FLAGS.ARMED);
@@ -231,6 +289,16 @@ function parseTelemetry(buffer) {
         telemetry.flightPhaseName = FlightPhase[telemetry.flightPhase] || 'UNKNOWN';
         telemetry.flightPhaseNameCN = FlightPhaseNameCN[telemetry.flightPhase] || '未知';
         telemetry.failsafeStateName = FailsafeState[telemetry.failsafeState] || 'NONE';
+
+        // === V3 新增：实际飞行姿态模式和控制来源的可读名称 ===
+        telemetry.actualFlightModeName = ActualFlightMode[telemetry.actualFlightMode] || 'UNKNOWN';
+        telemetry.actualFlightModeNameCN = ActualFlightModeNameCN[telemetry.actualFlightMode] || '未知';
+        telemetry.controlSourceName = ControlSource[telemetry.controlSource] || 'UNKNOWN';
+        telemetry.controlSourceNameCN = ControlSourceNameCN[telemetry.controlSource] || '未知';
+        telemetry.remoteCtrlModeName = RemoteControlMode[telemetry.remoteCtrlMode] !== undefined
+            ? Object.keys(RemoteControlMode).find(k => RemoteControlMode[k] === telemetry.remoteCtrlMode)
+            : 'UNKNOWN';
+        telemetry.remoteCtrlModeNameCN = RemoteControlModeNameCN[telemetry.remoteCtrlMode] || '未知';
     } else {
         // 旧格式兼容 Protocol V1
         telemetry.flightMode = buffer.readUInt8(offset + 39);
@@ -247,9 +315,16 @@ function parseTelemetry(buffer) {
         telemetry.flightPhaseName = 'ON_GROUND';
         telemetry.flightPhaseNameCN = '地面待机';
         telemetry.failsafeStateName = 'NONE';
+        // V1 兼容：无实际模式和控制来源信息
+        telemetry.actualFlightMode = 0;
+        telemetry.controlSource = 0;
+        telemetry.actualFlightModeName = 'STABILIZE';
+        telemetry.actualFlightModeNameCN = '自稳模式';
+        telemetry.controlSourceName = 'NONE';
+        telemetry.controlSourceNameCN = '未知';
     }
 
-    // 添加可读的模式名称
+    // 添加可读的目标模式名称（前端发送的期望模式）
     telemetry.flightModeName = FlightMode[telemetry.flightMode] || 'UNKNOWN';
     telemetry.flightModeNameCN = FlightModeNameCN[telemetry.flightMode] || '未知模式';
 
@@ -528,12 +603,13 @@ class DroneServer {
     }
 
     onTelemetry(client, telemetry) {
-        // 打印到控制台（使用中文模式名）
+        // 打印到控制台（显示实际飞行姿态模式和控制来源）
         console.log(`[${client.remoteAddr}] Telemetry: ` +
             `Roll=${telemetry.roll.toFixed(1)}° ` +
             `Pitch=${telemetry.pitch.toFixed(1)}° ` +
             `Yaw=${telemetry.yaw.toFixed(1)}° ` +
-            `Mode=${telemetry.flightModeNameCN} ` +
+            `姿态模式=${telemetry.actualFlightModeNameCN} ` +
+            `控制=${telemetry.controlSourceNameCN} ` +
             `Armed=${telemetry.isArmed} ` +
             `Batt=${telemetry.battPercent}%`
         );
@@ -797,6 +873,52 @@ class DroneServer {
 
         .btn-action { border-left: 4px solid var(--qgc-blue); }
 
+        /* 远程控制模式按钮 */
+        .ctrl-mode-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 15px;
+            background: #1a1a2e;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .ctrl-mode-icon { font-size: 18px; }
+        .ctrl-mode-text { font-size: 13px; color: var(--qgc-white); }
+
+        .btn-mode-enabled { 
+            border-color: var(--qgc-green); 
+            color: var(--qgc-green); 
+            font-size: 12px;
+        }
+        .btn-mode-enabled:hover { background: rgba(39, 217, 101, 0.1); }
+        .btn-mode-enabled.active { 
+            background: rgba(39, 217, 101, 0.2); 
+            border-width: 2px;
+        }
+
+        .btn-mode-shared { 
+            border-color: var(--qgc-orange); 
+            color: var(--qgc-orange); 
+            font-size: 12px;
+        }
+        .btn-mode-shared:hover { background: rgba(255, 152, 0, 0.1); }
+        .btn-mode-shared.active { 
+            background: rgba(255, 152, 0, 0.2); 
+            border-width: 2px;
+        }
+
+        .btn-mode-disabled { 
+            border-color: #666; 
+            color: #999; 
+            font-size: 12px;
+        }
+        .btn-mode-disabled:hover { background: rgba(100, 100, 100, 0.1); }
+        .btn-mode-disabled.active { 
+            background: rgba(100, 100, 100, 0.2); 
+            border-width: 2px;
+        }
+
         /* Bottom Console */
         .bottom-console {
             position: absolute;
@@ -862,6 +984,16 @@ class DroneServer {
                 <div class="indicator-dot" id="comm-dot"></div>
                 <span id="comm-status">未连接</span>
             </div>
+            <div class="status-item" title="遥控器连接状态">
+                <span>🎮</span>
+                <div class="indicator-dot" id="rc-dot"></div>
+                <span id="rc-status">RC</span>
+            </div>
+            <div class="status-item" title="地面站连接状态">
+                <span>🖥️</span>
+                <div class="indicator-dot" id="gcs-dot"></div>
+                <span id="gcs-status">GCS</span>
+            </div>
             <div class="status-item">
                 <span>电池电压</span>
                 <div class="batt-container">
@@ -882,7 +1014,15 @@ class DroneServer {
                     <span class="t-value" id="arming-txt">--</span>
                 </div>
                 <div class="telemetry-row">
-                    <span class="t-label">飞行模式</span>
+                    <span class="t-label">姿态模式</span>
+                    <span class="t-value" id="actual-mode-txt">--</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="t-label">控制来源</span>
+                    <span class="t-value" id="control-source-txt">--</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="t-label">目标模式</span>
                     <span class="t-value" id="mode-txt">--</span>
                 </div>
                 <div class="telemetry-row">
@@ -942,6 +1082,24 @@ class DroneServer {
                 <div class="slide-btn btn-action" onclick="sendAction('RTL')">返航 (Return)</div>
                 <div class="slide-btn btn-action" onclick="sendAction('HOVER')">悬停 (Hold)</div>
             </div>
+            
+            <!-- 远程控制模式设置 -->
+            <div class="panel-header" style="margin-top: 15px;">远程控制模式</div>
+            <div class="action-pad">
+                <div class="ctrl-mode-indicator" id="ctrl-mode-status">
+                    <span class="ctrl-mode-icon">⚙️</span>
+                    <span class="ctrl-mode-text" id="ctrl-mode-text">启用</span>
+                </div>
+                <div class="slide-btn btn-mode-enabled" id="btn-ctrl-enabled" onclick="setRemoteControlMode(1)">
+                    启用服务器控制
+                </div>
+                <div class="slide-btn btn-mode-shared" id="btn-ctrl-shared" onclick="setRemoteControlMode(2)">
+                    协同控制 (RC+服务器)
+                </div>
+                <div class="slide-btn btn-mode-disabled" id="btn-ctrl-disabled" onclick="setRemoteControlMode(0)">
+                    禁用服务器控制
+                </div>
+            </div>
         </div>
 
         <!-- BOTTOM: Console -->
@@ -956,6 +1114,24 @@ class DroneServer {
     </div>
 
     <script>
+        // --- 控制来源优先级说明（前端显示用）---
+        const ControlSourcePriority = {
+            0: { name: '无控制', color: '#666', icon: '⚪', desc: '无活跃控制源' },
+            1: { name: 'WiFi', color: '#2196F3', icon: '📶', desc: 'CRTP协议 (手机APP/UDP)' },
+            2: { name: '地面站', color: '#4CAF50', icon: '🖥️', desc: 'TCP远程服务器' },
+            3: { name: '遥控器', color: '#FF9800', icon: '🎮', desc: 'SBUS遥控器 (最高优先级)' }
+        };
+
+        // 控制源状态追踪
+        const controlSourceState = {
+            current: 0,           // 当前活跃控制源
+            previous: 0,          // 上一个控制源
+            lastSwitchTime: 0,    // 上次切换时间
+            switchCount: 0,       // 切换次数
+            rcConnected: false,   // 遥控器连接状态
+            gcsConnected: false   // 地面站连接状态
+        };
+
         // --- 3D Visualization ---
         let scene, camera, renderer, drone;
         
@@ -1092,6 +1268,39 @@ class DroneServer {
             armEl.textContent = isArmed ? (data.armingStateNameCN || '已解锁') : '未解锁';
             armEl.className = \`t-value \${isArmed ? 'armed' : 'disarmed'}\`;
             
+            // === V3 新增：实际飞行姿态模式和控制来源 ===
+            document.getElementById('actual-mode-txt').textContent = data.actualFlightModeNameCN || '--';
+            
+            // 控制来源显示（带颜色和图标）
+            const ctrlSrcEl = document.getElementById('control-source-txt');
+            const srcInfo = ControlSourcePriority[data.controlSource] || ControlSourcePriority[0];
+            ctrlSrcEl.innerHTML = \`<span style="color:\${srcInfo.color}">\${srcInfo.icon} \${srcInfo.name}</span>\`;
+            
+            // 检测控制源切换
+            if (data.controlSource !== controlSourceState.current) {
+                const oldSrc = ControlSourcePriority[controlSourceState.current];
+                const newSrc = ControlSourcePriority[data.controlSource];
+                controlSourceState.previous = controlSourceState.current;
+                controlSourceState.current = data.controlSource;
+                controlSourceState.lastSwitchTime = Date.now();
+                controlSourceState.switchCount++;
+                
+                // 记录切换日志
+                if (controlSourceState.switchCount > 1) {
+                    log(\`控制源切换: \${oldSrc.name} → \${newSrc.name} (\${newSrc.desc})\`, 'warning');
+                }
+            }
+            
+            // 更新连接状态
+            controlSourceState.rcConnected = data.isRcConnected;
+            controlSourceState.gcsConnected = data.isGcsConnected;
+            
+            // 更新顶部状态栏的连接指示器
+            const rcDot = document.getElementById('rc-dot');
+            const gcsDot = document.getElementById('gcs-dot');
+            rcDot.className = \`indicator-dot \${data.isRcConnected ? 'green' : 'red'}\`;
+            gcsDot.className = \`indicator-dot \${data.isGcsConnected ? 'green' : 'red'}\`;
+            
             document.getElementById('mode-txt').textContent = data.flightModeNameCN || '--';
             document.getElementById('phase-txt').textContent = data.flightPhaseNameCN || '--';
             
@@ -1112,10 +1321,16 @@ class DroneServer {
             const s = sec % 60;
             document.getElementById('time-txt').textContent = \`\${m}:\${s.toString().padStart(2,'0')}\`;
 
-            // HUD
-            document.getElementById('hud-mode').textContent = data.flightModeNameCN || '等待';
-            document.getElementById('hud-mode').style.borderColor = isArmed ? 'var(--qgc-red)' : 'var(--qgc-green)';
-            document.getElementById('hud-mode').style.color = isArmed ? 'var(--qgc-red)' : 'var(--qgc-green)';
+            // HUD - 显示实际飞行姿态模式 + 控制来源
+            const hudModeEl = document.getElementById('hud-mode');
+            hudModeEl.textContent = \`\${data.actualFlightModeNameCN || '等待'} | \${data.controlSourceNameCN || ''}\`;
+            hudModeEl.style.borderColor = isArmed ? 'var(--qgc-red)' : 'var(--qgc-green)';
+            hudModeEl.style.color = isArmed ? 'var(--qgc-red)' : 'var(--qgc-green)';
+
+            // 更新远程控制模式按钮状态
+            if (data.remoteCtrlMode !== undefined) {
+                updateCtrlModeButtons(data.remoteCtrlMode);
+            }
 
             // 3D Model Update
             if (drone) {
@@ -1195,6 +1410,47 @@ class DroneServer {
                     body: JSON.stringify(payload)
                 });
              } catch(e) { log(e.message, 'error'); }
+        }
+
+        // 设置远程控制模式
+        async function setRemoteControlMode(mode) {
+            const modeNames = ['禁用', '启用', '协同'];
+            log('设置远程控制模式: ' + modeNames[mode], 'info');
+            
+            const payload = { 
+                cmdType: 0x10,  // CTRL_CMD_SET_CONTROL_MODE
+                roll: 0, 
+                pitch: 0, 
+                yaw: 0, 
+                thrust: 0, 
+                mode: mode  // RemoteControlMode: 0=禁用, 1=启用, 2=协同
+            };
+            
+            try {
+                await fetch('/api/control', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                updateCtrlModeButtons(mode);
+            } catch(e) { 
+                log('发送控制模式失败: ' + e.message, 'error'); 
+            }
+        }
+
+        // 更新控制模式按钮状态
+        function updateCtrlModeButtons(activeMode) {
+            const modeNames = ['禁用', '启用', '协同'];
+            const modeIcons = ['🚫', '✅', '🤝'];
+            
+            // 更新指示器
+            document.getElementById('ctrl-mode-text').textContent = modeNames[activeMode] || '未知';
+            document.querySelector('.ctrl-mode-icon').textContent = modeIcons[activeMode] || '⚙️';
+            
+            // 更新按钮高亮
+            document.getElementById('btn-ctrl-disabled').classList.toggle('active', activeMode === 0);
+            document.getElementById('btn-ctrl-enabled').classList.toggle('active', activeMode === 1);
+            document.getElementById('btn-ctrl-shared').classList.toggle('active', activeMode === 2);
         }
 
         window.addEventListener('load', () => {
