@@ -60,6 +60,7 @@
 #include "stm32_legacy.h"
 #include "extrx.h"
 #include "flow_mtf01.h"
+#include "vehicle_state.h"
 #include "esp_log.h"
 #define DEBUG_MODULE "SYS"
 #include "debug_cf.h"
@@ -202,6 +203,7 @@ void systemTask(void *arg)
   // deckInit();
   // estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator); // 稳定器初始化
+  vehicleStateInit();        // 飞行器状态管理初始化 (PX4风格)
   // if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
   // {
   //   platformSetLowInterferenceRadioMode();
@@ -276,7 +278,7 @@ void systemTask(void *arg)
     systemStart(); // 启动系统
     ESP_LOGI("SYS", "[SYSTEM] systemStart() returned");
     DEBUG_PRINTI("systemStart ! selftestPassed = %d", selftestPassed);
-    
+
 #if defined(CONFIG_REMOTE_SERVER_ENABLE) && defined(CONFIG_WIFI_ENABLE_STA_MODE)
     // 启动远程服务器任务（需要 STA 模式连接成功）
     if (wifiIsSTAConnected())
@@ -289,7 +291,7 @@ void systemTask(void *arg)
       ESP_LOGI("SYS", "STA not connected, remote server disabled");
     }
 #endif
-    
+
     soundSetEffect(SND_STARTUP); // 播放启动音效
     ledseqRun(&seq_alive);       // 运行存活LED灯效果
     ledseqRun(&seq_testPassed);

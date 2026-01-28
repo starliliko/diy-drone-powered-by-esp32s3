@@ -34,6 +34,8 @@
 #include "wifi_esp32.h"
 #include "crtp.h"
 #include "commander.h"
+#include "crtp_commander.h"
+#include "vehicle_state.h"
 #include "stabilizer_types.h"
 #include "log.h"
 #include "param.h"
@@ -637,12 +639,13 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         break;
 
     case CTRL_CMD_EMERGENCY:
-        // 紧急停机 - 最高优先级立即执行
+        // 紧急停机 - 使用新的vehicle_state系统
+        vehicleEmergencyStop();
+        // 同时发送停止命令
         setpoint.thrust = 0;
         setpoint.mode.roll = modeDisable;
         setpoint.mode.pitch = modeDisable;
         setpoint.mode.yaw = modeDisable;
-        // 紧急停机使用EXTRX优先级确保能覆盖任何控制
         commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
         DEBUG_PRINT("EMERGENCY STOP received!\n");
         break;
@@ -664,15 +667,30 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         break;
 
     case CTRL_CMD_LAND:
-        // 降落模式
+        // 降落模式 - 设置飞行模式并发送降落命令
+        vehicleSetFlightMode(FLIGHT_MODE_LAND);
         setpoint.mode.z = modeVelocity;
         setpoint.velocity.z = -0.3f; // 下降速度 0.3m/s
         commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
         DEBUG_PRINT("LAND command received\n");
         break;
 
+    case CTRL_CMD_ARM:
+        // 解锁 - 使用新的vehicle_state系统
+        if (vehicleArm(false))
+        {
+            DEBUG_PRINT("ARM command: SUCCESS\n");
+        }
+        else
+        {
+            DEBUG_PRINT("ARM command: FAILED - %s\n", vehicleGetArmFailReasonStr());
+        }
+        break;
+
     case CTRL_CMD_DISARM:
-        // 锁定电机
+        // 上锁 - 使用新的vehicle_state系统
+        vehicleDisarm(false);
+        // 同时发送停止命令
         setpoint.thrust = 0;
         setpoint.mode.roll = modeDisable;
         setpoint.mode.pitch = modeDisable;
@@ -756,8 +774,6 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t rollId, pitchId, yawId;
     static logVarId_t gyroXId, gyroYId, gyroZId;
     static logVarId_t accXId, accYId, accZId;
-    static logVarId_t posXId, posYId, posZId;
-    static logVarId_t velXId, velYId, velZId;
 
     // 等待一段时间让日志系统初始化
     vTaskDelay(M2T(2000));
@@ -786,14 +802,6 @@ static void remoteServerTelemetryTask(void *param)
             accYId = logGetVarId("acc", "y");
             accZId = logGetVarId("acc", "z");
 
-            posXId = logGetVarId("stateEstimate", "x");
-            posYId = logGetVarId("stateEstimate", "y");
-            posZId = logGetVarId("stateEstimate", "z");
-
-            velXId = logGetVarId("stateEstimate", "vx");
-            velYId = logGetVarId("stateEstimate", "vy");
-            velZId = logGetVarId("stateEstimate", "vz");
-
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
         }
@@ -814,24 +822,34 @@ static void remoteServerTelemetryTask(void *param)
         telemetry.accY = (int16_t)(logGetFloat(accYId) * 1000);
         telemetry.accZ = (int16_t)(logGetFloat(accZId) * 1000);
 
-        // 位置估计（暂时固定为0）
-        telemetry.posX = 0;
-        telemetry.posY = 0;
-        telemetry.posZ = 0;
-
-        // 速度估计（暂时固定为0）
-        telemetry.velX = 0;
-        telemetry.velY = 0;
-        telemetry.velZ = 0;
-
         // 电池状态（暂时固定为100%）
         telemetry.battVoltage = 4200; // 4.2V
         telemetry.battPercent = 100;
 
-        // 飞行状态（简化：1=stabilize）
-        telemetry.flightMode = 1;   // stabilize mode
-        telemetry.isArmed = 1;      // 已解锁
-        telemetry.isLowBattery = 0; // 电量正常
+        // 飞行状态（从新的vehicle_state系统获取 - PX4风格）
+        VehicleState vstate = vehicleStateGet();
+        telemetry.armingState = (uint8_t)vstate.armingState;
+        telemetry.flightMode = (uint8_t)vstate.flightMode;
+        telemetry.flightPhase = (uint8_t)vstate.flightPhase;
+        telemetry.failsafeState = (uint8_t)vstate.failsafeState;
+
+        // 状态标志位
+        telemetry.statusFlags = 0;
+        if (vstate.isArmed)
+            telemetry.statusFlags |= STATUS_FLAG_ARMED;
+        if (vstate.isFlying)
+            telemetry.statusFlags |= STATUS_FLAG_FLYING;
+        if (vstate.isEmergency)
+            telemetry.statusFlags |= STATUS_FLAG_EMERGENCY;
+        if (vstate.isRcConnected)
+            telemetry.statusFlags |= STATUS_FLAG_RC_CONNECTED;
+        if (vstate.isGcsConnected)
+            telemetry.statusFlags |= STATUS_FLAG_GCS_CONNECTED;
+        if (vstate.isBatteryLow)
+            telemetry.statusFlags |= STATUS_FLAG_BATTERY_LOW;
+
+        // 飞行时间
+        telemetry.flightTime = vstate.flightTime;
 
         // 时间戳
         telemetry.timestamp = xTaskGetTickCount();

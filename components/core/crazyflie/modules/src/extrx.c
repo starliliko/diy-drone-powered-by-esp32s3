@@ -35,6 +35,7 @@
 #include "system.h"
 #include "commander.h"
 #include "crtp_commander.h"
+#include "vehicle_state.h"
 #include "static_mem.h"
 #include "sdkconfig.h"
 
@@ -188,8 +189,33 @@ static void extRxTask(void *param)
         ch[i] = frame.channels[i];
       }
 
-      /* Check arm switch */
-      isArmed = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
+      /* Check arm switch and update vehicle state */
+      bool armSwitchOn = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
+
+      /* Handle arming state transition */
+      if (armSwitchOn && !isArmed)
+      {
+        /* Arm switch turned ON - attempt to arm */
+        if (vehicleArm(false))
+        {
+          isArmed = true;
+          DEBUG_PRINT("RC ARM: SUCCESS\n");
+        }
+        else
+        {
+          DEBUG_PRINT("RC ARM: FAILED - %s\n", vehicleGetArmFailReasonStr());
+        }
+      }
+      else if (!armSwitchOn && isArmed)
+      {
+        /* Arm switch turned OFF - disarm */
+        vehicleDisarm(false);
+        isArmed = false;
+        DEBUG_PRINT("RC DISARM\n");
+      }
+
+      /* Update RC connection status */
+      vehicleSetRcConnected(true);
 
       /* Update flight mode based on mode switch */
       extRxUpdateFlightMode(frame.channels[EXTRX_CH_MODE]);
@@ -211,8 +237,14 @@ static void extRxTask(void *param)
     }
     else if (!sbusIsAvailable())
     {
-      /* No signal - disarm and zero controls */
-      isArmed = false;
+      /* No signal - disarm and zero controls, mark RC disconnected */
+      if (isArmed)
+      {
+        vehicleDisarm(true); // Force disarm on signal loss
+        isArmed = false;
+        DEBUG_PRINT("RC SIGNAL LOST - DISARMED\\n");
+      }
+      vehicleSetRcConnected(false);
       extrxSetpoint.thrust = 0;
     }
 #else
@@ -235,29 +267,35 @@ static void extRxTask(void *param)
 static void extRxUpdateFlightMode(uint16_t modeChannel)
 {
 #ifdef CONFIG_ENABLE_SBUS
+  VehicleFlightMode newMode;
+
   /* Determine flight mode based on switch position */
   if (modeChannel < EXTRX_MODE_LOW_THRESHOLD)
   {
     /* Low position: Stabilize mode */
     currentMode = STABILIZE_MODE;
+    newMode = FLIGHT_MODE_STABILIZE;
   }
   else if (modeChannel < EXTRX_MODE_HIGH_THRESHOLD)
   {
     /* Mid position: Altitude hold mode */
     currentMode = ALTHOLD_MODE;
+    newMode = FLIGHT_MODE_ALTITUDE;
   }
   else
   {
     /* High position: Position hold mode */
     currentMode = POSHOLD_MODE;
+    newMode = FLIGHT_MODE_POSITION;
   }
 
   /* Only update if mode changed (avoid repeated calls) */
   if (currentMode != lastMode)
   {
-    setCommandermode(currentMode);
+    // 使用新的vehicle_state系统设置飞行模式
+    vehicleSetFlightMode(newMode);
     DEBUG_PRINT("Flight mode changed: %s (switch=%d)\n",
-                getFlightModeName(), modeChannel);
+                vehicleGetFlightModeName(newMode), modeChannel);
     lastMode = currentMode;
   }
 #endif

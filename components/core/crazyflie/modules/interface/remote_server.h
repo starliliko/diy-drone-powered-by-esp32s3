@@ -49,10 +49,10 @@ extern "C"
 
 #define REMOTE_MAGIC_0 0xAB
 #define REMOTE_MAGIC_1 0xCD
-#define REMOTE_PROTOCOL_VERSION 0x01
+#define REMOTE_PROTOCOL_VERSION 0x02 // 版本升级以支持新状态
 #define REMOTE_MAX_PAYLOAD_SIZE 128
 
-    // 遥测数据结构（上行）
+    // 遥测数据结构（上行）- PX4/QGC 风格
     typedef struct __attribute__((packed))
     {
         // 姿态 (单位: 度 * 100)
@@ -78,13 +78,26 @@ extern "C"
         // 电池 (mV, %)
         uint16_t battVoltage;
         uint8_t battPercent;
-        // 状态标志
-        uint8_t flightMode;
-        uint8_t isArmed;
-        uint8_t isLowBattery;
+        // PX4 风格状态标志
+        uint8_t armingState;   // 解锁状态 (ArmingState 枚举)
+        uint8_t flightMode;    // 飞行模式 (VehicleFlightMode 枚举)
+        uint8_t flightPhase;   // 飞行阶段 (FlightPhase 枚举)
+        uint8_t failsafeState; // 故障安全状态 (FailsafeState 枚举)
+        // 状态标志位
+        uint8_t statusFlags; // bit0:isArmed, bit1:isFlying, bit2:isEmergency,
+                             // bit3:isRcConnected, bit4:isGcsConnected, bit5:isBatteryLow
         // 时间戳 (ms)
         uint32_t timestamp;
+        uint32_t flightTime; // 飞行时间 (ms)
     } RemoteTelemetryData;
+
+// 状态标志位定义
+#define STATUS_FLAG_ARMED (1 << 0)
+#define STATUS_FLAG_FLYING (1 << 1)
+#define STATUS_FLAG_EMERGENCY (1 << 2)
+#define STATUS_FLAG_RC_CONNECTED (1 << 3)
+#define STATUS_FLAG_GCS_CONNECTED (1 << 4)
+#define STATUS_FLAG_BATTERY_LOW (1 << 5)
 
     // 控制指令结构（下行）
     typedef struct __attribute__((packed))

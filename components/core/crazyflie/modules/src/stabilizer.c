@@ -49,6 +49,7 @@
 
 #include "estimator.h"
 #include "crtp_commander.h"
+#include "vehicle_state.h"
 // #include "usddeck.h" //usddeckLoggingMode_e
 #include "quatcompress.h"
 #include "statsCnt.h"
@@ -398,10 +399,17 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
 
       controller(&control, &setpoint, &sensorData, &state, tick); // 控制器计算控制输出
 
+      // 更新飞行器状态 (PX4风格状态机)
+      if (RATE_DO_EXECUTE(100, tick))
+      { // 100Hz 更新状态
+        vehicleStateUpdate();
+      }
+
       checkEmergencyStopTimeout(); // 检查紧急停机超时
 
-      checkStops = systemIsArmed(); // 检查系统是否解锁（armed）
-      if (emergencyStop || (systemIsArmed() == false))
+      // 使用新的vehicle_state系统检查解锁状态
+      checkStops = vehicleIsArmed();
+      if (emergencyStop || !vehicleIsArmed())
       {
         powerStop(); // 停机
       }
