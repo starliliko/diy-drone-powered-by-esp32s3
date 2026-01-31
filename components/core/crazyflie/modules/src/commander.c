@@ -450,6 +450,21 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
   // === 自动故障转移检查 ===
   int currentPriority = commanderGetActivePriority();
 
+  // Debug: 周期性输出控制源状态
+  static uint32_t lastDebugTime = 0;
+  if (currentTime - lastDebugTime > M2T(5000)) // 每5秒输出一次
+  {
+    DEBUG_PRINT("CtrlSrc: pri=%d alive=[%d,%d,%d,%d] age=[%lu,%lu,%lu,%lu]ms\n",
+                currentPriority,
+                sourceHealth[0].isAlive, sourceHealth[1].isAlive,
+                sourceHealth[2].isAlive, sourceHealth[3].isAlive,
+                (currentTime - sourceHealth[0].lastActiveTime) / portTICK_PERIOD_MS,
+                (currentTime - sourceHealth[1].lastActiveTime) / portTICK_PERIOD_MS,
+                (currentTime - sourceHealth[2].lastActiveTime) / portTICK_PERIOD_MS,
+                (currentTime - sourceHealth[3].lastActiveTime) / portTICK_PERIOD_MS);
+    lastDebugTime = currentTime;
+  }
+
   // 检查当前控制源是否超时，如果超时则尝试切换
   if (currentPriority > COMMANDER_PRIORITY_DISABLE)
   {

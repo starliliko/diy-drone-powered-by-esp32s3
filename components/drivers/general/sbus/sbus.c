@@ -42,8 +42,11 @@
 #define CONFIG_SBUS_TX_PIN UART_PIN_NO_CHANGE // TX not used for SBUS input
 #endif
 
+/* CONFIG_SBUS_SIGNAL_INVERTED is controlled by Kconfig
+ * If not defined in sdkconfig.h, it means user disabled it (has hardware inverter)
+ * So default should be 0 (disabled) to respect user's choice */
 #ifndef CONFIG_SBUS_SIGNAL_INVERTED
-#define CONFIG_SBUS_SIGNAL_INVERTED 1 // Default: enable software inversion
+#define CONFIG_SBUS_SIGNAL_INVERTED 0 // Default: disabled (assume hardware inverter)
 #endif
 
 /* SBUS timing */

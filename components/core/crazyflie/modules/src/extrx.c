@@ -79,6 +79,7 @@
 /* Low position: ~240-600, Mid position: ~600-1400, High position: ~1400-1800 */
 #define EXTRX_MODE_LOW_THRESHOLD 600
 #define EXTRX_MODE_HIGH_THRESHOLD 1400
+#define EXTRX_MODE_HYSTERESIS 100 /* 迟滞值，防止边界跳变 */
 
 /* Module state */
 static setpoint_t extrxSetpoint;
@@ -161,6 +162,18 @@ static void extRxTask(void *param)
 #ifdef CONFIG_ENABLE_SBUS
   sbusFrame_t frame;
   static uint32_t loopCount = 0;
+
+  /* Signal quality detection - use ratio of valid/invalid frames */
+  static int16_t prevStickChannels[4] = {0, 0, 0, 0}; /* Roll, Pitch, Yaw, Throttle */
+  static uint32_t validFrameCount = 0;                /* Valid frames in current window */
+  static uint32_t invalidFrameCount = 0;              /* Invalid frames in current window */
+  static bool signalLostDetected = false;
+  static bool firstFrameReceived = false; /* Skip first frame to initialize prevStickChannels */
+#define STICK_CHANGE_THRESHOLD 5          /* Minimum change to consider "active" */
+#define WINDOW_SIZE 50                    /* Check signal quality every 50 frames (~1 second) */
+#define SIGNAL_LOST_THRESHOLD 40          /* If >40 invalid frames out of 50, signal is lost (80%) */
+#define CHANNEL_VALID_MIN 180             /* Minimum valid channel value (below = failsafe) */
+#define CHANNEL_VALID_MAX 1850            /* Maximum valid channel value */
 #endif
 
   /* Wait for the system to be fully started */
@@ -183,23 +196,146 @@ static void extRxTask(void *param)
     /* Read SBUS frame (blocking with timeout) */
     if (sbusReadFrame(&frame, 20) == pdTRUE)
     {
-      /* CRITICAL: Check failsafe and frame lost flags */
+      /* Debug: Print every 250 frames regardless of state */
+      static uint32_t frameDebugCount = 0;
+      frameDebugCount++;
+      if (frameDebugCount % 250 == 0)
+      {
+        printf("[EXTRX] Frame#%lu: CH0=%d CH1=%d CH2=%d CH3=%d | FS=%d FL=%d | frozen=%lu sigLost=%d\n",
+               frameDebugCount, frame.channels[0], frame.channels[1],
+               frame.channels[2], frame.channels[3],
+               frame.failsafe, frame.frameLost, invalidFrameCount, signalLostDetected);
+      }
+
+      /* Check if this frame is valid or invalid */
+      bool frameValid = true;
+
+      /* Check failsafe and frame lost flags */
       if (frame.failsafe || frame.frameLost)
       {
-        /* Signal lost - treat as disconnected */
-        if (isArmed)
+        frameValid = false;
+      }
+      else
+      {
+        /* Check if channel values are in valid range */
+        int16_t stickChannels[4] = {
+            frame.channels[EXTRX_CH_ROLL],
+            frame.channels[EXTRX_CH_PITCH],
+            frame.channels[EXTRX_CH_YAW],
+            frame.channels[EXTRX_CH_THRUST]};
+        for (int i = 0; i < 4; i++)
         {
-          vehicleDisarm(true); // Force disarm on signal loss
-          isArmed = false;
-          DEBUG_PRINT("RC FAILSAFE DETECTED - DISARMED (FS=%d FL=%d)\n",
-                      frame.failsafe, frame.frameLost);
+          if (stickChannels[i] < CHANNEL_VALID_MIN || stickChannels[i] > CHANNEL_VALID_MAX)
+          {
+            frameValid = false;
+            break;
+          }
         }
-        vehicleSetRcConnected(false);
-        extrxSetpoint.thrust = 0;
+      }
 
-        /* Skip processing failsafe frame data */
+      /* Count valid/invalid frames */
+      if (frameValid)
+      {
+        validFrameCount++;
+      }
+      else
+      {
+        invalidFrameCount++;
+      }
+
+      /* Check signal quality every WINDOW_SIZE frames */
+      uint32_t totalFrames = validFrameCount + invalidFrameCount;
+      if (totalFrames >= WINDOW_SIZE)
+      {
+        if (invalidFrameCount >= SIGNAL_LOST_THRESHOLD)
+        {
+          /* Too many invalid frames - signal lost */
+          if (!signalLostDetected)
+          {
+            signalLostDetected = true;
+            printf("[EXTRX] RC SIGNAL LOST (invalid=%lu/%lu frames)\n",
+                   invalidFrameCount, totalFrames);
+            if (isArmed)
+            {
+              vehicleDisarm(true);
+              isArmed = false;
+              printf("[EXTRX] DISARMED due to signal loss\n");
+            }
+            vehicleSetRcConnected(false);
+            extrxSetpoint.thrust = 0;
+          }
+        }
+        else
+        {
+          /* Good signal quality */
+          if (signalLostDetected)
+          {
+            signalLostDetected = false;
+            vehicleSetRcConnected(true);
+            printf("[EXTRX] RC signal RECOVERED (valid=%lu/%lu frames)\n",
+                   validFrameCount, totalFrames);
+          }
+        }
+
+        /* Reset counters for next window */
+        validFrameCount = 0;
+        invalidFrameCount = 0;
+      }
+
+      /* If signal is lost, skip processing */
+      if (signalLostDetected)
+      {
         vTaskDelay(pdMS_TO_TICKS(20));
         continue;
+      }
+
+      /* Only process valid frames */
+      if (!frameValid)
+      {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        continue;
+      }
+
+      /* Activity detection: Check if stick channels are frozen */
+      int16_t stickChannels[4] = {
+          frame.channels[EXTRX_CH_ROLL],
+          frame.channels[EXTRX_CH_PITCH],
+          frame.channels[EXTRX_CH_YAW],
+          frame.channels[EXTRX_CH_THRUST]};
+
+      /* First valid frame: just initialize prevStickChannels, don't detect activity */
+      if (!firstFrameReceived)
+      {
+        for (int i = 0; i < 4; i++)
+        {
+          prevStickChannels[i] = stickChannels[i];
+        }
+        firstFrameReceived = true;
+        printf("[EXTRX] First SBUS frame received, activity detection started\n");
+      }
+      else
+      {
+        bool stickActivity = false;
+        for (int i = 0; i < 4; i++)
+        {
+          int16_t diff = stickChannels[i] - prevStickChannels[i];
+          if (diff < 0)
+            diff = -diff; /* abs() */
+          if (diff > STICK_CHANGE_THRESHOLD)
+          {
+            stickActivity = true;
+            break;
+          }
+        }
+
+        /* Update previous values */
+        for (int i = 0; i < 4; i++)
+        {
+          prevStickChannels[i] = stickChannels[i];
+        }
+
+        /* stickActivity not used currently - frozen detection handled by frame ratio */
+        (void)stickActivity;
       }
 
       /* Copy channel values */
@@ -211,18 +347,37 @@ static void extRxTask(void *param)
       /* Check arm switch and update vehicle state */
       bool armSwitchOn = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
 
+      /* Debug: Print arm switch status periodically (every 5 seconds) */
+      static uint32_t lastArmDebug = 0;
+      if (loopCount - lastArmDebug >= 250) /* Every 5 seconds (~20ms * 250) */
+      {
+        printf("[EXTRX] ARM:sw=%d ch6=%d>%d | MODE:ch5=%d mode=%d | armed=%d | FS=%d FL=%d | inv=%lu sigLost=%d\n",
+               armSwitchOn, frame.channels[EXTRX_CH_ARM], EXTRX_ARM_THRESHOLD,
+               frame.channels[EXTRX_CH_MODE], currentMode, isArmed,
+               frame.failsafe, frame.frameLost, invalidFrameCount, signalLostDetected);
+        lastArmDebug = loopCount;
+      }
+
       /* Handle arming state transition */
+      static bool armFailLogged = false; /* 移到外部以便多处使用 */
+
       if (armSwitchOn && !isArmed)
       {
         /* Arm switch turned ON - attempt to arm */
         if (vehicleArm(false))
         {
           isArmed = true;
-          DEBUG_PRINT("RC ARM: SUCCESS\n");
+          printf("[EXTRX] RC ARM SUCCESS\n");
+          armFailLogged = false; /* 成功后重置 */
         }
         else
         {
-          DEBUG_PRINT("RC ARM: FAILED - %s\n", vehicleGetArmFailReasonStr());
+          /* Only print failure once per attempt */
+          if (!armFailLogged)
+          {
+            printf("[EXTRX] RC ARM FAILED: %s\n", vehicleGetArmFailReasonStr());
+            armFailLogged = true;
+          }
         }
       }
       else if (!armSwitchOn && isArmed)
@@ -230,7 +385,13 @@ static void extRxTask(void *param)
         /* Arm switch turned OFF - disarm */
         vehicleDisarm(false);
         isArmed = false;
-        DEBUG_PRINT("RC DISARM\n");
+        printf("[EXTRX] RC DISARM\n");
+        armFailLogged = false; /* 解锁开关关闭时重置 */
+      }
+      else if (!armSwitchOn)
+      {
+        /* Reset arm failure flag when switch is off */
+        armFailLogged = false;
       }
 
       /* Update RC connection status */
@@ -257,6 +418,13 @@ static void extRxTask(void *param)
     else if (!sbusIsAvailable())
     {
       /* No signal (timeout or failsafe) - disarm and zero controls */
+      static bool wasConnected = true;
+      if (wasConnected)
+      {
+        DEBUG_PRINT("RC SIGNAL LOST\n");
+        wasConnected = false;
+      }
+
       if (isArmed)
       {
         vehicleDisarm(true); // Force disarm on signal loss
@@ -264,13 +432,29 @@ static void extRxTask(void *param)
         DEBUG_PRINT("RC SIGNAL LOST - DISARMED\n");
       }
       vehicleSetRcConnected(false);
+
+      /* Send zero setpoint to commander so it knows SBUS is inactive */
+      /* This will cause the control source to timeout and failover */
       extrxSetpoint.thrust = 0;
       extrxSetpoint.attitude.roll = 0.0f;
       extrxSetpoint.attitude.pitch = 0.0f;
       extrxSetpoint.attitude.yaw = 0.0f;
+      /* Note: We intentionally DON'T call commanderSetSetpoint here */
+      /* so that the control source will timeout and switch away */
 
       /* Small delay before retry */
-      vTaskDelay(pdMS_TO_TICKS(20));
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    else
+    {
+      /* SBUS available but no new frame yet */
+      static bool wasConnected = false;
+      if (!wasConnected)
+      {
+        DEBUG_PRINT("RC SIGNAL RESTORED\n");
+        wasConnected = true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(10));
     }
 #else
     /* No receiver configured, just delay */
@@ -293,25 +477,51 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
 {
 #ifdef CONFIG_ENABLE_SBUS
   VehicleFlightMode newMode;
+  static uint16_t lowThreshold = EXTRX_MODE_LOW_THRESHOLD;
+  static uint16_t highThreshold = EXTRX_MODE_HIGH_THRESHOLD;
 
-  /* Determine flight mode based on switch position */
-  if (modeChannel < EXTRX_MODE_LOW_THRESHOLD)
+  /* 使用迟滞逻辑判断飞行模式，防止边界跳变 */
+  /* 根据当前模式调整阈值 */
+  switch (currentMode)
+  {
+  case STABILIZE_MODE:
+    /* 当前是STABILIZE，需要超过 LOW+HYSTERESIS 才切换到 ALTHOLD */
+    lowThreshold = EXTRX_MODE_LOW_THRESHOLD + EXTRX_MODE_HYSTERESIS;
+    highThreshold = EXTRX_MODE_HIGH_THRESHOLD;
+    break;
+  case ALTHOLD_MODE:
+    /* 当前是ALTHOLD，需要低于 LOW-HYSTERESIS 才切换到 STABILIZE */
+    /* 需要高于 HIGH+HYSTERESIS 才切换到 POSHOLD */
+    lowThreshold = EXTRX_MODE_LOW_THRESHOLD - EXTRX_MODE_HYSTERESIS;
+    highThreshold = EXTRX_MODE_HIGH_THRESHOLD + EXTRX_MODE_HYSTERESIS;
+    break;
+  case POSHOLD_MODE:
+  case POSSET_MODE:
+  default:
+    /* 当前是POSHOLD，需要低于 HIGH-HYSTERESIS 才切换到 ALTHOLD */
+    lowThreshold = EXTRX_MODE_LOW_THRESHOLD;
+    highThreshold = EXTRX_MODE_HIGH_THRESHOLD - EXTRX_MODE_HYSTERESIS;
+    break;
+  }
+
+  /* Determine flight mode based on switch position with hysteresis */
+  if (modeChannel < lowThreshold)
   {
     /* Low position: Stabilize mode */
     currentMode = STABILIZE_MODE;
     newMode = FLIGHT_MODE_STABILIZE;
   }
-  else if (modeChannel < EXTRX_MODE_HIGH_THRESHOLD)
-  {
-    /* Mid position: Altitude hold mode */
-    currentMode = ALTHOLD_MODE;
-    newMode = FLIGHT_MODE_ALTITUDE;
-  }
-  else
+  else if (modeChannel >= highThreshold)
   {
     /* High position: Position hold mode */
     currentMode = POSHOLD_MODE;
     newMode = FLIGHT_MODE_POSITION;
+  }
+  else
+  {
+    /* Mid position: Altitude hold mode */
+    currentMode = ALTHOLD_MODE;
+    newMode = FLIGHT_MODE_ALTITUDE;
   }
 
   /* Only update if mode changed (avoid repeated calls) */
@@ -319,8 +529,8 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
   {
     // 使用新的vehicle_state系统设置飞行模式
     vehicleSetFlightMode(newMode);
-    DEBUG_PRINT("Flight mode changed: %s (switch=%d)\n",
-                vehicleGetFlightModeName(newMode), modeChannel);
+    printf("[EXTRX] MODE CHANGED: %d->%d ch5=%d (thresholds: low=%d high=%d)\n",
+           lastMode, currentMode, modeChannel, lowThreshold, highThreshold);
     lastMode = currentMode;
   }
 #endif
@@ -332,16 +542,6 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
 static void extRxDecodeChannels(void)
 {
 #ifdef CONFIG_ENABLE_SBUS
-  /* Only send commands if armed */
-  if (!isArmed)
-  {
-    extrxSetpoint.thrust = 0.0f;
-    extrxSetpoint.attitude.roll = 0.0f;
-    extrxSetpoint.attitude.pitch = 0.0f;
-    extrxSetpoint.attitude.yaw = 0.0f;
-    return;
-  }
-
   /* Convert SBUS values to setpoint */
   /* Thrust: 0-65535 as float */
   extrxSetpoint.thrust = (float)sbusConvertToUint16(ch[EXTRX_CH_THRUST]);
@@ -358,7 +558,14 @@ static void extRxDecodeChannels(void)
   extrxSetpoint.attitude.yaw = EXTRX_SIGN_YAW *
                                sbusConvertToRange(ch[EXTRX_CH_YAW], -EXTRX_SCALE_YAW, EXTRX_SCALE_YAW);
 
-  /* Send setpoint to commander */
+  /* If not armed, zero thrust for safety but still send to commander */
+  /* This allows commander to track SBUS as active control source */
+  if (!isArmed)
+  {
+    extrxSetpoint.thrust = 0.0f;
+  }
+
+  /* Send setpoint to commander (always, to maintain control source status) */
   commanderSetSetpoint(&extrxSetpoint, COMMANDER_PRIORITY_EXTRX);
 #endif
 }

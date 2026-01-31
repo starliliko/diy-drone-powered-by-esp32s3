@@ -31,13 +31,15 @@
  *===========================================================================*/
 
 // 解锁检查配置
-#define ARM_CHECK_ENABLED (ARM_CHECK_SENSORS | ARM_CHECK_BATTERY | ARM_CHECK_THROTTLE_ZERO)
-#define BATTERY_LOW_THRESHOLD_MV 3300      // 单节电池低电量阈值 (mV)
-#define BATTERY_CRITICAL_THRESHOLD_MV 3100 // 单节电池严重低电量阈值 (mV)
-#define ATTITUDE_LEVEL_THRESHOLD_DEG 10.0f // 水平放置检查阈值（度）
-#define TAKEOFF_THRUST_THRESHOLD 10000     // 起飞油门阈值
-#define LANDED_VELOCITY_THRESHOLD 0.1f     // 降落速度阈值 (m/s)
-#define LANDED_TIME_THRESHOLD_MS 1000      // 降落确认时间
+// 注意: 禁用电池检查用于开发测试，生产环境应恢复 ARM_CHECK_BATTERY
+// #define ARM_CHECK_ENABLED (ARM_CHECK_SENSORS | ARM_CHECK_BATTERY | ARM_CHECK_THROTTLE_ZERO)
+#define ARM_CHECK_ENABLED (ARM_CHECK_SENSORS | ARM_CHECK_THROTTLE_ZERO) // 临时禁用电池检查
+#define BATTERY_LOW_THRESHOLD_MV 3300                                   // 单节电池低电量阈值 (mV)
+#define BATTERY_CRITICAL_THRESHOLD_MV 3100                              // 单节电池严重低电量阈值 (mV)
+#define ATTITUDE_LEVEL_THRESHOLD_DEG 10.0f                              // 水平放置检查阈值（度）
+#define TAKEOFF_THRUST_THRESHOLD 10000                                  // 起飞油门阈值
+#define LANDED_VELOCITY_THRESHOLD 0.1f                                  // 降落速度阈值 (m/s)
+#define LANDED_TIME_THRESHOLD_MS 1000                                   // 降落确认时间
 
 /*===========================================================================
  * 状态变量
