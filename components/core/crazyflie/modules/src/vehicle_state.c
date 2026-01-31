@@ -562,7 +562,24 @@ static void updateFailsafe(void)
         }
     }
 
-    // TODO: 检查遥控器信号
+    // 检查遥控器信号 - 如果已启用SBUS且信号丢失
+    if (!vehicleState.isRcConnected && vehicleState.isArmed)
+    {
+        // 遥控器信号丢失，且飞机已解锁 - 触发RC_LOSS失控保护
+        if (vehicleState.failsafeState < FAILSAFE_RC_LOSS)
+        {
+            vehicleState.failsafeState = FAILSAFE_RC_LOSS;
+            DEBUG_PRINT("FAILSAFE: RC signal lost!\n");
+        }
+    }
+    else if (vehicleState.isRcConnected &&
+             vehicleState.failsafeState == FAILSAFE_RC_LOSS)
+    {
+        // 遥控器信号恢复
+        vehicleState.failsafeState = FAILSAFE_NONE;
+        DEBUG_PRINT("FAILSAFE: RC signal recovered\n");
+    }
+
     // TODO: 检查地面站连接
 }
 

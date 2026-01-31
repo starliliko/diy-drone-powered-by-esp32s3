@@ -42,6 +42,10 @@
 #define CONFIG_SBUS_TX_PIN UART_PIN_NO_CHANGE // TX not used for SBUS input
 #endif
 
+#ifndef CONFIG_SBUS_SIGNAL_INVERTED
+#define CONFIG_SBUS_SIGNAL_INVERTED 1 // Default: enable software inversion
+#endif
+
 /* SBUS timing */
 #define SBUS_TIMEOUT_MS 100 // Signal lost timeout
 #define SBUS_RX_BUFFER_SIZE 256
@@ -111,13 +115,17 @@ void sbusInit(void)
     }
 
     /* SBUS uses inverted signal - enable RX inversion if no hardware inverter */
+#if CONFIG_SBUS_SIGNAL_INVERTED
     err = uart_set_line_inverse(CONFIG_SBUS_UART_NUM, UART_SIGNAL_RXD_INV);
     if (err != ESP_OK)
     {
         printf("[SBUS] UART set inverse failed: %d\n", err);
         return;
     }
-    printf("[SBUS] RX signal inversion enabled\n");
+    printf("[SBUS] RX signal inversion: ENABLED (software)\n");
+#else
+    printf("[SBUS] RX signal inversion: DISABLED (using hardware inverter)\n");
+#endif
 
     /* Initialize frame data */
     memset(&latestFrame, 0, sizeof(latestFrame));
@@ -307,6 +315,7 @@ bool sbusParseFrame(const uint8_t *buffer, sbusFrame_t *frame)
 
 #if SBUS_DEBUG_CHANNELS
     printf("[SBUS] Channels: ");
+    for (int i = 0; i < SBUS_NUM_CHANNELS; i++)
     {
         printf("CH%d:%4d ", i, frame->channels[i]);
     }
@@ -372,12 +381,18 @@ BaseType_t sbusReadFrame(sbusFrame_t *frame, uint32_t timeoutMs)
                     if (frame->frameLost)
                         frameLostCount++;
 
-                    // /* Print stats every 500 frames */
-                    // if (framesReceived % 500 == 0)
-                    // {
-                    //     printf("[SBUS] Stats: Total=%lu Valid=%lu Invalid=%lu FS=%lu FL=%lu\n",
-                    //            framesReceived, framesValid, framesInvalid, failsafeCount, frameLostCount);
-                    // }
+                    /* Print stats every 500 frames */
+                    if (framesReceived % 500 == 0)
+                    {
+                        printf("[SBUS] Stats: Total=%lu Valid=%lu Invalid=%lu FS=%lu FL=%lu\n",
+                               framesReceived, framesValid, framesInvalid, failsafeCount, frameLostCount);
+                        printf("[SBUS] Channels: CH0=%4d CH1=%4d CH2=%4d CH3=%4d CH4=%4d CH5=%4d CH6=%4d CH7=%4d\n",
+                               frame->channels[0], frame->channels[1], frame->channels[2], frame->channels[3],
+                               frame->channels[4], frame->channels[5], frame->channels[6], frame->channels[7]);
+                        printf("[SBUS]           CH8=%4d CH9=%4d CH10=%4d CH11=%4d CH12=%4d CH13=%4d CH14=%4d CH15=%4d\n",
+                               frame->channels[8], frame->channels[9], frame->channels[10], frame->channels[11],
+                               frame->channels[12], frame->channels[13], frame->channels[14], frame->channels[15]);
+                    }
 #endif
 
 #if SBUS_DEBUG_FRAMES

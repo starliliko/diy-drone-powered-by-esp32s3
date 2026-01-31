@@ -13,6 +13,8 @@ const net = require('net');
 const http = require('http');
 const express = require('express');
 const WebSocket = require('ws');
+const dgram = require('dgram');
+const os = require('os');
 
 // ============================================================================
 // 配置参数
@@ -21,8 +23,13 @@ const WebSocket = require('ws');
 const CONFIG = {
     TCP_PORT: 8080,        // TCP 服务器端口（接收飞控数据）
     HTTP_PORT: 3000,       // HTTP/WebSocket 端口（Web界面）
+    DISCOVERY_PORT: 8081,  // UDP 广播发现端口
+    DISCOVERY_INTERVAL: 2000, // 广播间隔(ms)
     HEARTBEAT_TIMEOUT: 10000  // 心跳超时时间(ms)
 };
+
+// 发现协议魔数 "ESPD"
+const DISCOVERY_MAGIC = Buffer.from([0x45, 0x53, 0x50, 0x44]);
 
 // ============================================================================
 // 协议定义
@@ -505,11 +512,151 @@ class DroneServer {
         this.tcpServer = null;
         this.httpServer = null;
         this.wss = null;
+        this.discoverySocket = null;
+        this.discoveryInterval = null;
     }
 
     start() {
         this.startTCPServer();
         this.startWebServer();
+        this.startDiscoveryBroadcast();
+    }
+
+    /**
+     * 获取本机局域网 IP 地址
+     * 优先选择 WiFi/WLAN 接口（手机热点场景）
+     * 其次选择常见的局域网网段（192.168.x.x, 10.x.x.x, 172.16-31.x.x）
+     */
+    getLocalIP() {
+        const interfaces = os.networkInterfaces();
+        let candidates = [];
+
+        for (const name of Object.keys(interfaces)) {
+            for (const iface of interfaces[name]) {
+                // 跳过内部地址和非 IPv4 地址
+                if (iface.family === 'IPv4' && !iface.internal) {
+                    // 跳过链路本地地址 (169.254.x.x)
+                    if (iface.address.startsWith('169.254.')) {
+                        continue;
+                    }
+                    candidates.push({
+                        address: iface.address,
+                        name: name,
+                        isWifi: name.toLowerCase().includes('wi-fi') ||
+                            name.toLowerCase().includes('wifi') ||
+                            name.toLowerCase().includes('wlan') ||
+                            name.toLowerCase().includes('wireless')
+                    });
+                }
+            }
+        }
+
+        // 优先选择 WiFi/WLAN 接口上的 192.168.x.x 地址（最适合手机热点）
+        for (const c of candidates) {
+            if (c.isWifi && c.address.startsWith('192.168.')) {
+                console.log(`  Selected network interface: ${c.name} (${c.address}) [WiFi preferred]`);
+                return c.address;
+            }
+        }
+
+        // 其次选择任何 WiFi 接口
+        for (const c of candidates) {
+            if (c.isWifi) {
+                console.log(`  Selected network interface: ${c.name} (${c.address}) [WiFi]`);
+                return c.address;
+            }
+        }
+
+        // 然后选择非虚拟网卡的 192.168.x.x（排除 VirtualBox, VMware 等）
+        for (const c of candidates) {
+            if (c.address.startsWith('192.168.')) {
+                const lowerName = c.name.toLowerCase();
+                if (!lowerName.includes('virtual') &&
+                    !lowerName.includes('vmware') &&
+                    !lowerName.includes('vmnet') &&
+                    !lowerName.includes('vbox') &&
+                    !lowerName.includes('以太网 2')) { // VirtualBox 常用名称
+                    console.log(`  Selected network interface: ${c.name} (${c.address})`);
+                    return c.address;
+                }
+            }
+        }
+
+        // 其次选择 10.x.x.x
+        for (const c of candidates) {
+            if (c.address.startsWith('10.')) {
+                console.log(`  Selected network interface: ${c.name} (${c.address})`);
+                return c.address;
+            }
+        }
+
+        // 其次选择 172.16-31.x.x
+        for (const c of candidates) {
+            const parts = c.address.split('.');
+            if (parts[0] === '172') {
+                const second = parseInt(parts[1]);
+                if (second >= 16 && second <= 31) {
+                    console.log(`  Selected network interface: ${c.name} (${c.address})`);
+                    return c.address;
+                }
+            }
+        }
+
+        // 返回第一个可用地址
+        if (candidates.length > 0) {
+            console.log(`  Selected network interface: ${candidates[0].name} (${candidates[0].address})`);
+            return candidates[0].address;
+        }
+
+        return '127.0.0.1';
+    }
+
+    /**
+     * 启动 UDP 广播发现服务
+     * 定期向局域网广播服务器地址，供 ESP32 自动发现
+     */
+    startDiscoveryBroadcast() {
+        try {
+            this.discoverySocket = dgram.createSocket('udp4');
+
+            this.discoverySocket.on('error', (err) => {
+                console.error('✗ Discovery socket error:', err.message);
+            });
+
+            this.discoverySocket.bind(() => {
+                this.discoverySocket.setBroadcast(true);
+
+                const localIP = this.getLocalIP();
+
+                // 计算子网广播地址
+                const ipParts = localIP.split('.');
+                const subnetBroadcast = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.255`;
+
+                console.log(`✓ UDP Discovery broadcasting on port ${CONFIG.DISCOVERY_PORT}`);
+                console.log(`  Local IP: ${localIP}, TCP port: ${CONFIG.TCP_PORT}`);
+                console.log(`  Broadcast address: ${subnetBroadcast}`);
+                console.log(`  ESP32 will auto-discover this server`);
+
+                // 构建广播包: 4字节魔数 + 2字节端口
+                const packet = Buffer.alloc(6);
+                DISCOVERY_MAGIC.copy(packet, 0);
+                packet.writeUInt16BE(CONFIG.TCP_PORT, 4);
+
+                // 定期广播
+                this.discoveryInterval = setInterval(() => {
+                    // 发送到子网广播地址和全网广播地址
+                    this.discoverySocket.send(packet, CONFIG.DISCOVERY_PORT, subnetBroadcast);
+                    this.discoverySocket.send(packet, CONFIG.DISCOVERY_PORT, '255.255.255.255');
+                }, CONFIG.DISCOVERY_INTERVAL);
+
+                // 立即发送一次
+                this.discoverySocket.send(packet, CONFIG.DISCOVERY_PORT, subnetBroadcast);
+                this.discoverySocket.send(packet, CONFIG.DISCOVERY_PORT, '255.255.255.255');
+            });
+        } catch (err) {
+            console.error('✗ Discovery broadcast failed:', err.message);
+            console.log('  ESP32 will use fallback IP from configuration');
+        }
     }
 
     startTCPServer() {
@@ -723,11 +870,14 @@ class DroneServer {
             flex: 1;
             display: flex;
             position: relative;
+            overflow: hidden;
+            min-height: 0; /* 关键：防止嵌套 flex 溢出 */
         }
 
         /* Left Sidebar - Telemetry */
         .sidebar-left {
             width: 280px;
+            flex-shrink: 0;
             background: var(--qgc-panel-bg);
             border-right: 1px solid var(--qgc-border);
             display: flex;
@@ -775,6 +925,12 @@ class DroneServer {
             flex: 1;
             position: relative;
             background: #000;
+            overflow: hidden; /* 防止 Canvas 溢出 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 0; /* 关键：允许 flex item 缩小到比 content 更小 */
+            min-width: 0;
         }
 
         #model-container {
@@ -830,11 +986,13 @@ class DroneServer {
         /* Right Sidebar - Actions */
         .sidebar-right {
             width: 240px;
+            flex-shrink: 0;
             background: var(--qgc-panel-bg);
             border-left: 1px solid var(--qgc-border);
             display: flex;
             flex-direction: column;
             z-index: 90;
+            overflow-y: auto;
         }
 
         .action-pad {
@@ -886,45 +1044,60 @@ class DroneServer {
         .ctrl-mode-icon { font-size: 18px; }
         .ctrl-mode-text { font-size: 13px; color: var(--qgc-white); }
 
-        .btn-mode-enabled { 
-            border-color: var(--qgc-green); 
-            color: var(--qgc-green); 
-            font-size: 12px;
-        }
-        .btn-mode-enabled:hover { background: rgba(39, 217, 101, 0.1); }
-        .btn-mode-enabled.active { 
-            background: rgba(39, 217, 101, 0.2); 
-            border-width: 2px;
-        }
-
-        .btn-mode-shared { 
-            border-color: var(--qgc-orange); 
-            color: var(--qgc-orange); 
-            font-size: 12px;
-        }
-        .btn-mode-shared:hover { background: rgba(255, 152, 0, 0.1); }
-        .btn-mode-shared.active { 
-            background: rgba(255, 152, 0, 0.2); 
-            border-width: 2px;
+        /* Segmented Control */
+        .segmented-control {
+            display: flex;
+            background: #1a1a2e;
+            border-radius: 6px;
+            padding: 4px;
+            position: relative;
+            user-select: none;
+            border: 1px solid #444;
+            margin-bottom: 20px;
         }
 
-        .btn-mode-disabled { 
-            border-color: #666; 
-            color: #999; 
+        .segmented-control input {
+            display: none;
+        }
+
+        .seg-item {
+            flex: 1;
+            text-align: center;
+            padding: 8px 0;
             font-size: 12px;
+            color: #888;
+            z-index: 2;
+            cursor: pointer;
+            transition: color 0.3s;
+            font-weight: 600;
         }
-        .btn-mode-disabled:hover { background: rgba(100, 100, 100, 0.1); }
-        .btn-mode-disabled.active { 
-            background: rgba(100, 100, 100, 0.2); 
-            border-width: 2px;
+
+        /* Specific colors for active states */
+        #mode-enabled:checked + label { color: var(--qgc-green); }
+        #mode-shared:checked + label { color: var(--qgc-orange); }
+        #mode-disabled:checked + label { color: #ccc; }
+
+        .seg-glider {
+            position: absolute;
+            top: 4px;
+            bottom: 4px;
+            left: 4px;
+            width: calc((100% - 8px) / 3);
+            background: #333;
+            border-radius: 4px;
+            transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            z-index: 1;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+
+        /* Glider positions */
+        #mode-disabled:checked ~ .seg-glider { transform: translateX(0%); background: #444; }
+        #mode-enabled:checked ~ .seg-glider { transform: translateX(100%); background: rgba(39, 217, 101, 0.2); border: 1px solid rgba(39, 217, 101, 0.4); }
+        #mode-shared:checked ~ .seg-glider { transform: translateX(200%); background: rgba(255, 152, 0, 0.2); border: 1px solid rgba(255, 152, 0, 0.4); }
 
         /* Bottom Console */
         .bottom-console {
-            position: absolute;
-            bottom: 0;
-            left: 280px;
-            right: 240px;
+            width: 100%;
             height: 150px;
             background: rgba(0,0,0,0.8);
             border-top: 1px solid var(--qgc-border);
@@ -933,6 +1106,7 @@ class DroneServer {
             flex-direction: column;
             z-index: 50;
             transition: height 0.3s;
+            flex-shrink: 0;
         }
         
         .console-header {
@@ -1090,18 +1264,24 @@ class DroneServer {
                     <span class="ctrl-mode-icon">⚙️</span>
                     <span class="ctrl-mode-text" id="ctrl-mode-text">启用</span>
                 </div>
-                <div class="slide-btn btn-mode-enabled" id="btn-ctrl-enabled" onclick="setRemoteControlMode(1)">
-                    启用服务器控制
+                
+                <div class="segmented-control">
+                    <input type="radio" name="ctrl-mode" id="mode-disabled" value="0" onclick="setRemoteControlMode(0)">
+                    <label for="mode-disabled" class="seg-item" title="禁用服务器控制">禁用</label>
+                    
+                    <input type="radio" name="ctrl-mode" id="mode-enabled" value="1" onclick="setRemoteControlMode(1)">
+                    <label for="mode-enabled" class="seg-item" title="启用服务器控制">启用</label>
+                    
+                    <input type="radio" name="ctrl-mode" id="mode-shared" value="2" onclick="setRemoteControlMode(2)">
+                    <label for="mode-shared" class="seg-item" title="协同控制 (RC+服务器)">协同</label>
+                    
+                    <div class="seg-glider"></div>
                 </div>
-                <div class="slide-btn btn-mode-shared" id="btn-ctrl-shared" onclick="setRemoteControlMode(2)">
-                    协同控制 (RC+服务器)
-                </div>
-                <div class="slide-btn btn-mode-disabled" id="btn-ctrl-disabled" onclick="setRemoteControlMode(0)">
-                    禁用服务器控制
-                </div>
+
+                <div style="height: 50px;"></div> <!-- 底部填充 -->
             </div>
         </div>
-
+    </div>
         <!-- BOTTOM: Console -->
         <div class="bottom-console">
             <div class="console-header" onclick="this.parentElement.style.height = this.parentElement.style.height === '30px' ? '150px' : '30px'">
@@ -1111,7 +1291,6 @@ class DroneServer {
                 <div class="log-entry log-info">[SYSTEM] QGroundControl Lite 地面站已启动</div>
             </div>
         </div>
-    </div>
 
     <script>
         // --- 控制来源优先级说明（前端显示用）---
@@ -1151,6 +1330,9 @@ class DroneServer {
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
             container.appendChild(renderer.domElement);
+            
+            // 监听窗口 resize
+            window.addEventListener('resize', onWindowResize, false);
             
             // Lights
             const ambient = new THREE.AmbientLight(0xffffff, 0.7);
@@ -1342,6 +1524,20 @@ class DroneServer {
             }
         }
 
+        function onWindowResize() {
+            const container = document.getElementById('model-container');
+            if (camera && renderer && container) {
+                // 需要重新获取容器尺寸，可能因为缩放或布局变化而改变
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+                
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                
+                renderer.setSize(width, height);
+            }
+        }
+
         async function sendAction(action) {
             let cmdType = 0; // RPYT
             let roll=0, pitch=0, yaw=0, thrust=0;
@@ -1447,10 +1643,12 @@ class DroneServer {
             document.getElementById('ctrl-mode-text').textContent = modeNames[activeMode] || '未知';
             document.querySelector('.ctrl-mode-icon').textContent = modeIcons[activeMode] || '⚙️';
             
-            // 更新按钮高亮
-            document.getElementById('btn-ctrl-disabled').classList.toggle('active', activeMode === 0);
-            document.getElementById('btn-ctrl-enabled').classList.toggle('active', activeMode === 1);
-            document.getElementById('btn-ctrl-shared').classList.toggle('active', activeMode === 2);
+            // 更新 Segmented Control 状态
+            const radioId = ['mode-disabled', 'mode-enabled', 'mode-shared'][activeMode];
+            if (radioId) {
+                const radio = document.getElementById(radioId);
+                if (radio) radio.checked = true;
+            }
         }
 
         window.addEventListener('load', () => {

@@ -34,6 +34,7 @@
 #include "bmi088_spi.h"
 #include "bmi088.h"
 #include "spi_drv.h"
+#include "sbus.h"
 #define DEBUG_MODULE "APP_MAIN"
 #include "debug_cf.h"
 
@@ -106,6 +107,57 @@ void app_main()
     else
     {
         ESP_LOGE("APP_MAIN", "BMI088 init FAILED!");
+    }
+
+    /* SBUS硬件测试 - 初始化并等待数据 */
+    ESP_LOGI("APP_MAIN", "=== SBUS Hardware Test ===");
+
+    sbusInit();
+
+    if (sbusTest())
+    {
+        ESP_LOGI("APP_MAIN", "SBUS init SUCCESS, waiting for receiver data...");
+
+        sbusFrame_t frame;
+        int framesReceived = 0;
+
+        // 尝试读取10次数据，每次等待500ms
+        for (int i = 0; i < 10; i++)
+        {
+            if (sbusReadFrame(&frame, 500) == pdTRUE)
+            {
+                framesReceived++;
+                ESP_LOGI("APP_MAIN", "[Test %d] CH1=%4d CH2=%4d CH3=%4d CH4=%4d | FS=%d FL=%d",
+                         framesReceived,
+                         frame.channels[0], frame.channels[1],
+                         frame.channels[2], frame.channels[3],
+                         frame.failsafe, frame.frameLost);
+
+                // 如果已经收到3帧有效数据，测试通过
+                if (framesReceived >= 3)
+                {
+                    ESP_LOGI("APP_MAIN", "SBUS receiving data OK!");
+                    break;
+                }
+            }
+            else
+            {
+                ESP_LOGW("APP_MAIN", "[Attempt %d] No SBUS data received (timeout 500ms)", i + 1);
+            }
+        }
+
+        if (framesReceived == 0)
+        {
+            ESP_LOGW("APP_MAIN", "SBUS: No data received - check receiver connection");
+            ESP_LOGW("APP_MAIN", "  - Verify receiver is powered and bound to transmitter");
+            ESP_LOGW("APP_MAIN", "  - Verify SBUS wire connected to RX pin");
+        }
+
+        ESP_LOGI("APP_MAIN", "=== SBUS Test Complete (frames: %d) ===", framesReceived);
+    }
+    else
+    {
+        ESP_LOGE("APP_MAIN", "SBUS init FAILED!");
     }
 
     /* 启动系统任务 */

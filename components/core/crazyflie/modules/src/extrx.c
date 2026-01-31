@@ -183,6 +183,25 @@ static void extRxTask(void *param)
     /* Read SBUS frame (blocking with timeout) */
     if (sbusReadFrame(&frame, 20) == pdTRUE)
     {
+      /* CRITICAL: Check failsafe and frame lost flags */
+      if (frame.failsafe || frame.frameLost)
+      {
+        /* Signal lost - treat as disconnected */
+        if (isArmed)
+        {
+          vehicleDisarm(true); // Force disarm on signal loss
+          isArmed = false;
+          DEBUG_PRINT("RC FAILSAFE DETECTED - DISARMED (FS=%d FL=%d)\n",
+                      frame.failsafe, frame.frameLost);
+        }
+        vehicleSetRcConnected(false);
+        extrxSetpoint.thrust = 0;
+
+        /* Skip processing failsafe frame data */
+        vTaskDelay(pdMS_TO_TICKS(20));
+        continue;
+      }
+
       /* Copy channel values */
       for (int i = 0; i < EXTRX_NR_CHANNELS && i < SBUS_NUM_CHANNELS; i++)
       {
@@ -237,15 +256,21 @@ static void extRxTask(void *param)
     }
     else if (!sbusIsAvailable())
     {
-      /* No signal - disarm and zero controls, mark RC disconnected */
+      /* No signal (timeout or failsafe) - disarm and zero controls */
       if (isArmed)
       {
         vehicleDisarm(true); // Force disarm on signal loss
         isArmed = false;
-        DEBUG_PRINT("RC SIGNAL LOST - DISARMED\\n");
+        DEBUG_PRINT("RC SIGNAL LOST - DISARMED\n");
       }
       vehicleSetRcConnected(false);
       extrxSetpoint.thrust = 0;
+      extrxSetpoint.attitude.roll = 0.0f;
+      extrxSetpoint.attitude.pitch = 0.0f;
+      extrxSetpoint.attitude.yaw = 0.0f;
+
+      /* Small delay before retry */
+      vTaskDelay(pdMS_TO_TICKS(20));
     }
 #else
     /* No receiver configured, just delay */

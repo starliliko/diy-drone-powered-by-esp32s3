@@ -76,18 +76,23 @@
 #define TX_QUEUE_SIZE 16
 #define RX_BUFFER_SIZE 256
 
+// UDP 广播发现配置
+#define DISCOVERY_PORT 8081        // 广播监听端口
+#define DISCOVERY_MAGIC 0x45535044 // "ESPD" 魔数
+#define DISCOVERY_TIMEOUT_MS 5000  // 发现超时时间
+
 // 任务配置
 #define REMOTE_TX_TASK_NAME "remoteTx"
 #define REMOTE_TX_TASK_PRI 3
-#define REMOTE_TX_TASK_STACK 2048
+#define REMOTE_TX_TASK_STACK 4096
 
 #define REMOTE_RX_TASK_NAME "remoteRx"
 #define REMOTE_RX_TASK_PRI 3
-#define REMOTE_RX_TASK_STACK 2048
+#define REMOTE_RX_TASK_STACK 4096
 
 #define REMOTE_TELEM_TASK_NAME "remoteTelem"
 #define REMOTE_TELEM_TASK_PRI 2
-#define REMOTE_TELEM_TASK_STACK 2048
+#define REMOTE_TELEM_TASK_STACK 3072
 
 /*===========================================================================
  * 状态变量
@@ -99,6 +104,10 @@ static volatile RemoteConnectionState connectionState = REMOTE_STATE_DISCONNECTE
 static SemaphoreHandle_t sockMutex = NULL;
 static QueueHandle_t txQueue = NULL;
 static EventGroupHandle_t eventGroup = NULL;
+
+// 动态服务器地址
+static char serverIP[16] = REMOTE_SERVER_IP; // 默认使用配置的IP
+static bool serverDiscovered = false;
 
 #define EVT_CONNECTED (1 << 0)
 #define EVT_DISCONNECTED (1 << 1)
@@ -194,11 +203,11 @@ void remoteServerStart(void)
 {
     if (!isInit)
     {
-        DEBUG_PRINT("Remote server not initialized\n");
+        ESP_LOGE("REMOTE", "Remote server not initialized");
         return;
     }
 
-    DEBUG_PRINT("Starting remote server tasks\n");
+    ESP_LOGI("REMOTE", "Starting remote server tasks");
 
     // 创建任务
     xTaskCreate(remoteServerRxTask, REMOTE_RX_TASK_NAME, REMOTE_RX_TASK_STACK,
@@ -208,7 +217,7 @@ void remoteServerStart(void)
     xTaskCreate(remoteServerTelemetryTask, REMOTE_TELEM_TASK_NAME, REMOTE_TELEM_TASK_STACK,
                 NULL, REMOTE_TELEM_TASK_PRI, NULL);
 
-    DEBUG_PRINT("Remote server tasks started\n");
+    ESP_LOGI("REMOTE", "Remote server tasks started");
 }
 
 bool remoteServerTest(void)
@@ -273,7 +282,7 @@ void remoteServerReconnect(void)
 
 const char *remoteServerGetIP(void)
 {
-    return REMOTE_SERVER_IP;
+    return serverIP; // 返回动态发现的IP或配置的IP
 }
 
 void remoteServerGetStats(uint32_t *txCount, uint32_t *rxCount,
@@ -302,6 +311,89 @@ void remoteServerGetStats(uint32_t *txCount, uint32_t *rxCount,
  * 连接管理
  *===========================================================================*/
 
+/**
+ * @brief 使用 UDP 广播发现服务器 IP 地址
+ *
+ * 监听服务器发送的广播包，格式：
+ * - 4字节魔数 (0x45535044 = "ESPD")
+ * - 2字节端口号 (网络字节序)
+ *
+ * @return true 如果成功发现，false 超时
+ */
+static bool discoverServerViaUDP(void)
+{
+    ESP_LOGI("REMOTE", "Discovering server via UDP broadcast...");
+
+    int discoverySock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (discoverySock < 0)
+    {
+        ESP_LOGE("REMOTE", "Failed to create discovery socket");
+        return false;
+    }
+
+    // 允许接收广播
+    int broadcast = 1;
+    setsockopt(discoverySock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+
+    // 设置超时
+    struct timeval timeout;
+    timeout.tv_sec = DISCOVERY_TIMEOUT_MS / 1000;
+    timeout.tv_usec = (DISCOVERY_TIMEOUT_MS % 1000) * 1000;
+    setsockopt(discoverySock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    // 绑定到广播端口
+    struct sockaddr_in bindAddr;
+    memset(&bindAddr, 0, sizeof(bindAddr));
+    bindAddr.sin_family = AF_INET;
+    bindAddr.sin_port = htons(DISCOVERY_PORT);
+    bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(discoverySock, (struct sockaddr *)&bindAddr, sizeof(bindAddr)) < 0)
+    {
+        ESP_LOGE("REMOTE", "Failed to bind discovery socket: %d", errno);
+        close(discoverySock);
+        return false;
+    }
+
+    ESP_LOGI("REMOTE", "Listening for server broadcast on port %d...", DISCOVERY_PORT);
+
+    // 接收广播包
+    uint8_t buffer[16];
+    struct sockaddr_in srcAddr;
+    socklen_t srcLen = sizeof(srcAddr);
+
+    int len = recvfrom(discoverySock, buffer, sizeof(buffer), 0,
+                       (struct sockaddr *)&srcAddr, &srcLen);
+
+    close(discoverySock);
+
+    if (len < 6)
+    {
+        ESP_LOGW("REMOTE", "Discovery timeout or invalid packet (len=%d)", len);
+        return false;
+    }
+
+    // 验证魔数
+    uint32_t magic = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+    if (magic != DISCOVERY_MAGIC)
+    {
+        ESP_LOGW("REMOTE", "Invalid discovery magic: 0x%08lX", (unsigned long)magic);
+        return false;
+    }
+
+    // 提取端口号（使用广播包中指定的端口，或默认端口）
+    // uint16_t port = (buffer[4] << 8) | buffer[5]; // 如需动态端口可使用
+
+    // 使用发送方的 IP 地址
+    char *ipStr = inet_ntoa(srcAddr.sin_addr);
+    strncpy(serverIP, ipStr, sizeof(serverIP) - 1);
+    serverIP[sizeof(serverIP) - 1] = '\0';
+    serverDiscovered = true;
+
+    ESP_LOGI("REMOTE", "Discovered server at %s:%d", serverIP, REMOTE_SERVER_PORT);
+    return true;
+}
+
 static void updateConnectionState(RemoteConnectionState newState)
 {
     if (connectionState != newState)
@@ -325,8 +417,14 @@ static bool connectToServer(void)
 
     updateConnectionState(REMOTE_STATE_CONNECTING);
 
-    // 解析服务器地址
-    destAddr.sin_addr.s_addr = inet_addr(REMOTE_SERVER_IP);
+    // 如果还未发现服务器，尝试通过 UDP 广播发现
+    if (!serverDiscovered)
+    {
+        discoverServerViaUDP();
+    }
+
+    // 解析服务器地址（使用动态发现的IP或配置的IP）
+    destAddr.sin_addr.s_addr = inet_addr(serverIP);
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(REMOTE_SERVER_PORT);
 
@@ -347,18 +445,18 @@ static bool connectToServer(void)
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
     // 连接服务器
-    DEBUG_PRINT("Connecting to %s:%d...\n", REMOTE_SERVER_IP, REMOTE_SERVER_PORT);
+    ESP_LOGI("REMOTE", "Connecting to %s:%d...", serverIP, REMOTE_SERVER_PORT);
     err = connect(sock, (struct sockaddr *)&destAddr, sizeof(destAddr));
     if (err != 0)
     {
-        DEBUG_PRINT("Socket connect failed: errno %d\n", errno);
+        ESP_LOGE("REMOTE", "Socket connect failed: errno %d", errno);
         close(sock);
         sock = -1;
         updateConnectionState(REMOTE_STATE_DISCONNECTED);
         return false;
     }
 
-    DEBUG_PRINT("Connected to server!\n");
+    ESP_LOGI("REMOTE", "Connected to server!");
     updateConnectionState(REMOTE_STATE_CONNECTED);
     xEventGroupSetBits(eventGroup, EVT_CONNECTED);
     xEventGroupClearBits(eventGroup, EVT_DISCONNECTED);
@@ -437,9 +535,12 @@ static void remoteServerTxTask(void *param)
     TxQueueItem item;
     TickType_t lastHeartbeat = 0;
 
+    ESP_LOGI("REMOTE", "TX task started, attempting connection...");
+
     // 等待初始连接
     while (!connectToServer())
     {
+        ESP_LOGW("REMOTE", "Connection failed, retrying in %d ms...", RECONNECT_INTERVAL_MS);
         vTaskDelay(M2T(RECONNECT_INTERVAL_MS));
     }
 

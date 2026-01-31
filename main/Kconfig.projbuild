@@ -110,38 +110,39 @@ menu "ESPDrone Config"
                 default n
                 help
                     Enable TCP connection to a remote server for telemetry upload
-                    and remote control.
+                    and remote control. Server will be auto-discovered via UDP broadcast.
 
-            config REMOTE_SERVER_IP
-                string "Remote Server IP Address"
-                depends on REMOTE_SERVER_ENABLE
-                default "192.168.1.100"
-                help
-                    IP address of the remote server.
+                config REMOTE_SERVER_IP
+                    string "Remote Server IP Address (Fallback)"
+                    depends on REMOTE_SERVER_ENABLE
+                    default "192.168.1.100"
+                    help
+                        IP address of the remote server.
+                        Used as fallback if UDP auto-discovery fails.
 
-            config REMOTE_SERVER_PORT
-                int "Remote Server Port"
-                depends on REMOTE_SERVER_ENABLE
-                range 1 65535
-                default 8080
-                help
-                    TCP port of the remote server.
+                config REMOTE_SERVER_PORT
+                    int "Remote Server Port"
+                    depends on REMOTE_SERVER_ENABLE
+                    range 1 65535
+                    default 8080
+                    help
+                        TCP port of the remote server.
 
-            config REMOTE_SERVER_RECONNECT_INTERVAL
-                int "Reconnect interval (seconds)"
-                depends on REMOTE_SERVER_ENABLE
-                range 1 60
-                default 5
-                help
-                    Interval between reconnection attempts when disconnected.
+                config REMOTE_SERVER_RECONNECT_INTERVAL
+                    int "Reconnect interval (seconds)"
+                    depends on REMOTE_SERVER_ENABLE
+                    range 1 60
+                    default 5
+                    help
+                        Interval between reconnection attempts when disconnected.
 
-            config REMOTE_SERVER_HEARTBEAT_INTERVAL
-                int "Heartbeat interval (ms)"
-                depends on REMOTE_SERVER_ENABLE
-                range 100 10000
-                default 1000
-                help
-                    Interval between heartbeat packets sent to the server.
+                config REMOTE_SERVER_HEARTBEAT_INTERVAL
+                    int "Heartbeat interval (ms)"
+                    depends on REMOTE_SERVER_ENABLE
+                    range 100 10000
+                    default 1000
+                    help
+                        Interval between heartbeat packets sent to the server.
 
             config REMOTE_SERVER_TELEMETRY_INTERVAL
                 int "Telemetry upload interval (ms)"
@@ -502,6 +503,20 @@ menu "ESPDrone Config"
             help
                 GPIO number (IOxx) connected to SBUS receiver signal output.
                 Note: SBUS uses inverted UART signal, handled by ESP32 UART peripheral.
+
+        config SBUS_SIGNAL_INVERTED
+            bool "Enable software signal inversion"
+            depends on ENABLE_SBUS
+            default y
+            help
+                Enable ESP32 UART RX signal inversion in software.
+                
+                SBUS protocol uses inverted UART signal. You can handle this in two ways:
+                - Hardware inverter: Use external inverter IC (e.g., 74HC04), disable this option
+                - Software inversion: Enable this option to use ESP32 built-in UART inversion
+                
+                Most setups without hardware inverter should enable this option.
+                If you have a hardware inverter on the signal line, disable this option.
 
         config SBUS_CH_THROTTLE
             int "Throttle channel (0-15)"
