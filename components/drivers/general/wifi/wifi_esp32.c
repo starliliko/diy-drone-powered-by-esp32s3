@@ -121,6 +121,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         s_retry_num = 0;
         isSTAConnected = true;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+
+#ifdef CONFIG_REMOTE_SERVER_ENABLE
+        // WiFi 连接成功后启动远程服务器
+        DEBUG_PRINT_LOCAL("Starting remote server...");
+        remoteServerStart();
+#endif
     }
 #endif
 }

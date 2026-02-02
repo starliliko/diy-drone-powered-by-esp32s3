@@ -199,6 +199,8 @@ void remoteServerInit(void)
     DEBUG_PRINT("Remote server module resources created\n");
 }
 
+static bool isStarted = false; // 防止多次启动
+
 void remoteServerStart(void)
 {
     if (!isInit)
@@ -206,6 +208,13 @@ void remoteServerStart(void)
         ESP_LOGE("REMOTE", "Remote server not initialized");
         return;
     }
+
+    if (isStarted)
+    {
+        ESP_LOGW("REMOTE", "Remote server already started");
+        return;
+    }
+    isStarted = true;
 
     ESP_LOGI("REMOTE", "Starting remote server tasks");
 

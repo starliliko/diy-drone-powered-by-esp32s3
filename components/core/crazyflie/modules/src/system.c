@@ -280,15 +280,17 @@ void systemTask(void *arg)
     DEBUG_PRINTI("systemStart ! selftestPassed = %d", selftestPassed);
 
 #if defined(CONFIG_REMOTE_SERVER_ENABLE) && defined(CONFIG_WIFI_ENABLE_STA_MODE)
-    // 启动远程服务器任务（需要 STA 模式连接成功）
+    // 远程服务器在 WiFi 获取 IP 事件中启动（wifi_esp32.c）
+    // 这样确保只有在 STA 真正连接后才启动
     if (wifiIsSTAConnected())
     {
-      ESP_LOGI("SYS", "Starting remote server tasks...");
+      // 如果 WiFi 已经连接，直接启动（兼容快速连接场景）
+      ESP_LOGI("SYS", "STA already connected, starting remote server...");
       remoteServerStart();
     }
     else
     {
-      ESP_LOGI("SYS", "STA not connected, remote server disabled");
+      ESP_LOGI("SYS", "STA not connected yet, remote server will start when connected");
     }
 #endif
 

@@ -167,13 +167,15 @@ static void extRxTask(void *param)
   static int16_t prevStickChannels[4] = {0, 0, 0, 0}; /* Roll, Pitch, Yaw, Throttle */
   static uint32_t validFrameCount = 0;                /* Valid frames in current window */
   static uint32_t invalidFrameCount = 0;              /* Invalid frames in current window */
-  static bool signalLostDetected = false;
-  static bool firstFrameReceived = false; /* Skip first frame to initialize prevStickChannels */
-#define STICK_CHANGE_THRESHOLD 5          /* Minimum change to consider "active" */
-#define WINDOW_SIZE 50                    /* Check signal quality every 50 frames (~1 second) */
-#define SIGNAL_LOST_THRESHOLD 40          /* If >40 invalid frames out of 50, signal is lost (80%) */
-#define CHANNEL_VALID_MIN 180             /* Minimum valid channel value (below = failsafe) */
-#define CHANNEL_VALID_MAX 1850            /* Maximum valid channel value */
+  static bool signalLostDetected = true;              /* Start as lost until link is qualified */
+  static uint8_t goodWindowStreak = 0;                /* Consecutive good windows */
+  static bool firstFrameReceived = false;             /* Skip first frame to initialize prevStickChannels */
+#define STICK_CHANGE_THRESHOLD 5                      /* Minimum change to consider "active" */
+#define WINDOW_SIZE 25                                /* Check signal quality every 25 frames (~0.5 second) */
+#define SIGNAL_LOST_THRESHOLD 20                      /* If >20 invalid frames out of 25, signal is lost (80%) */
+#define SIGNAL_RECOVER_WINDOWS 1                      /* Require N consecutive good windows before recovery */
+#define CHANNEL_VALID_MIN 180                         /* Minimum valid channel value (below = failsafe) */
+#define CHANNEL_VALID_MAX 1850                        /* Maximum valid channel value */
 #endif
 
   /* Wait for the system to be fully started */
@@ -196,16 +198,16 @@ static void extRxTask(void *param)
     /* Read SBUS frame (blocking with timeout) */
     if (sbusReadFrame(&frame, 20) == pdTRUE)
     {
-      /* Debug: Print every 250 frames regardless of state */
-      static uint32_t frameDebugCount = 0;
-      frameDebugCount++;
-      if (frameDebugCount % 250 == 0)
-      {
-        printf("[EXTRX] Frame#%lu: CH0=%d CH1=%d CH2=%d CH3=%d | FS=%d FL=%d | frozen=%lu sigLost=%d\n",
-               frameDebugCount, frame.channels[0], frame.channels[1],
-               frame.channels[2], frame.channels[3],
-               frame.failsafe, frame.frameLost, invalidFrameCount, signalLostDetected);
-      }
+      /* Debug: Frame-level debug disabled for cleaner output */
+      // static uint32_t frameDebugCount = 0;
+      // frameDebugCount++;
+      // if (frameDebugCount % 250 == 0)
+      // {
+      //   printf("[EXTRX] Frame#%lu: CH0=%d CH1=%d CH2=%d CH3=%d | FS=%d FL=%d | frozen=%lu sigLost=%d\n",
+      //          frameDebugCount, frame.channels[0], frame.channels[1],
+      //          frame.channels[2], frame.channels[3],
+      //          frame.failsafe, frame.frameLost, invalidFrameCount, signalLostDetected);
+      // }
 
       /* Check if this frame is valid or invalid */
       bool frameValid = true;
@@ -250,6 +252,7 @@ static void extRxTask(void *param)
         if (invalidFrameCount >= SIGNAL_LOST_THRESHOLD)
         {
           /* Too many invalid frames - signal lost */
+          goodWindowStreak = 0;
           if (!signalLostDetected)
           {
             signalLostDetected = true;
@@ -270,10 +273,19 @@ static void extRxTask(void *param)
           /* Good signal quality */
           if (signalLostDetected)
           {
-            signalLostDetected = false;
-            vehicleSetRcConnected(true);
-            printf("[EXTRX] RC signal RECOVERED (valid=%lu/%lu frames)\n",
-                   validFrameCount, totalFrames);
+            goodWindowStreak++;
+            if (goodWindowStreak >= SIGNAL_RECOVER_WINDOWS)
+            {
+              signalLostDetected = false;
+              vehicleSetRcConnected(true);
+              printf("[EXTRX] RC signal RECOVERED (valid=%lu/%lu frames)\n",
+                     validFrameCount, totalFrames);
+            }
+          }
+          else
+          {
+            /* Keep link qualified */
+            goodWindowStreak = SIGNAL_RECOVER_WINDOWS;
           }
         }
 
