@@ -1,14 +1,40 @@
-# ESP-Drone 远程服务器
+# ESP-Drone QGroundControl Lite - 地面站
 
-这是一个基于 Node.js 的远程服务器，用于接收和可视化 ESP-Drone 飞控的遥测数据。
+这是一个基于 Node.js 的模块化地面站系统，用于接收、可视化和控制 ESP-Drone 飞控。采用前后端分离的现代化架构。
 
 ## 功能特性
 
 ✅ **TCP 服务器** - 接收飞控发送的遥测数据（端口 8080）  
-✅ **Web 可视化界面** - 实时显示飞行状态（端口 3000）  
-✅ **WebSocket 推送** - 实时数据流传输  
-✅ **控制指令** - 通过 Web 界面发送控制命令  
-✅ **多客户端支持** - 同时支持多个飞控和多个 Web 客户端
+✅ **Web 可视化界面** - 实时显示飞行状态和3D姿态（端口 3000）  
+✅ **WebSocket 推送** - 实时双向数据流传输  
+✅ **飞行控制** - 解锁、起飞、降落、返航等控制命令  
+✅ **电机测试** - 独立电机推力测试工具  
+✅ **模块化架构** - 前后端分离，易于维护和扩展
+
+## 项目结构
+
+```
+apptest/
+├── server.js                  # 服务器入口文件
+├── package.json               # 项目配置
+├── src/                       # 后端模块
+│   ├── config.js             # 服务器配置 (端口、协议参数)
+│   ├── protocol.js           # 协议定义 (PacketType、FlightMode等)
+│   ├── parser.js             # 数据包解析与创建
+│   ├── DroneClient.js        # TCP客户端连接管理
+│   └── DroneServer.js        # 主服务器类 (TCP/HTTP/WebSocket)
+└── public/                    # 前端静态文件
+    ├── index.html            # HTML模板
+    ├── css/
+    │   └── style.css         # QGC风格样式表
+    └── js/
+        ├── app.js            # 主入口 (ES6模块)
+        ├── visualization.js  # Three.js 3D飞机模型
+        ├── websocket.js      # WebSocket连接管理
+        ├── control.js        # 飞行控制命令
+        ├── motorTest.js      # 电机测试功能
+        └── dashboard.js      # 实时遥测数据仪表盘
+```
 
 ## 快速开始
 
@@ -27,6 +53,17 @@ npm start
 服务器将在以下端口启动：
 - **TCP 端口**: 8080 (飞控连接)
 - **HTTP/WebSocket 端口**: 3000 (浏览器访问)
+
+输出示例：
+```
+╔════════════════════════════════════════════════════════════╗
+║         ESP-Drone QGroundControl Lite 地面站               ║
+╠════════════════════════════════════════════════════════════╣
+║  HTTP 服务:    http://localhost:3000                      ║
+║  WebSocket:    ws://localhost:3000                        ║
+║  TCP 端口:     8080 (等待无人机连接)                      ║
+╚════════════════════════════════════════════════════════════╝
+```
 
 ### 3. 打开监控界面
 
@@ -253,25 +290,60 @@ Web 界面顶部状态栏显示：
 
 ## 开发说明
 
-### 文件结构
+### 模块化架构
 
-```
-apptest/
-├── app.js           # 主服务器文件
-├── package.json     # 项目配置
-└── README.md        # 本文档
-```
+项目采用前后端分离、多层模块化设计：
 
-### 修改端口
+**后端模块 (src/)**
+- `config.js` - 全局配置常量
+- `protocol.js` - 数据包协议定义
+- `parser.js` - 数据包编解码
+- `DroneClient.js` - 单个飞控客户端连接管理
+- `DroneServer.js` - 主服务器（TCP/HTTP/WebSocket）
 
-在 `app.js` 中修改配置：
+**前端模块 (public/js/)**
+- `app.js` - 主入口和全局函数
+- `visualization.js` - Three.js 3D 可视化
+- `websocket.js` - WebSocket 连接管理
+- `control.js` - 飞行控制命令
+- `motorTest.js` - 电机测试功能
+- `dashboard.js` - 遥测数据更新
+
+### 修改配置
+
+编辑 `src/config.js`：
 
 ```javascript
-const CONFIG = {
-    TCP_PORT: 8080,     // TCP 端口
-    HTTP_PORT: 3000,    // Web 端口
-    HEARTBEAT_TIMEOUT: 10000  // 心跳超时(ms)
+const config = {
+    TCP_PORT: 8080,           // TCP 飞控连接端口
+    HTTP_PORT: 3000,          // HTTP/WebSocket 端口
+    HEARTBEAT_INTERVAL: 100,  // 心跳间隔 (ms)
+    HEARTBEAT_TIMEOUT: 10000, // 心跳超时 (ms)
+    ...
 };
+```
+
+### 修改协议
+
+编辑 `src/protocol.js` 定义数据包类型、飞行模式等常量。
+
+### 修改解析逻辑
+
+编辑 `src/parser.js` 中的 `parseHeader()` 和 `parseTelemetry()` 函数。
+
+### 前端开发
+
+所有前端代码使用 ES6 模块化。在 `public/js/` 中：
+- 导入其他模块：`import { func } from './module.js';`
+- 导出函数：`export function myFunc() { ... }`
+- 全局函数通过 `window.funcName = ...` 暴露给 HTML
+
+### npm 命令
+
+```bash
+npm start       # 启动生产环境服务器
+npm run dev     # 启动开发环境（热重载）
+npm run legacy  # 运行旧版单文件服务器 (app.js)
 ```
 
 ### 扩展功能

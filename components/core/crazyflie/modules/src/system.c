@@ -48,6 +48,7 @@
 #include "comm.h"
 #include "stabilizer.h"
 #include "commander.h"
+#include "motor_test.h"
 #include "console.h"
 #include "wifilink.h"
 #include "mem.h"
@@ -189,6 +190,7 @@ void systemTask(void *arg)
   systemInit();    // 系统初始化
   commInit();      // 通信初始化
   commanderInit(); // 通信指令初始化
+  motorTestInit(); // 电机测试模块初始化
 
 #ifdef CONFIG_ENABLE_SBUS
   extRxInit(); // 外部接收器(SBUS)初始化

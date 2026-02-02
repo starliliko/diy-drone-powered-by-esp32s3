@@ -901,6 +901,7 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t rollId, pitchId, yawId;
     static logVarId_t gyroXId, gyroYId, gyroZId;
     static logVarId_t accXId, accYId, accZId;
+    static logVarId_t motorM1Id, motorM2Id, motorM3Id, motorM4Id;
 
     // 等待一段时间让日志系统初始化
     vTaskDelay(M2T(2000));
@@ -928,6 +929,12 @@ static void remoteServerTelemetryTask(void *param)
             accXId = logGetVarId("acc", "x");
             accYId = logGetVarId("acc", "y");
             accZId = logGetVarId("acc", "z");
+
+            // 获取电机输出日志ID
+            motorM1Id = logGetVarId("motor", "m1");
+            motorM2Id = logGetVarId("motor", "m2");
+            motorM3Id = logGetVarId("motor", "m3");
+            motorM4Id = logGetVarId("motor", "m4");
 
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
@@ -992,6 +999,12 @@ static void remoteServerTelemetryTask(void *param)
 
         // 远程控制模式
         telemetry.remoteCtrlMode = (uint8_t)remoteControlMode;
+
+        // === 电机输出 (V3.1新增) ===
+        telemetry.motorPower[0] = (uint16_t)(logGetFloat(motorM1Id) * 65535.0f);
+        telemetry.motorPower[1] = (uint16_t)(logGetFloat(motorM2Id) * 65535.0f);
+        telemetry.motorPower[2] = (uint16_t)(logGetFloat(motorM3Id) * 65535.0f);
+        telemetry.motorPower[3] = (uint16_t)(logGetFloat(motorM4Id) * 65535.0f);
 
         // 发送遥测数据
         remoteServerSendPacket(REMOTE_PKT_TELEMETRY,

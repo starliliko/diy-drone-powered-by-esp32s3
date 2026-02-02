@@ -1,13 +1,15 @@
 {
-  "name": "apptest",
-  "version": "1.0.0",
-  "description": "ESP-Drone Remote Server - 飞控数据接收服务器",
+  "name": "esp-drone-gcs",
+  "version": "2.0.0",
+  "description": "ESP-Drone QGroundControl Lite 地面站 - 模块化架构",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node app.js",
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "legacy": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {

@@ -110,6 +110,8 @@ extern "C"
         uint8_t actualFlightMode; // 实际飞行姿态模式 (ActualFlightMode 枚举)
         uint8_t controlSource;    // 控制来源 (ControlSource 枚举)
         uint8_t remoteCtrlMode;   // 远程控制模式 (RemoteControlMode 枚举)
+        // === 电机输出 (V3.1新增) ===
+        uint16_t motorPower[4];   // 四个电机推力输出 (0-65535)
     } RemoteTelemetryData;
 
 // 状态标志位定义
