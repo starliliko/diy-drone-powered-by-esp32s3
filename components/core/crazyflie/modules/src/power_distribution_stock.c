@@ -83,6 +83,11 @@ void powerStop()
   motorsSetRatio(MOTOR_M2, 0);
   motorsSetRatio(MOTOR_M3, 0);
   motorsSetRatio(MOTOR_M4, 0);
+  // 清零电机功率记录，确保LOG系统报告正确的停机状态
+  motorPower.m1 = 0;
+  motorPower.m2 = 0;
+  motorPower.m3 = 0;
+  motorPower.m4 = 0;
 }
 
 void powerDistribution(const control_t *control)
@@ -138,8 +143,8 @@ void powerDistribution(const control_t *control)
 
     // Debug output for motor power calculation
     static uint32_t debugCount = 0;
-    if (++debugCount % 50 == 0)
-    { // Every 50 calls (~50ms @ 1kHz)
+    if (++debugCount % 500 == 0)
+    { // Every 500 calls (~500ms @ 1kHz)
 #ifdef QUAD_FORMATION_X
       int16_t r = control->roll / 2;
       int16_t p = control->pitch / 2;
@@ -153,11 +158,11 @@ void powerDistribution(const control_t *control)
       int32_t raw_m3 = (int32_t)(control->thrust - control->pitch + control->yaw);
       int32_t raw_m4 = (int32_t)(control->thrust + control->roll - control->yaw);
 #endif
-      // printf("[PWR] M1:%d M2:%d M3:%d M4:%d | T:%.0f R:%d P:%d Y:%d\n",
-      //        motorPower.m1, motorPower.m2, motorPower.m3, motorPower.m4,
-      //        control->thrust, control->roll, control->pitch, control->yaw);
-      // printf("[RAW] M1:%d M2:%d M3:%d M4:%d\n",
-      //        raw_m1, raw_m2, raw_m3, raw_m4);
+      printf("[PWR] M1:%d M2:%d M3:%d M4:%d | T:%.0f R:%d P:%d Y:%d\n",
+             motorPower.m1, motorPower.m2, motorPower.m3, motorPower.m4,
+             control->thrust, control->roll, control->pitch, control->yaw);
+      printf("[RAW] M1:%d M2:%d M3:%d M4:%d\n",
+             raw_m1, raw_m2, raw_m3, raw_m4);
     }
   }
 }

@@ -6,7 +6,6 @@
 
 import { updateDroneOrientation } from './visualization.js';
 import { updateCtrlModeButtons } from './control.js';
-import { updateMotorOutputDisplay } from './motorTest.js';
 import { log } from './websocket.js';
 
 // 控制来源优先级信息
@@ -117,9 +116,9 @@ export function updateDashboard(data) {
     // 更新3D模型
     updateDroneOrientation(data.roll, data.pitch, data.yaw);
 
-    // 更新电机输出显示
-    if (data.motorOutputs) {
-        updateMotorOutputDisplay(data.motorOutputs);
+    // 更新电机输出显示（使用全局motorTest模块）
+    if (data.motorOutputs && window.motorTest) {
+        window.motorTest.updateDisplay(data.motorOutputs);
     }
 }
 

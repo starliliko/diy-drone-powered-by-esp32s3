@@ -625,3 +625,51 @@ body {
     width: 50%;
     transition: width 0.5s;
 }
+
+/* 状态徽章 */
+.status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: help;
+}
+
+.status-disconnected {
+    background: rgba(217, 66, 39, 0.2);
+    color: var(--qgc-red);
+    border: 1px solid var(--qgc-red);
+}
+
+.status-ready {
+    background: rgba(39, 217, 101, 0.2);
+    color: var(--qgc-green);
+    border: 1px solid var(--qgc-green);
+}
+
+.status-testing {
+    background: rgba(44, 158, 221, 0.2);
+    color: var(--qgc-blue);
+    border: 1px solid var(--qgc-blue);
+    animation: pulse 1s infinite;
+}
+
+.status-unavailable {
+    background: rgba(217, 153, 39, 0.2);
+    color: var(--qgc-orange);
+    border: 1px solid var(--qgc-orange);
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}

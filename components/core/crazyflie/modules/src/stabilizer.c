@@ -45,6 +45,7 @@
 #include "sitaw.h"
 #include "controller.h"
 #include "power_distribution.h"
+#include "motor_test.h"
 // #include "collision_avoidance.h"
 
 #include "estimator.h"
@@ -408,15 +409,25 @@ KF估计器任务在100Hz下运行，通过estimatorKalman接口兼容
       checkEmergencyStopTimeout(); // 检查紧急停机超时
 
       // 使用新的vehicle_state系统检查解锁状态
-      checkStops = vehicleIsArmed();
-      if (emergencyStop || !vehicleIsArmed())
+      // 电机测试模式时，stabilizer 完全不控制电机，让 motor_test 任务独占
+      if (motorTestIsRunning())
       {
-        powerStop(); // 停机
+        // 电机测试运行中，跳过 powerStop/powerDistribution
+        // motor_test 任务会直接调用 motorsSetRatio()
+        checkStops = true; // 标记为运行中
       }
       else
       {
-        powerDistribution(&control);
-        // 投入混控分配
+        checkStops = vehicleIsArmed();
+        if (emergencyStop || !vehicleIsArmed())
+        {
+          powerStop(); // 停机
+        }
+        else
+        {
+          powerDistribution(&control);
+          // 投入混控分配
+        }
       }
 
       // TODO: Log data to uSD card if configured

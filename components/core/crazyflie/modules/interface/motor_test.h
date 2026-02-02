@@ -44,3 +44,11 @@ void motorTestInit(void);
  * @return false 模块未初始化
  */
 bool motorTestTest(void);
+
+/**
+ * @brief 查询电机测试是否正在运行
+ *
+ * @return true 电机测试正在运行 (testMode != 0)
+ * @return false 电机测试未运行
+ */
+bool motorTestIsRunning(void);

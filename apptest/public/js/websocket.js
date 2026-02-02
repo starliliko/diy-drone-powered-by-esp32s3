@@ -6,9 +6,14 @@
 
 let ws = null;
 let onTelemetryCallback = null;
+let onConnectionChangeCallback = null;
 
 export function setTelemetryCallback(callback) {
     onTelemetryCallback = callback;
+}
+
+export function setConnectionChangeCallback(callback) {
+    onConnectionChangeCallback = callback;
 }
 
 export function connectWS() {
@@ -18,12 +23,20 @@ export function connectWS() {
         log('已连接至地面站服务器', 'success');
         document.getElementById('comm-dot').className = 'indicator-dot green';
         document.getElementById('comm-status').textContent = '已连接';
+        // 通知连接状态改变
+        if (onConnectionChangeCallback) {
+            onConnectionChangeCallback(true);
+        }
     };
 
     ws.onclose = () => {
         log('与服务器断开连接', 'error');
         document.getElementById('comm-dot').className = 'indicator-dot red';
         document.getElementById('comm-status').textContent = '未连接';
+        // 通知连接状态改变
+        if (onConnectionChangeCallback) {
+            onConnectionChangeCallback(false);
+        }
         setTimeout(connectWS, 3000);
     };
 

@@ -114,6 +114,22 @@ function parseTelemetry(buffer) {
             telemetry.remoteCtrlMode = 1;
         }
 
+        // V3.1 新增电机输出 (63字节)
+        if (buffer.length >= 63) {
+            telemetry.motorOutputs = [
+                buffer.readUInt16LE(offset + 55),
+                buffer.readUInt16LE(offset + 57),
+                buffer.readUInt16LE(offset + 59),
+                buffer.readUInt16LE(offset + 61)
+            ];
+            // Debug: 打印电机输出
+            if (telemetry.motorOutputs.some(m => m > 0)) {
+                console.log(`[MOTOR] M1=${telemetry.motorOutputs[0]} M2=${telemetry.motorOutputs[1]} M3=${telemetry.motorOutputs[2]} M4=${telemetry.motorOutputs[3]}`);
+            }
+        } else {
+            console.log(`[WARN] Telemetry buffer too small for motor data: ${buffer.length} bytes, need 63`);
+        }
+
         // 从状态标志位解析
         telemetry.isArmed = !!(telemetry.statusFlags & STATUS_FLAGS.ARMED);
         telemetry.isFlying = !!(telemetry.statusFlags & STATUS_FLAGS.FLYING);
@@ -173,14 +189,15 @@ function parseTelemetry(buffer) {
  * 创建控制指令
  */
 function createControlCommand(cmdType, roll = 0, pitch = 0, yaw = 0, thrust = 0, mode = 0) {
-    const buffer = Buffer.allocUnsafe(12);
+    // RemoteControlCmd 结构体大小: 1 + 2 + 2 + 2 + 2 + 1 + 3 = 13 字节
+    const buffer = Buffer.allocUnsafe(13);
     buffer.writeUInt8(cmdType, 0);
     buffer.writeInt16LE(Math.round(roll * 100), 1);
     buffer.writeInt16LE(Math.round(pitch * 100), 3);
     buffer.writeInt16LE(Math.round(yaw * 10), 5);
     buffer.writeUInt16LE(thrust, 7);
     buffer.writeUInt8(mode, 9);
-    buffer.fill(0, 10, 12);
+    buffer.fill(0, 10, 13);  // 3 字节 reserved
     return buffer;
 }
 

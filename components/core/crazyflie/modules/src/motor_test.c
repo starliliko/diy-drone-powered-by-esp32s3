@@ -41,6 +41,7 @@
 #include "task.h"
 
 #include "debug_cf.h"
+#include "esp_log.h"
 #include "param.h"
 #include "log.h"
 #include "motors.h"
@@ -121,12 +122,17 @@ void motorTestInit(void)
 
     isInit = true;
 
-    DEBUG_PRINT("Motor test module initialized\n");
+    ESP_LOGI("MOTOR_TEST", "Module initialized, task created");
 }
 
 bool motorTestTest(void)
 {
     return isInit;
+}
+
+bool motorTestIsRunning(void)
+{
+    return testMode != 0;
 }
 
 /*===========================================================================
@@ -141,6 +147,8 @@ static void motorTestTask(void *param)
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
+    ESP_LOGI("MOTOR_TEST", "Task started, monitoring mode/id/thrust params");
+
     while (1)
     {
         // 检查急停
@@ -154,7 +162,7 @@ static void motorTestTask(void *param)
             testRunning = false;
             motorActive = false;
             emergencyStop = 0;
-            DEBUG_PRINT("Emergency stop activated!\n");
+            DEBUG_PRINT("MOTOR_TEST: Emergency stop activated!\n");
         }
 
         switch (testMode)
@@ -169,7 +177,7 @@ static void motorTestTask(void *param)
                 }
                 testRunning = false;
                 motorActive = false;
-                DEBUG_PRINT("Motor test stopped\n");
+                DEBUG_PRINT("MOTOR_TEST: Motor test stopped\n");
             }
             break;
 
@@ -180,7 +188,7 @@ static void motorTestTask(void *param)
                 currentMotor = 0;
                 motorActive = false;
                 lastTestTime = xTaskGetTickCount();
-                DEBUG_PRINT("Starting sequential motor test...\n");
+                DEBUG_PRINT("MOTOR_TEST: Starting sequential motor test...\n");
             }
 
             if (testRunning)
@@ -191,7 +199,7 @@ static void motorTestTask(void *param)
                 if (!motorActive)
                 {
                     // 启动当前电机
-                    DEBUG_PRINT("Testing Motor M%d at %d%% thrust\n",
+                    DEBUG_PRINT("MOTOR_TEST: Testing Motor M%d at %d%% thrust\n",
                                 currentMotor + 1,
                                 (int)(SEQUENTIAL_TEST_THRUST * 100 / 65535));
                     updateMotorOutput(currentMotor, SEQUENTIAL_TEST_THRUST);
@@ -202,7 +210,7 @@ static void motorTestTask(void *param)
                 {
                     // 停止当前电机
                     updateMotorOutput(currentMotor, 0);
-                    DEBUG_PRINT("Motor M%d test completed\n", currentMotor + 1);
+                    DEBUG_PRINT("MOTOR_TEST: Motor M%d test completed\n", currentMotor + 1);
                     motorActive = false;
                     lastTestTime = currentTime;
                     currentMotor++;
@@ -210,7 +218,7 @@ static void motorTestTask(void *param)
                     if (currentMotor >= NBR_OF_MOTORS)
                     {
                         // 所有电机测试完成
-                        DEBUG_PRINT("Sequential motor test completed\n");
+                        DEBUG_PRINT("MOTOR_TEST: Sequential motor test completed\n");
                         testMode = 0;
                         testRunning = false;
                     }
@@ -227,25 +235,20 @@ static void motorTestTask(void *param)
             if (!testRunning)
             {
                 testRunning = true;
-                DEBUG_PRINT("Testing single motor M%d at thrust %d\n",
-                            motorId + 1, motorThrust);
+                ESP_LOGI("MOTOR_TEST", "Single motor M%d at thrust %d (%d%%)",
+                         motorId + 1, motorThrust, (motorThrust * 100) / 65535);
             }
 
-            if (testRunning)
+            // 确保其他电机停止，设置目标电机推力
+            for (int i = 0; i < NBR_OF_MOTORS; i++)
             {
-                // 确保其他电机停止
-                for (int i = 0; i < NBR_OF_MOTORS; i++)
+                if (i == motorId && motorId < NBR_OF_MOTORS)
                 {
-                    if (i != motorId)
-                    {
-                        updateMotorOutput(i, 0);
-                    }
+                    updateMotorOutput(i, motorThrust);
                 }
-
-                // 设置目标电机推力
-                if (motorId < NBR_OF_MOTORS)
+                else
                 {
-                    updateMotorOutput(motorId, motorThrust);
+                    updateMotorOutput(i, 0);
                 }
             }
             break;
@@ -254,7 +257,8 @@ static void motorTestTask(void *param)
             if (!testRunning)
             {
                 testRunning = true;
-                DEBUG_PRINT("Testing all motors at thrust %d\n", motorThrust);
+                ESP_LOGI("MOTOR_TEST", "All motors at thrust %d (%d%%)",
+                         motorThrust, (motorThrust * 100) / 65535);
             }
 
             if (testRunning)
@@ -270,6 +274,18 @@ static void motorTestTask(void *param)
         default:
             testMode = 0;
             break;
+        }
+
+        // 周期性输出电机值（每500ms一次）
+        static uint32_t lastPrintTime = 0;
+        uint32_t now = xTaskGetTickCount();
+        if (now - lastPrintTime >= pdMS_TO_TICKS(500))
+        {
+            lastPrintTime = now;
+            ESP_LOGI("MOTOR", "M1=%5d M2=%5d M3=%5d M4=%5d (%d%% %d%% %d%% %d%%)",
+                     motorOutput[0], motorOutput[1], motorOutput[2], motorOutput[3],
+                     (motorOutput[0] * 100) / 65535, (motorOutput[1] * 100) / 65535,
+                     (motorOutput[2] * 100) / 65535, (motorOutput[3] * 100) / 65535);
         }
 
         // 50Hz 更新频率

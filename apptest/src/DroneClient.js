@@ -75,6 +75,10 @@ class DroneClient {
                 const telemetry = parseTelemetry(payload);
                 if (telemetry) {
                     this.latestTelemetry = telemetry;
+                    // 从 telemetry 中提取电机输出 (V3.1 新增字段)
+                    if (telemetry.motorOutputs && telemetry.motorOutputs.length === 4) {
+                        this.motorOutputs = telemetry.motorOutputs;
+                    }
                     this.server.onTelemetry(this, telemetry);
                 }
                 break;
@@ -118,6 +122,7 @@ class DroneClient {
     }
 
     sendCRTP(data) {
+        console.log(`[CRTP TX] Sending ${data.length} bytes: ${data.toString('hex')}`);
         this.sendPacket(PacketType.CRTP, data);
     }
 

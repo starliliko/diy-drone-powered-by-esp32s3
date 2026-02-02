@@ -25,6 +25,7 @@
  */
 
 #include <stdbool.h>
+#include <string.h>
 #include <errno.h>
 
 /*FreeRtos includes*/
@@ -47,20 +48,20 @@
 #include "debug_cf.h"
 #include "stm32_legacy.h"
 
-
 static bool isInit;
 
 static int nopFunc(void);
 static struct crtpLinkOperations nopLink = {
-  .setEnable         = (void*) nopFunc,
-  .sendPacket        = (void*) nopFunc,
-  .receivePacket     = (void*) nopFunc,
+    .setEnable = (void *)nopFunc,
+    .sendPacket = (void *)nopFunc,
+    .receivePacket = (void *)nopFunc,
 };
 
 static struct crtpLinkOperations *link = &nopLink;
 
 #define STATS_INTERVAL 500
-static struct {
+static struct
+{
   uint32_t rxCount;
   uint32_t txCount;
 
@@ -71,7 +72,7 @@ static struct {
   uint32_t previousStatisticsTime;
 } stats;
 
-static xQueueHandle  txQueue;
+static xQueueHandle txQueue;
 
 #define CRTP_NBR_OF_PORTS 16
 #define CRTP_TX_QUEUE_SIZE 120
@@ -89,7 +90,7 @@ STATIC_MEM_TASK_ALLOC_STACK_NO_DMA_CCM_SAFE(crtpRxTask, CRTP_RX_TASK_STACKSIZE);
 
 void crtpInit(void)
 {
-  if(isInit)
+  if (isInit)
     return;
 
   txQueue = xQueueCreate(CRTP_TX_QUEUE_SIZE, sizeof(CRTPPacket));
@@ -129,7 +130,6 @@ int crtpReceivePacketBlock(CRTPPort portId, CRTPPacket *p)
 
   return xQueueReceive(queues[portId], p, portMAX_DELAY);
 }
-
 
 int crtpReceivePacketWait(CRTPPort portId, CRTPPacket *p, int wait)
 {
@@ -210,7 +210,7 @@ void crtpRxTask(void *param)
 
 void crtpRegisterPortCB(int port, CrtpCallback cb)
 {
-  if (port>CRTP_NBR_OF_PORTS)
+  if (port > CRTP_NBR_OF_PORTS)
     return;
 
   callbacks[port] = cb;
@@ -232,10 +232,43 @@ int crtpSendPacketBlock(CRTPPacket *p)
   return xQueueSend(txQueue, p, portMAX_DELAY);
 }
 
+bool crtpInjectPacket(const CRTPPacket *pIn)
+{
+  if (!pIn || pIn->size > CRTP_MAX_DATA_SIZE)
+  {
+    return false;
+  }
+
+  CRTPPacket p;
+  memcpy(&p, pIn, sizeof(CRTPPacket));
+
+  if (p.port >= CRTP_NBR_OF_PORTS || !queues[p.port])
+  {
+    DEBUG_PRINT("Inject failed: port=%d queue=%p\n", p.port, queues[p.port]);
+    return false;
+  }
+
+  if (xQueueSend(queues[p.port], &p, 0) != pdTRUE)
+  {
+    DEBUG_PRINT("Inject queue full: port=%d\n", p.port);
+    return false;
+  }
+
+  if (callbacks[p.port])
+  {
+    callbacks[p.port](&p);
+  }
+
+  stats.rxCount++;
+  updateStats();
+  return true;
+}
+
 int crtpReset(void)
 {
   xQueueReset(txQueue);
-  if (link->reset) {
+  if (link->reset)
+  {
     link->reset();
   }
 
@@ -249,9 +282,9 @@ bool crtpIsConnected(void)
   return true;
 }
 
-void crtpSetLink(struct crtpLinkOperations * lk)
+void crtpSetLink(struct crtpLinkOperations *lk)
 {
-  if(link)
+  if (link)
     link->setEnable(false);
 
   if (lk)
@@ -276,7 +309,8 @@ static void clearStats()
 static void updateStats()
 {
   uint32_t now = xTaskGetTickCount();
-  if (now > stats.nextStatisticsTime) {
+  if (now > stats.nextStatisticsTime)
+  {
     float interval = now - stats.previousStatisticsTime;
     stats.rxRate = (uint16_t)(1000.0f * stats.rxCount / interval);
     stats.txRate = (uint16_t)(1000.0f * stats.txCount / interval);

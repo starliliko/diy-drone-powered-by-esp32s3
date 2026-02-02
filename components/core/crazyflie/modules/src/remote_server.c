@@ -410,6 +410,9 @@ static void updateConnectionState(RemoteConnectionState newState)
         connectionState = newState;
         logConnected = (newState == REMOTE_STATE_CONNECTED) ? 1 : 0;
 
+        // 更新 VehicleState 中的 GCS 连接状态
+        vehicleSetGcsConnected(newState == REMOTE_STATE_CONNECTED);
+
         DEBUG_PRINT("Connection state: %d\n", newState);
 
         if (stateCallback)
@@ -601,6 +604,8 @@ static void remoteServerRxTask(void *param)
     int rxLen = 0;
     int parsePos = 0;
 
+    ESP_LOGI("REMOTE", "RX task started, waiting for connection...");
+
     while (true)
     {
         // 等待连接建立
@@ -621,14 +626,14 @@ static void remoteServerRxTask(void *param)
                 // 超时，继续
                 continue;
             }
-            DEBUG_PRINT("recv failed: errno %d\n", errno);
+            ESP_LOGE("REMOTE", "recv failed: errno %d", errno);
             xEventGroupSetBits(eventGroup, EVT_DISCONNECTED);
             continue;
         }
         else if (len == 0)
         {
             // 连接关闭
-            DEBUG_PRINT("Server closed connection\n");
+            ESP_LOGW("REMOTE", "Server closed connection");
             xEventGroupSetBits(eventGroup, EVT_DISCONNECTED);
             continue;
         }
@@ -713,17 +718,19 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
 {
     if (size < sizeof(RemoteControlCmd))
     {
-        DEBUG_PRINT("Control packet too small: %d\n", size);
+        ESP_LOGW("REMOTE", "Control packet too small: %d", size);
         return;
     }
 
     const RemoteControlCmd *cmd = (const RemoteControlCmd *)data;
 
+    ESP_LOGI("REMOTE", "CMD: type=0x%02X, mode=%d", cmd->cmdType, cmd->mode);
+
     // 输入验证
     if (!validateControlCmd(cmd))
     {
         invalidCmdCount++;
-        DEBUG_PRINT("Invalid control command rejected (total: %lu)\n", invalidCmdCount);
+        ESP_LOGW("REMOTE", "Invalid control command rejected (total: %lu)", invalidCmdCount);
         return;
     }
 
@@ -817,11 +824,11 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         if (cmd->mode <= REMOTE_CTRL_MODE_SHARED)
         {
             remoteControlMode = (RemoteControlMode)cmd->mode;
-            DEBUG_PRINT("Control mode set to: %d\n", remoteControlMode);
+            ESP_LOGI("REMOTE", "Control mode set to: %d", remoteControlMode);
         }
         else
         {
-            DEBUG_PRINT("Invalid control mode: %d\n", cmd->mode);
+            ESP_LOGW("REMOTE", "Invalid control mode: %d", cmd->mode);
         }
         break;
 
@@ -871,18 +878,23 @@ static bool validateControlCmd(const RemoteControlCmd *cmd)
 
 static void handleCRTPPacket(const uint8_t *data, uint16_t size)
 {
-    if (size > CRTP_MAX_DATA_SIZE + 1)
+    if (size < 1 || size > CRTP_MAX_DATA_SIZE + 1)
     {
+        ESP_LOGW("REMOTE", "CRTP packet invalid size=%d", size);
         return;
     }
 
     // 将 CRTP 包发送到本地 CRTP 处理系统
-    CRTPPacket p;
+    CRTPPacket p = {0};
     p.size = size - 1;
     memcpy(p.raw, data, size);
 
-    // 发送到 CRTP 发送队列
-    crtpSendPacket(&p);
+    ESP_LOGI("REMOTE", "CRTP RX: port=%d ch=%d size=%d", p.port, p.channel, p.size);
+
+    if (!crtpInjectPacket(&p))
+    {
+        ESP_LOGW("REMOTE", "Dropped CRTP packet port=%d ch=%d", p.port, p.channel);
+    }
 }
 
 /*===========================================================================
@@ -902,6 +914,7 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t gyroXId, gyroYId, gyroZId;
     static logVarId_t accXId, accYId, accZId;
     static logVarId_t motorM1Id, motorM2Id, motorM3Id, motorM4Id;
+    static uint32_t lastMotorPrintTick = 0;
 
     // 等待一段时间让日志系统初始化
     vTaskDelay(M2T(2000));
@@ -931,10 +944,21 @@ static void remoteServerTelemetryTask(void *param)
             accZId = logGetVarId("acc", "z");
 
             // 获取电机输出日志ID
+            // 优先使用power_distribution的motor组（正常飞行输出），电机测试时motors组值会覆盖
             motorM1Id = logGetVarId("motor", "m1");
             motorM2Id = logGetVarId("motor", "m2");
             motorM3Id = logGetVarId("motor", "m3");
             motorM4Id = logGetVarId("motor", "m4");
+
+            // 若motor组不存在则回退到motors组（电机测试模块）
+            if (!LOG_VARID_IS_VALID(motorM1Id))
+                motorM1Id = logGetVarId("motors", "m1");
+            if (!LOG_VARID_IS_VALID(motorM2Id))
+                motorM2Id = logGetVarId("motors", "m2");
+            if (!LOG_VARID_IS_VALID(motorM3Id))
+                motorM3Id = logGetVarId("motors", "m3");
+            if (!LOG_VARID_IS_VALID(motorM4Id))
+                motorM4Id = logGetVarId("motors", "m4");
 
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
@@ -993,18 +1017,101 @@ static void remoteServerTelemetryTask(void *param)
         FlightMode actualMode = getFlightMode();
         telemetry.actualFlightMode = (uint8_t)actualMode;
 
-        // 控制来源（由当前活动的控制优先级决定）
+        // 控制来源逻辑：
+        // 1. 遥控器连接时：控制源=遥控器（最高优先级），远程可切换为协同模式
+        // 2. 无遥控器 + 远程控制启用 + 已连接：控制源=地面站
+        // 3. 无遥控器 + 远程控制禁用/未连接：控制源=无控制
+        // 4. 协同模式：遥控器有输入时显示遥控器，否则显示地面站
         int activePriority = commanderGetActivePriority();
-        telemetry.controlSource = (uint8_t)activePriority;
+        bool rcConnected = vstate.isRcConnected;
+        bool gcsConnected = (connectionState == REMOTE_STATE_CONNECTED);
+
+        if (activePriority == COMMANDER_PRIORITY_EXTRX)
+        {
+            // 遥控器正在控制（最高优先级）
+            telemetry.controlSource = (uint8_t)COMMANDER_PRIORITY_EXTRX;
+        }
+        else if (rcConnected && remoteControlMode == REMOTE_CTRL_MODE_SHARED && gcsConnected)
+        {
+            // 协同模式：遥控器连接但没有输入，地面站可以控制
+            if (activePriority == COMMANDER_PRIORITY_REMOTE)
+            {
+                telemetry.controlSource = (uint8_t)COMMANDER_PRIORITY_REMOTE;
+            }
+            else
+            {
+                // 协同模式下无活动控制，显示遥控器（遥控器始终优先）
+                telemetry.controlSource = (uint8_t)COMMANDER_PRIORITY_EXTRX;
+            }
+        }
+        else if (!rcConnected && gcsConnected && remoteControlMode == REMOTE_CTRL_MODE_ENABLED)
+        {
+            // 无遥控器 + 远程控制启用 + 已连接：控制源=地面站
+            telemetry.controlSource = (uint8_t)COMMANDER_PRIORITY_REMOTE;
+        }
+        else if (activePriority != COMMANDER_PRIORITY_DISABLE)
+        {
+            // 其他活动控制源
+            telemetry.controlSource = (uint8_t)activePriority;
+        }
+        else
+        {
+            // 无活动控制源
+            telemetry.controlSource = (uint8_t)COMMANDER_PRIORITY_DISABLE;
+        }
 
         // 远程控制模式
         telemetry.remoteCtrlMode = (uint8_t)remoteControlMode;
 
         // === 电机输出 (V3.1新增) ===
-        telemetry.motorPower[0] = (uint16_t)(logGetFloat(motorM1Id) * 65535.0f);
-        telemetry.motorPower[1] = (uint16_t)(logGetFloat(motorM2Id) * 65535.0f);
-        telemetry.motorPower[2] = (uint16_t)(logGetFloat(motorM3Id) * 65535.0f);
-        telemetry.motorPower[3] = (uint16_t)(logGetFloat(motorM4Id) * 65535.0f);
+        if (LOG_VARID_IS_VALID(motorM1Id))
+        {
+            unsigned int m1 = logGetUint(motorM1Id);
+            telemetry.motorPower[0] = (uint16_t)(m1 > 65535 ? 65535 : m1);
+        }
+        else
+        {
+            telemetry.motorPower[0] = 0;
+        }
+
+        if (LOG_VARID_IS_VALID(motorM2Id))
+        {
+            unsigned int m2 = logGetUint(motorM2Id);
+            telemetry.motorPower[1] = (uint16_t)(m2 > 65535 ? 65535 : m2);
+        }
+        else
+        {
+            telemetry.motorPower[1] = 0;
+        }
+
+        if (LOG_VARID_IS_VALID(motorM3Id))
+        {
+            unsigned int m3 = logGetUint(motorM3Id);
+            telemetry.motorPower[2] = (uint16_t)(m3 > 65535 ? 65535 : m3);
+        }
+        else
+        {
+            telemetry.motorPower[2] = 0;
+        }
+
+        if (LOG_VARID_IS_VALID(motorM4Id))
+        {
+            unsigned int m4 = logGetUint(motorM4Id);
+            telemetry.motorPower[3] = (uint16_t)(m4 > 65535 ? 65535 : m4);
+        }
+        else
+        {
+            telemetry.motorPower[3] = 0;
+        }
+
+        // 串口输出电机实时数据（1Hz）
+        if ((xTaskGetTickCount() - lastMotorPrintTick) > M2T(1000))
+        {
+            lastMotorPrintTick = xTaskGetTickCount();
+            DEBUG_PRINT("MOTOR_OUT: M1=%u M2=%u M3=%u M4=%u\n",
+                        telemetry.motorPower[0], telemetry.motorPower[1],
+                        telemetry.motorPower[2], telemetry.motorPower[3]);
+        }
 
         // 发送遥测数据
         remoteServerSendPacket(REMOTE_PKT_TELEMETRY,

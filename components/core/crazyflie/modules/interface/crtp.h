@@ -34,43 +34,48 @@
 
 #define CRTP_HEADER(port, channel) (((port & 0x0F) << 4) | (channel & 0x0F))
 
-#define CRTP_IS_NULL_PACKET(P) ((P.header&0xF3)==0xF3)
+#define CRTP_IS_NULL_PACKET(P) ((P.header & 0xF3) == 0xF3)
 
-typedef enum {
-  CRTP_PORT_CONSOLE          = 0x00,
-  CRTP_PORT_PARAM            = 0x02,
-  CRTP_PORT_SETPOINT         = 0x03,
-  CRTP_PORT_MEM              = 0x04,
-  CRTP_PORT_LOG              = 0x05,
-  CRTP_PORT_LOCALIZATION     = 0x06,
+typedef enum
+{
+  CRTP_PORT_CONSOLE = 0x00,
+  CRTP_PORT_PARAM = 0x02,
+  CRTP_PORT_SETPOINT = 0x03,
+  CRTP_PORT_MEM = 0x04,
+  CRTP_PORT_LOG = 0x05,
+  CRTP_PORT_LOCALIZATION = 0x06,
   CRTP_PORT_SETPOINT_GENERIC = 0x07,
-  CRTP_PORT_SETPOINT_HL      = 0x08,
-  CRTP_PORT_PLATFORM         = 0x0D,
-  CRTP_PORT_LINK             = 0x0F,
+  CRTP_PORT_SETPOINT_HL = 0x08,
+  CRTP_PORT_PLATFORM = 0x0D,
+  CRTP_PORT_LINK = 0x0F,
 } CRTPPort;
 
 typedef struct _CRTPPacket
 {
-  uint8_t size;                         //< Size of data
-  union {
-    struct {
-      union {
-        uint8_t header;                 //< Header selecting channel and port
-        struct {
+  uint8_t size; //< Size of data
+  union
+  {
+    struct
+    {
+      union
+      {
+        uint8_t header; //< Header selecting channel and port
+        struct
+        {
 #ifndef CRTP_HEADER_COMPAT
-          uint8_t channel     : 2;      //< Selected channel within port
-          uint8_t reserved    : 2;
-          uint8_t port        : 4;      //< Selected port
+          uint8_t channel : 2; //< Selected channel within port
+          uint8_t reserved : 2;
+          uint8_t port : 4; //< Selected port
 #else
-          uint8_t channel  : 2;
-          uint8_t port     : 4;
+          uint8_t channel : 2;
+          uint8_t port : 4;
           uint8_t reserved : 2;
 #endif
         };
       };
       uint8_t data[CRTP_MAX_DATA_SIZE]; //< Data
     };
-    uint8_t raw[CRTP_MAX_DATA_SIZE+1];  //< The full packet "raw"
+    uint8_t raw[CRTP_MAX_DATA_SIZE + 1]; //< The full packet "raw"
   };
 } __attribute__((packed)) CRTPPacket;
 
@@ -147,6 +152,16 @@ int crtpReceivePacketWait(CRTPPort taskId, CRTPPacket *p, int wait);
 int crtpGetFreeTxQueuePackets(void);
 
 /**
+ * Inject a received CRTP packet into the RX path (bypassing the link layer).
+ * Useful for transport bridges (e.g., remote TCP server) that deliver raw CRTP
+ * frames from another medium.
+ *
+ * @param[in] p  The CRTP packet to inject
+ * @return true if successfully injected, false otherwise
+ */
+bool crtpInjectPacket(const CRTPPacket *p);
+
+/**
  * Wait for a packet to arrive for the specified taskID
  *
  * @param[in]  taskId The id of the CRTP task
@@ -169,7 +184,7 @@ struct crtpLinkOperations
   int (*reset)(void);
 };
 
-void crtpSetLink(struct crtpLinkOperations * lk);
+void crtpSetLink(struct crtpLinkOperations *lk);
 
 /**
  * Check if the connection timeout has been reached, otherwise
