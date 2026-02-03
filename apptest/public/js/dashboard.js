@@ -128,6 +128,9 @@ export function updateDashboard(data) {
     setText('vel-x-txt', (data.estVelX !== undefined ? data.estVelX.toFixed(2) : '0.00') + ' m/s');
     setText('vel-y-txt', (data.estVelY !== undefined ? data.estVelY.toFixed(2) : '0.00') + ' m/s');
     setText('vel-z-txt', (data.estVelZ !== undefined ? data.estVelZ.toFixed(2) : '0.00') + ' m/s');
+    // V3.3 机体坐标系速度
+    setText('body-vel-x-txt', (data.bodyVelX !== undefined ? data.bodyVelX.toFixed(2) : '0.00') + ' m/s');
+    setText('body-vel-y-txt', (data.bodyVelY !== undefined ? data.bodyVelY.toFixed(2) : '0.00') + ' m/s');
 }
 
 function setText(id, text) {

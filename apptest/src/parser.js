@@ -145,11 +145,11 @@ function parseTelemetry(buffer) {
             telemetry.baroAltitude = buffer.readInt32LE(offset + 67) / 1000.0;
             // ToF距离 (mm -> m)
             telemetry.tofDistance = buffer.readInt32LE(offset + 71) / 1000.0;
-            // 估计器X速度 (mm/s -> m/s)
+            // 估计器X速度 - 世界坐标系 (mm/s -> m/s)
             telemetry.estVelX = buffer.readInt16LE(offset + 75) / 1000.0;
-            // 估计器Y速度 (mm/s -> m/s)
+            // 估计器Y速度 - 世界坐标系 (mm/s -> m/s)
             telemetry.estVelY = buffer.readInt16LE(offset + 77) / 1000.0;
-            // 估计器Z速度 (mm/s -> m/s)
+            // 估计器Z速度 - 世界坐标系 (mm/s -> m/s)
             telemetry.estVelZ = buffer.readInt16LE(offset + 79) / 1000.0;
         } else {
             console.log(`[WARN] Telemetry buffer too small for altitude/velocity data: ${buffer.length} bytes (need 81)`);
@@ -159,6 +159,24 @@ function parseTelemetry(buffer) {
             telemetry.estVelX = 0;
             telemetry.estVelY = 0;
             telemetry.estVelZ = 0;
+        }
+
+        // V3.3 新增机体坐标系速度 (85字节)
+        if (buffer.length >= 85) {
+            // 机体X速度 (前进正) (mm/s -> m/s)
+            telemetry.bodyVelX = buffer.readInt16LE(offset + 81) / 1000.0;
+            // 机体Y速度 (向左正) (mm/s -> m/s)
+            telemetry.bodyVelY = buffer.readInt16LE(offset + 83) / 1000.0;
+            // 调试: 每100包打印一次body velocity
+            if (parseTelemetry.debugCount === 0) {
+                console.log(`[DEBUG] Body vel raw bytes at 81-84: ${buffer.readInt16LE(offset + 81)}, ${buffer.readInt16LE(offset + 83)} mm/s`);
+                console.log(`[DEBUG] Body vel: X=${telemetry.bodyVelX.toFixed(3)}, Y=${telemetry.bodyVelY.toFixed(3)} m/s`);
+                console.log(`[DEBUG] World vel: X=${telemetry.estVelX.toFixed(3)}, Y=${telemetry.estVelY.toFixed(3)} m/s`);
+            }
+        } else {
+            telemetry.bodyVelX = 0;
+            telemetry.bodyVelY = 0;
+            console.log(`[WARN] Buffer too small for body velocity: ${buffer.length} bytes (need 85)`);
         }
 
         // 从状态标志位解析

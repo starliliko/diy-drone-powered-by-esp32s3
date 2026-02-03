@@ -276,10 +276,10 @@ static void motorTestTask(void *param)
             break;
         }
 
-        // 周期性输出电机值（每500ms一次）
+        // 周期性输出电机值（每500ms一次，仅在测试运行时输出）
         static uint32_t lastPrintTime = 0;
         uint32_t now = xTaskGetTickCount();
-        if (now - lastPrintTime >= pdMS_TO_TICKS(500))
+        if (testRunning && (now - lastPrintTime >= pdMS_TO_TICKS(500)))
         {
             lastPrintTime = now;
             ESP_LOGI("MOTOR", "M1=%5d M2=%5d M3=%5d M4=%5d (%d%% %d%% %d%% %d%%)",

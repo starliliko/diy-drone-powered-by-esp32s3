@@ -116,9 +116,12 @@ extern "C"
         int32_t estAltitude;  // 估计器输出高度 (单位: mm)
         int32_t baroAltitude; // 气压计高度 (单位: mm, ASL)
         int32_t tofDistance;  // ToF测距高度 (单位: mm)
-        int16_t estVelX;      // 估计器X轴速度 (单位: mm/s)
-        int16_t estVelY;      // 估计器Y轴速度 (单位: mm/s)
-        int16_t estVelZ;      // 估计器Z轴速度 (单位: mm/s, 垂直速度)
+        int16_t estVelX;      // 估计器X轴速度 - 世界坐标系 (单位: mm/s)
+        int16_t estVelY;      // 估计器Y轴速度 - 世界坐标系 (单位: mm/s)
+        int16_t estVelZ;      // 估计器Z轴速度 - 世界坐标系 (单位: mm/s, 垂直速度)
+        // === 机体坐标系速度 (V3.3新增) ===
+        int16_t bodyVelX; // 机体X轴速度 (前进正) (单位: mm/s)
+        int16_t bodyVelY; // 机体Y轴速度 (向左正) (单位: mm/s)
     } RemoteTelemetryData;
 
 // 状态标志位定义

@@ -28,6 +28,7 @@
 #ifdef CONFIG_ENABLE_MTF01
 
 #include <string.h>
+#include <math.h>
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -83,6 +84,15 @@ static bool flowValid = false;
 
 /* Statistics */
 static uint32_t rxCount = 0;
+
+/* 滤波后的光流速度 */
+static float filteredFlowVelX = 0.0f;
+static float filteredFlowVelY = 0.0f;
+
+/* 滤波参数 */
+#define FLOW_DEADZONE 15    // 死区阈值 (cm/s @ 1m)，消除静止噪声
+#define FLOW_LPF_ALPHA 0.3f // 低通滤波系数 (0~1, 越小越平滑)
+#define FLOW_MAX_CHANGE 100 // 最大变化率限制 (cm/s @ 1m per sample)
 
 /* Estimator data submission (defined in kalman_core.c) */
 extern float flowStdDev; // Standard deviation for flow
@@ -140,7 +150,6 @@ static bool mtf01UartInit(void)
 static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
 {
     uint32_t timestamp = usecTimestamp();
-    static uint32_t lastDebugTime = 0;
 
     // Update ToF data
     distance_mm = payload->distance;
@@ -165,15 +174,42 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
     // MTF01 flow_status: 0=无效/初始化中, 1=数据有效, 2+=错误
     flowValid = (flowStatus == 1) && (flowQuality > 0);
 
-    rxCount++;
-
-    // Debug output every 2 seconds
-    if (timestamp - lastDebugTime > 2000000)
+    // ========== 光流滤波处理 ==========
+    if (flowValid)
     {
-        lastDebugTime = timestamp;
-        ESP_LOGI("MTF01", "dist=%dmm status=%d valid=%d | flow: vx=%d vy=%d q=%d s=%d",
-                 distance_mm, tofStatus, distanceValid, flowVelX, flowVelY, flowQuality, flowStatus);
+        float rawX = (float)flowVelX;
+        float rawY = (float)flowVelY;
+
+        // 1. 死区滤波 - 消除静止时的小噪声
+        if (fabsf(rawX) < FLOW_DEADZONE)
+            rawX = 0.0f;
+        if (fabsf(rawY) < FLOW_DEADZONE)
+            rawY = 0.0f;
+
+        // 2. 限幅滤波 - 限制最大变化率，消除突变尖峰
+        float deltaX = rawX - filteredFlowVelX;
+        float deltaY = rawY - filteredFlowVelY;
+        if (deltaX > FLOW_MAX_CHANGE)
+            deltaX = FLOW_MAX_CHANGE;
+        if (deltaX < -FLOW_MAX_CHANGE)
+            deltaX = -FLOW_MAX_CHANGE;
+        if (deltaY > FLOW_MAX_CHANGE)
+            deltaY = FLOW_MAX_CHANGE;
+        if (deltaY < -FLOW_MAX_CHANGE)
+            deltaY = -FLOW_MAX_CHANGE;
+
+        // 3. 低通滤波 - 平滑输出
+        filteredFlowVelX = filteredFlowVelX + FLOW_LPF_ALPHA * deltaX;
+        filteredFlowVelY = filteredFlowVelY + FLOW_LPF_ALPHA * deltaY;
+
+        // 对滤波结果也应用死区，确保静止时输出为0
+        if (fabsf(filteredFlowVelX) < FLOW_DEADZONE * 0.5f)
+            filteredFlowVelX = 0.0f;
+        if (fabsf(filteredFlowVelY) < FLOW_DEADZONE * 0.5f)
+            filteredFlowVelY = 0.0f;
     }
+
+    rxCount++;
 
     // Submit ToF data to estimator
     if (distanceValid)
@@ -187,16 +223,20 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
     }
 
     // Submit velocity data directly to estimator
-    // MTF01 outputs velocity in cm/s @ 1m height (normalized)
-    // Actual velocity = flow_vel * height(m) / 100 (convert cm/s to m/s)
+    // 使用滤波后的光流速度
+    // 坐标轴映射: MTF01 坐标系与飞控坐标系的对应关系
+    // 测试结果: 向前移动 flowVelY 为负，向左移动 flowVelX 为负
+    // 正确映射 (交换+取反):
+    // - 飞控 velX (前进正) = -flowVelY (向前flowVelY负 -> velX正)
+    // - 飞控 velY (向左正) = -flowVelX (向左flowVelX负 -> velY正)
     if (flowValid && distanceValid)
     {
         float height_m = (float)distance_mm / 1000.0f;
 
         velocityMeasurement_t velData = {
             .timestamp = timestamp,
-            .velX = (float)flowVelX * height_m / 100.0f, // cm/s @ 1m -> m/s
-            .velY = (float)flowVelY * height_m / 100.0f,
+            .velX = -filteredFlowVelY * height_m / 100.0f, // 交换并取反
+            .velY = -filteredFlowVelX * height_m / 100.0f, // 交换并取反
             .stdDev = flowStdDev,
         };
         estimatorEnqueueVelocity(&velData);

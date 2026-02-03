@@ -343,7 +343,7 @@ static void kalmanTask(void *parameters)
 
       if (!rateSupervisorValidate(&rateSupervisorContext, T2M(osTick)))
       {
-        ESP_LOGI("ESTKALMAN", "WARNING: Kalman prediction rate low (%u)", rateSupervisorLatestCount(&rateSupervisorContext));
+        // ESP_LOGI("ESTKALMAN", "WARNING: Kalman prediction rate low (%u)", rateSupervisorLatestCount(&rateSupervisorContext));
       }
     }
 

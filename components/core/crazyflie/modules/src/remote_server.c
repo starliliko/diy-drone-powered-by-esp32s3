@@ -1018,6 +1018,8 @@ static void remoteServerTelemetryTask(void *param)
     // V3.2 新增：高度和速度日志变量ID
     static logVarId_t estZId, estVxId, estVyId, estVzId;
     static logVarId_t baroHeightId, tofDistanceId;
+    // V3.3 新增：机体坐标系速度
+    static logVarId_t bodyVxId, bodyVyId;
     static uint32_t lastMotorPrintTick = 0;
 
     // 等待一段时间让日志系统初始化
@@ -1075,10 +1077,17 @@ static void remoteServerTelemetryTask(void *param)
             // ToF距离 (mtf01组)
             tofDistanceId = logGetVarId("mtf01", "distance");
 
+            // V3.3 新增：机体坐标系速度
+            // 从kalman滤波器内部状态获取 (单位: m/s)
+            bodyVxId = logGetVarId("kalman", "statePX");
+            bodyVyId = logGetVarId("kalman", "statePY");
+
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
             DEBUG_PRINT("  estZ=%d, estVx=%d, estVy=%d, estVz=%d, baro=%d, tof=%d\n",
                         estZId, estVxId, estVyId, estVzId, baroHeightId, tofDistanceId);
+            DEBUG_PRINT("  bodyVx=%d, bodyVy=%d (valid: %d, %d)\n",
+                        bodyVxId, bodyVyId, LOG_VARID_IS_VALID(bodyVxId), LOG_VARID_IS_VALID(bodyVyId));
         }
 
         // 填充遥测数据
@@ -1289,6 +1298,33 @@ static void remoteServerTelemetryTask(void *param)
         else
         {
             telemetry.estVelZ = 0;
+        }
+
+        // 机体坐标系速度 (V3.3新增)
+        if (LOG_VARID_IS_VALID(bodyVxId))
+        {
+            float rawVx = logGetFloat(bodyVxId);
+            telemetry.bodyVelX = (int16_t)(rawVx * 1000.0f);
+            // 调试打印（每5秒一次）
+            static uint32_t lastBodyVelPrint = 0;
+            if (xTaskGetTickCount() - lastBodyVelPrint > pdMS_TO_TICKS(5000))
+            {
+                DEBUG_PRINT("[BodyVel] statePX=%.4f, statePY=%.4f -> mm/s: %d, %d\n",
+                            rawVx, logGetFloat(bodyVyId), telemetry.bodyVelX, telemetry.bodyVelY);
+                lastBodyVelPrint = xTaskGetTickCount();
+            }
+        }
+        else
+        {
+            telemetry.bodyVelX = 0;
+        }
+        if (LOG_VARID_IS_VALID(bodyVyId))
+        {
+            telemetry.bodyVelY = (int16_t)(logGetFloat(bodyVyId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.bodyVelY = 0;
         }
 
         // 发送遥测数据
