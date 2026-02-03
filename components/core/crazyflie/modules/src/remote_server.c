@@ -329,6 +329,36 @@ void remoteServerGetStats(uint32_t *txCount, uint32_t *rxCount,
  *
  * @return true 如果成功发现，false 超时
  */
+/**
+ * @brief 获取STA接口的网络信息并计算子网广播地址
+ */
+static uint32_t getSubnetBroadcastAddr(void)
+{
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == NULL)
+    {
+        ESP_LOGW("REMOTE", "Failed to get STA netif");
+        return INADDR_BROADCAST;
+    }
+
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK)
+    {
+        ESP_LOGW("REMOTE", "Failed to get IP info");
+        return INADDR_BROADCAST;
+    }
+
+    // 子网广播地址 = IP | (~netmask)
+    uint32_t ip = ip_info.ip.addr;
+    uint32_t mask = ip_info.netmask.addr;
+    uint32_t bcast = ip | (~mask);
+
+    ESP_LOGI("REMOTE", "Local IP: " IPSTR ", Mask: " IPSTR ", Broadcast: " IPSTR,
+             IP2STR(&ip_info.ip), IP2STR(&ip_info.netmask), IP2STR((esp_ip4_addr_t *)&bcast));
+
+    return bcast;
+}
+
 static bool discoverServerViaUDP(void)
 {
     ESP_LOGI("REMOTE", "Discovering server via UDP broadcast...");
@@ -336,71 +366,142 @@ static bool discoverServerViaUDP(void)
     int discoverySock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (discoverySock < 0)
     {
-        ESP_LOGE("REMOTE", "Failed to create discovery socket");
+        ESP_LOGE("REMOTE", "Failed to create discovery socket: errno=%d", errno);
         return false;
     }
 
-    // 允许接收广播
+    // 允许发送广播
     int broadcast = 1;
     setsockopt(discoverySock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
-    // 设置超时
+    // 允许端口复用
+    int reuse = 1;
+    setsockopt(discoverySock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    // 设置接收超时 500ms
     struct timeval timeout;
-    timeout.tv_sec = DISCOVERY_TIMEOUT_MS / 1000;
-    timeout.tv_usec = (DISCOVERY_TIMEOUT_MS % 1000) * 1000;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 500 * 1000;
     setsockopt(discoverySock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    // 绑定到广播端口
+    // 绑定到任意端口（不绑定8081，避免和服务器冲突）
     struct sockaddr_in bindAddr;
     memset(&bindAddr, 0, sizeof(bindAddr));
     bindAddr.sin_family = AF_INET;
-    bindAddr.sin_port = htons(DISCOVERY_PORT);
+    bindAddr.sin_port = htons(0); // 系统自动分配端口
     bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(discoverySock, (struct sockaddr *)&bindAddr, sizeof(bindAddr)) < 0)
     {
-        ESP_LOGE("REMOTE", "Failed to bind discovery socket: %d", errno);
+        ESP_LOGE("REMOTE", "Failed to bind discovery socket: errno=%d", errno);
         close(discoverySock);
         return false;
     }
 
-    ESP_LOGI("REMOTE", "Listening for server broadcast on port %d...", DISCOVERY_PORT);
+    // 获取绑定的端口号
+    socklen_t addrLen = sizeof(bindAddr);
+    getsockname(discoverySock, (struct sockaddr *)&bindAddr, &addrLen);
+    ESP_LOGI("REMOTE", "Discovery socket bound to port %d", ntohs(bindAddr.sin_port));
 
-    // 接收广播包
+    // 构造发现请求包（魔数 + TCP端口=0表示请求）
+    uint8_t req[6] = {0};
+    uint32_t magicNet = htonl(DISCOVERY_MAGIC);
+    memcpy(req, &magicNet, 4);
+    req[4] = 0;
+    req[5] = 0;
+
+    // 获取子网广播地址
+    uint32_t subnetBcast = getSubnetBroadcastAddr();
+
+    struct sockaddr_in bcastAddr;
+    memset(&bcastAddr, 0, sizeof(bcastAddr));
+    bcastAddr.sin_family = AF_INET;
+    bcastAddr.sin_port = htons(DISCOVERY_PORT);
+
+    TickType_t startTick = xTaskGetTickCount();
+    TickType_t timeoutTicks = M2T(DISCOVERY_TIMEOUT_MS);
+    int sendCount = 0;
+
+    // 接收循环
     uint8_t buffer[16];
     struct sockaddr_in srcAddr;
-    socklen_t srcLen = sizeof(srcAddr);
+    socklen_t srcLen;
 
-    int len = recvfrom(discoverySock, buffer, sizeof(buffer), 0,
-                       (struct sockaddr *)&srcAddr, &srcLen);
+    while ((xTaskGetTickCount() - startTick) < timeoutTicks)
+    {
+        // 每秒发送一次发现请求
+        if (sendCount == 0 || (xTaskGetTickCount() - startTick) >= M2T(sendCount * 1000))
+        {
+            // 发送到子网广播地址
+            bcastAddr.sin_addr.s_addr = subnetBcast;
+            int ret = sendto(discoverySock, req, sizeof(req), 0, (struct sockaddr *)&bcastAddr, sizeof(bcastAddr));
+            ESP_LOGI("REMOTE", "Sent discovery request to subnet broadcast (ret=%d)", ret);
+
+            // 也发送到全网广播地址
+            bcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+            ret = sendto(discoverySock, req, sizeof(req), 0, (struct sockaddr *)&bcastAddr, sizeof(bcastAddr));
+            ESP_LOGI("REMOTE", "Sent discovery request to 255.255.255.255 (ret=%d)", ret);
+
+            sendCount++;
+        }
+
+        // 尝试接收回应
+        srcLen = sizeof(srcAddr);
+        int len = recvfrom(discoverySock, buffer, sizeof(buffer), 0,
+                           (struct sockaddr *)&srcAddr, &srcLen);
+
+        if (len < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                // 超时，继续循环
+                continue;
+            }
+            ESP_LOGW("REMOTE", "Discovery recv error: errno=%d", errno);
+            continue;
+        }
+
+        ESP_LOGI("REMOTE", "Received %d bytes from %s:%d", len,
+                 inet_ntoa(srcAddr.sin_addr), ntohs(srcAddr.sin_port));
+
+        if (len < 6)
+        {
+            ESP_LOGW("REMOTE", "Discovery invalid packet (len=%d)", len);
+            continue;
+        }
+
+        // 验证魔数
+        uint32_t magic = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+        if (magic != DISCOVERY_MAGIC)
+        {
+            ESP_LOGW("REMOTE", "Invalid discovery magic: 0x%08lX", (unsigned long)magic);
+            continue;
+        }
+
+        // 检查TCP端口（非0表示服务器回应）
+        uint16_t tcpPort = (buffer[4] << 8) | buffer[5];
+        if (tcpPort == 0)
+        {
+            // 这是另一个ESP32的请求，忽略
+            ESP_LOGD("REMOTE", "Ignoring discovery request from %s", inet_ntoa(srcAddr.sin_addr));
+            continue;
+        }
+
+        // 使用发送方的 IP 地址
+        char *ipStr = inet_ntoa(srcAddr.sin_addr);
+        strncpy(serverIP, ipStr, sizeof(serverIP) - 1);
+        serverIP[sizeof(serverIP) - 1] = '\0';
+        serverDiscovered = true;
+
+        ESP_LOGI("REMOTE", "Discovered server at %s:%d (TCP port from packet: %d)",
+                 serverIP, REMOTE_SERVER_PORT, tcpPort);
+        close(discoverySock);
+        return true;
+    }
 
     close(discoverySock);
-
-    if (len < 6)
-    {
-        ESP_LOGW("REMOTE", "Discovery timeout or invalid packet (len=%d)", len);
-        return false;
-    }
-
-    // 验证魔数
-    uint32_t magic = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
-    if (magic != DISCOVERY_MAGIC)
-    {
-        ESP_LOGW("REMOTE", "Invalid discovery magic: 0x%08lX", (unsigned long)magic);
-        return false;
-    }
-
-    // 提取端口号（使用广播包中指定的端口，或默认端口）
-    // uint16_t port = (buffer[4] << 8) | buffer[5]; // 如需动态端口可使用
-
-    // 使用发送方的 IP 地址
-    char *ipStr = inet_ntoa(srcAddr.sin_addr);
-    strncpy(serverIP, ipStr, sizeof(serverIP) - 1);
-    serverIP[sizeof(serverIP) - 1] = '\0';
-    serverDiscovered = true;
-
-    ESP_LOGI("REMOTE", "Discovered server at %s:%d", serverIP, REMOTE_SERVER_PORT);
-    return true;
+    ESP_LOGW("REMOTE", "Discovery timeout after %d requests", sendCount);
+    return false;
 }
 
 static void updateConnectionState(RemoteConnectionState newState)
@@ -914,6 +1015,9 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t gyroXId, gyroYId, gyroZId;
     static logVarId_t accXId, accYId, accZId;
     static logVarId_t motorM1Id, motorM2Id, motorM3Id, motorM4Id;
+    // V3.2 新增：高度和速度日志变量ID
+    static logVarId_t estZId, estVxId, estVyId;
+    static logVarId_t baroAslId, tofDistanceId;
     static uint32_t lastMotorPrintTick = 0;
 
     // 等待一段时间让日志系统初始化
@@ -959,6 +1063,16 @@ static void remoteServerTelemetryTask(void *param)
                 motorM3Id = logGetVarId("motors", "m3");
             if (!LOG_VARID_IS_VALID(motorM4Id))
                 motorM4Id = logGetVarId("motors", "m4");
+
+            // V3.2 新增：获取高度和速度日志ID
+            // 估计器输出 (kalman组)
+            estZId = logGetVarId("kalman", "stateZ");
+            estVxId = logGetVarId("kalman", "statePX");
+            estVyId = logGetVarId("kalman", "statePY");
+            // 气压计高度 (baro组)
+            baroAslId = logGetVarId("baro", "asl");
+            // ToF距离 (mtf01组)
+            tofDistanceId = logGetVarId("mtf01", "distance");
 
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
@@ -1111,6 +1225,57 @@ static void remoteServerTelemetryTask(void *param)
             DEBUG_PRINT("MOTOR_OUT: M1=%u M2=%u M3=%u M4=%u\n",
                         telemetry.motorPower[0], telemetry.motorPower[1],
                         telemetry.motorPower[2], telemetry.motorPower[3]);
+        }
+
+        // === V3.2 新增：高度和速度数据 ===
+        // 估计器高度 (kalman stateZ, 单位: m -> mm)
+        if (LOG_VARID_IS_VALID(estZId))
+        {
+            telemetry.estAltitude = (int32_t)(logGetFloat(estZId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.estAltitude = 0;
+        }
+
+        // 气压计高度 (baro asl, 单位: m -> mm)
+        if (LOG_VARID_IS_VALID(baroAslId))
+        {
+            telemetry.baroAltitude = (int32_t)(logGetFloat(baroAslId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.baroAltitude = 0;
+        }
+
+        // ToF距离 (mtf01 distance, 单位: mm)
+        if (LOG_VARID_IS_VALID(tofDistanceId))
+        {
+            telemetry.tofDistance = (int32_t)logGetUint(tofDistanceId);
+        }
+        else
+        {
+            telemetry.tofDistance = 0;
+        }
+
+        // 估计器速度X (kalman statePX, 单位: m/s -> mm/s)
+        if (LOG_VARID_IS_VALID(estVxId))
+        {
+            telemetry.estVelX = (int16_t)(logGetFloat(estVxId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.estVelX = 0;
+        }
+
+        // 估计器速度Y (kalman statePY, 单位: m/s -> mm/s)
+        if (LOG_VARID_IS_VALID(estVyId))
+        {
+            telemetry.estVelY = (int16_t)(logGetFloat(estVyId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.estVelY = 0;
         }
 
         // 发送遥测数据

@@ -164,7 +164,29 @@ class DroneServer {
                 console.error('✗ Discovery socket error:', err.message);
             });
 
-            this.discoverySocket.bind(() => {
+            this.discoverySocket.on('message', (msg, rinfo) => {
+                if (!msg || msg.length < 6) return;
+
+                // 检查魔数
+                if (!DISCOVERY_MAGIC.equals(msg.subarray(0, 4))) return;
+
+                const reqPort = msg.readUInt16BE(4);
+
+                // TCP端口=0 视为发现请求，单播回应
+                if (reqPort === 0) {
+                    const resp = Buffer.alloc(6);
+                    DISCOVERY_MAGIC.copy(resp, 0);
+                    resp.writeUInt16BE(CONFIG.TCP_PORT, 4);
+
+                    this.discoverySocket.send(resp, rinfo.port, rinfo.address, (err) => {
+                        if (err) {
+                            console.error('✗ Discovery response failed:', err.message);
+                        }
+                    });
+                }
+            });
+
+            this.discoverySocket.bind(CONFIG.DISCOVERY_PORT, () => {
                 this.discoverySocket.setBroadcast(true);
 
                 const localIP = this.getLocalIP();

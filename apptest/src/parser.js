@@ -130,6 +130,26 @@ function parseTelemetry(buffer) {
             console.log(`[WARN] Telemetry buffer too small for motor data: ${buffer.length} bytes, need 63`);
         }
 
+        // V3.2 新增高度和速度数据 (81字节)
+        if (buffer.length >= 81) {
+            // 估计器高度 (mm -> m)
+            telemetry.estAltitude = buffer.readInt32LE(offset + 63) / 1000.0;
+            // 气压计高度 (mm -> m)
+            telemetry.baroAltitude = buffer.readInt32LE(offset + 67) / 1000.0;
+            // ToF距离 (mm -> m)
+            telemetry.tofDistance = buffer.readInt32LE(offset + 71) / 1000.0;
+            // 估计器X速度 (mm/s -> m/s)
+            telemetry.estVelX = buffer.readInt16LE(offset + 75) / 1000.0;
+            // 估计器Y速度 (mm/s -> m/s)
+            telemetry.estVelY = buffer.readInt16LE(offset + 77) / 1000.0;
+        } else {
+            telemetry.estAltitude = 0;
+            telemetry.baroAltitude = 0;
+            telemetry.tofDistance = 0;
+            telemetry.estVelX = 0;
+            telemetry.estVelY = 0;
+        }
+
         // 从状态标志位解析
         telemetry.isArmed = !!(telemetry.statusFlags & STATUS_FLAGS.ARMED);
         telemetry.isFlying = !!(telemetry.statusFlags & STATUS_FLAGS.FLYING);

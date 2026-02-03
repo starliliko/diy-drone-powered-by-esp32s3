@@ -120,6 +120,13 @@ export function updateDashboard(data) {
     if (data.motorOutputs && window.motorTest) {
         window.motorTest.updateDisplay(data.motorOutputs);
     }
+
+    // V3.2 新增：更新飞行数据面板
+    setText('est-alt-txt', (data.estAltitude !== undefined ? data.estAltitude.toFixed(2) : '0.00') + ' m');
+    setText('baro-alt-txt', (data.baroAltitude !== undefined ? data.baroAltitude.toFixed(2) : '0.00') + ' m');
+    setText('tof-alt-txt', (data.tofDistance !== undefined ? data.tofDistance.toFixed(2) : '0.00') + ' m');
+    setText('vel-x-txt', (data.estVelX !== undefined ? data.estVelX.toFixed(2) : '0.00') + ' m/s');
+    setText('vel-y-txt', (data.estVelY !== undefined ? data.estVelY.toFixed(2) : '0.00') + ' m/s');
 }
 
 function setText(id, text) {

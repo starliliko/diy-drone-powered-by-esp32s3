@@ -111,7 +111,13 @@ extern "C"
         uint8_t controlSource;    // 控制来源 (ControlSource 枚举)
         uint8_t remoteCtrlMode;   // 远程控制模式 (RemoteControlMode 枚举)
         // === 电机输出 (V3.1新增) ===
-        uint16_t motorPower[4];   // 四个电机推力输出 (0-65535)
+        uint16_t motorPower[4]; // 四个电机推力输出 (0-65535)
+        // === 高度与速度数据 (V3.2新增) ===
+        int32_t estAltitude;  // 估计器输出高度 (单位: mm)
+        int32_t baroAltitude; // 气压计高度 (单位: mm, ASL)
+        int32_t tofDistance;  // ToF测距高度 (单位: mm)
+        int16_t estVelX;      // 估计器X轴速度 (单位: mm/s)
+        int16_t estVelY;      // 估计器Y轴速度 (单位: mm/s)
     } RemoteTelemetryData;
 
 // 状态标志位定义

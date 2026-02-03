@@ -673,3 +673,45 @@ body {
         opacity: 0.6;
     }
 }
+
+/* ========== 实时飞行数据面板 (V3.2) ========== */
+.flight-data-panel {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--qgc-border);
+    border-radius: 8px;
+    padding: 12px 20px;
+    z-index: 50;
+}
+
+.fd-row {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+}
+
+.fd-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80px;
+}
+
+.fd-label {
+    font-size: 0.7rem;
+    color: var(--qgc-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.fd-value {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--qgc-green);
+}
