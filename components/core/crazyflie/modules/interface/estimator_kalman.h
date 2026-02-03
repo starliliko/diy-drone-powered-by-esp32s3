@@ -65,6 +65,12 @@ void estimatorKalmanTaskInit();
 bool estimatorKalmanTaskTest();
 
 /**
+ * Check if barometer calibration is complete
+ * Calibration happens automatically during startup
+ */
+bool estimatorKalmanIsBaroCalibrated(void);
+
+/**
  * The filter supports the incorporation of additional sensors into the state estimate via the following functions:
  */
 bool estimatorKalmanEnqueueTDOA(const tdoaMeasurement_t *uwb);
@@ -73,7 +79,7 @@ bool estimatorKalmanEnqueuePose(const poseMeasurement_t *pose);
 bool estimatorKalmanEnqueueDistance(const distanceMeasurement_t *dist);
 bool estimatorKalmanEnqueueTOF(const tofMeasurement_t *tof);
 bool estimatorKalmanEnqueueAbsoluteHeight(const heightMeasurement_t *height);
-bool estimatorKalmanEnqueueFlow(const flowMeasurement_t *flow);
+bool estimatorKalmanEnqueueVelocity(const velocityMeasurement_t *vel);
 bool estimatorKalmanEnqueueYawError(const yawErrorMeasurement_t *error);
 // bool estimatorKalmanEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
 

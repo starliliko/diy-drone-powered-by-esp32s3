@@ -52,7 +52,7 @@ bool estimatorEnqueuePose(const poseMeasurement_t *pose);
 bool estimatorEnqueueDistance(const distanceMeasurement_t *dist);
 bool estimatorEnqueueTOF(const tofMeasurement_t *tof);
 bool estimatorEnqueueAbsoluteHeight(const heightMeasurement_t *height);
-bool estimatorEnqueueFlow(const flowMeasurement_t *flow);
+bool estimatorEnqueueVelocity(const velocityMeasurement_t *vel);
 bool estimatorEnqueueYawError(const yawErrorMeasurement_t *error);
 // bool estimatorEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
 

@@ -118,6 +118,7 @@ extern "C"
         int32_t tofDistance;  // ToF测距高度 (单位: mm)
         int16_t estVelX;      // 估计器X轴速度 (单位: mm/s)
         int16_t estVelY;      // 估计器Y轴速度 (单位: mm/s)
+        int16_t estVelZ;      // 估计器Z轴速度 (单位: mm/s, 垂直速度)
     } RemoteTelemetryData;
 
 // 状态标志位定义

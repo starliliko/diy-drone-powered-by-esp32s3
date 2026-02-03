@@ -72,4 +72,10 @@ bool mtf01IsDistanceValid(void);
  */
 bool mtf01IsFlowValid(void);
 
+/**
+ * Estimator tuning parameters (exposed for Kalman parameter group)
+ */
+extern float flowStdDev;
+extern float tofStdDev;
+
 #endif /* __FLOW_MTF01_H__ */

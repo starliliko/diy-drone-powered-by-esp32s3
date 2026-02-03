@@ -234,23 +234,16 @@ typedef struct setpointZ_s
   bool isUpdate; // True = small update of setpoint, false = completely new
 } setpointZ_t;
 
-/** Flow measurement**/
-typedef struct flowMeasurement_s
+/** Velocity measurement (for MTF01 optical flow) **/
+typedef struct velocityMeasurement_s
 {
   uint32_t timestamp;
-  union
-  {
-    struct
-    {
-      float dpixelx; // Accumulated pixel count x
-      float dpixely; // Accumulated pixel count y
-    };
-    float dpixel[2]; // Accumulated pixel count
-  };
-  float stdDevX; // Measurement standard deviation
-  float stdDevY; // Measurement standard deviation
-  float dt;      // Time during which pixels were accumulated
-} flowMeasurement_t;
+  float velX;   // Body X velocity (m/s)
+  float velY;   // Body Y velocity (m/s)
+  float stdDev; // Measurement standard deviation
+} velocityMeasurement_t;
+
+// Note: flowMeasurement_t (dpixel format) removed - MTF01 outputs velocity directly
 
 /** TOF measurement**/
 typedef struct tofMeasurement_s

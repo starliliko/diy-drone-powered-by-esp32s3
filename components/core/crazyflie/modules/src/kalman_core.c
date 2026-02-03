@@ -63,7 +63,9 @@
 
 #include "log.h"
 #include "debug_cf.h"
+#include "esp_log.h"
 #include "param.h"
+#include "flow_mtf01.h"
 #include "math3d.h"
 #include "xtensa_math.h"
 #include "static_mem.h"
@@ -137,8 +139,22 @@ static float procNoiseAcc_xy = 0.5f;
 static float procNoiseAcc_z = 1.0f;
 static float procNoiseVel = 0;
 static float procNoisePos = 0;
-static float procNoiseAtt = 0;     // 姿态过程噪声（保持0，避免无根据的姿态漂移）
-static float measNoiseBaro = 2.0f; // meters
+static float procNoiseAtt = 0;      // 姿态过程噪声（保持0，避免无根据的姿态漂移）
+static float measNoiseBaro = 12.0f; // meters (增大到12，降低气压计权重到约10%)
+static bool baroCalibrated = false; // 气压计参考高度校准完成标志
+
+// MTF01: 测量标准差（越小权重越高）
+float flowStdDev = 0.01f; // Standard deviation for flow
+float tofStdDev = 0.25f;  // Standard deviation for ToF (1cm)
+
+// 启动校准相关变量
+#define BARO_CALIBRATION_SAMPLES 50       // 校准等待的样本数（约2秒@25Hz）
+static uint32_t baroCalibrationCount = 0; // 校准样本计数
+static float baroCalibratedHeight = 0.0f; // 校准后的气压高度（相对高度，用于前端显示）
+
+// TOF初始化相关变量（禁用气压计时，使用TOF初始化高度）
+static bool tofInitialized = false; // TOF高度初始化完成标志
+
 // BMI088: 增大测量噪声=减少加速度计校正强度，允许维持非水平姿态
 // 注意：这会增加长期漂移，需要配合ROLLPITCH_ZERO_REVERSION使用
 static float measNoiseGyro_rollpitch = 2.0f; // radians per second (增大=减弱重力校正)
@@ -228,6 +244,16 @@ void kalmanCoreInit(kalmanCoreData_t *this)
   this->baroReferenceHeight = 0.0;
 
   outlierFilterReset(&sweepOutlierFilterState, 0);
+
+  // 重置校准状态
+  baroCalibrated = false;
+  baroCalibrationCount = 0;
+  tofInitialized = false; // 重置TOF初始化标志
+}
+
+bool kalmanCoreIsBaroCalibrated(void)
+{
+  return baroCalibrated;
 }
 
 static void scalarUpdate(kalmanCoreData_t *this, xtensa_matrix_instance_f32 *Hm, float error, float stdMeasNoise)
@@ -314,18 +340,38 @@ static void scalarUpdate(kalmanCoreData_t *this, xtensa_matrix_instance_f32 *Hm,
 
 void kalmanCoreUpdateWithBaro(kalmanCoreData_t *this, float baroAsl, bool quadIsFlying)
 {
-  float h[KC_STATE_DIM] = {0};
-  xtensa_matrix_instance_f32 H = {1, KC_STATE_DIM, h};
+  // 简化的校准逻辑：
+  // 1. 启动时等待 BARO_CALIBRATION_SAMPLES 个读数（让气压计稳定）
+  // 2. 使用最后一个读数作为参考高度（确保校准后立即为0）
+  // 3. 之后的读数减去参考高度就是相对高度
 
-  h[KC_STATE_Z] = 1;
-
-  if (!quadIsFlying || this->baroReferenceHeight < 1)
+  if (!baroCalibrated)
   {
-    // TODO: maybe we could track the zero height as a state. Would be especially useful if UWB anchors had barometers.
-    this->baroReferenceHeight = baroAsl;
+    // 校准阶段：等待足够的样本让气压计稳定
+    baroCalibrationCount++;
+
+    if (baroCalibrationCount >= BARO_CALIBRATION_SAMPLES)
+    {
+      // 使用当前读数作为参考高度（确保校准完成时高度为0）
+      this->baroReferenceHeight = baroAsl;
+      this->S[KC_STATE_Z] = 0.0f;  // 初始高度设为0
+      this->S[KC_STATE_PZ] = 0.0f; // 初始垂直速度设为0
+      baroCalibratedHeight = 0.0f; // 校准后气压高度初始为0
+      baroCalibrated = true;
+
+      ESP_LOGI("KALMAN", "Baro calibrated: ref=%.2f m ASL, Z=0 (samples=%lu)",
+               (double)this->baroReferenceHeight, baroCalibrationCount);
+    }
+    return; // 校准期间不进行卡尔曼更新
   }
 
-  float meas = (baroAsl - this->baroReferenceHeight);
+  // 校准完成后：正常更新
+  float h[KC_STATE_DIM] = {0};
+  xtensa_matrix_instance_f32 H = {1, KC_STATE_DIM, h};
+  h[KC_STATE_Z] = 1;
+
+  float meas = baroAsl - this->baroReferenceHeight; // 相对高度
+  baroCalibratedHeight = meas;                      // 保存用于前端显示
   scalarUpdate(this, &H, meas - this->S[KC_STATE_Z], measNoiseBaro);
 }
 
@@ -482,79 +528,33 @@ void kalmanCoreUpdateWithTDOA(kalmanCoreData_t *this, tdoaMeasurement_t *tdoa)
   tdoaCount++;
 }
 
-// TODO remove the temporary test variables (used for logging)
-static float predictedNX;
-static float predictedNY;
-static float measuredNX;
-static float measuredNY;
-
-void kalmanCoreUpdateWithFlow(kalmanCoreData_t *this, const flowMeasurement_t *flow, const Axis3f *gyro)
+/**
+ * Direct velocity measurement update (MTF01 optical flow)
+ *
+ * MTF01 outputs velocity directly (cm/s @ 1m height, normalized)
+ * No need for dpixel conversion - direct observation of body velocity
+ *
+ * Measurement equation: z = S[KC_STATE_PX], z = S[KC_STATE_PY]
+ */
+void kalmanCoreUpdateWithVelocity(kalmanCoreData_t *this, const velocityMeasurement_t *vel)
 {
-  // Inclusion of flow measurements in the EKF done by two scalar updates
-
-  // ~~~ Camera constants ~~~
-  // The angle of aperture is guessed from the raw data register and thankfully look to be symmetric
-  float Npix = 30.0; // [pixels] (same in x and y)
-  // float thetapix = DEG_TO_RAD * 4.0f;     // [rad]    (same in x and y)
-  float thetapix = DEG_TO_RAD * 4.2f;
-  //~~~ Body rates ~~~
-  // TODO check if this is feasible or if some filtering has to be done
-  float omegax_b = gyro->x * DEG_TO_RAD;
-  float omegay_b = gyro->y * DEG_TO_RAD;
-
-  // ~~~ Moves the body velocity into the global coordinate system ~~~
-  // [bar{x},bar{y},bar{z}]_G = R*[bar{x},bar{y},bar{z}]_B
-  //
-  // \dot{x}_G = (R^T*[dot{x}_B,dot{y}_B,dot{z}_B])\dot \hat{x}_G
-  // \dot{x}_G = (R^T*[dot{x}_B,dot{y}_B,dot{z}_B])\dot \hat{x}_G
-  //
-  // where \hat{} denotes a basis vector, \dot{} denotes a derivative and
-  // _G and _B refer to the global/body coordinate systems.
-
-  // Modification 1
-  // dx_g = R[0][0] * S[KC_STATE_PX] + R[0][1] * S[KC_STATE_PY] + R[0][2] * S[KC_STATE_PZ];
-  // dy_g = R[1][0] * S[KC_STATE_PX] + R[1][1] * S[KC_STATE_PY] + R[1][2] * S[KC_STATE_PZ];
-
-  float dx_g = this->S[KC_STATE_PX];
-  float dy_g = this->S[KC_STATE_PY];
-  float z_g = 0.0;
-  // Saturate elevation in prediction and correction to avoid singularities
-  if (this->S[KC_STATE_Z] < 0.1f)
-  {
-    z_g = 0.1;
-  }
-  else
-  {
-    z_g = this->S[KC_STATE_Z];
-  }
-
-  // ~~~ X velocity prediction and update ~~~
-  // predics the number of accumulated pixels in the x-direction
-  float omegaFactor = 1.25f;
+  // X velocity update
   float hx[KC_STATE_DIM] = {0};
   xtensa_matrix_instance_f32 Hx = {1, KC_STATE_DIM, hx};
-  predictedNX = (flow->dt * Npix / thetapix) * ((dx_g * this->R[2][2] / z_g) - omegaFactor * omegay_b);
-  measuredNX = flow->dpixelx;
 
-  // derive measurement equation with respect to dx (and z?)
-  hx[KC_STATE_Z] = (Npix * flow->dt / thetapix) * ((this->R[2][2] * dx_g) / (-z_g * z_g));
-  hx[KC_STATE_PX] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
+  // Direct observation of body X velocity
+  hx[KC_STATE_PX] = 1.0f;
+  float innovationX = vel->velX - this->S[KC_STATE_PX];
+  scalarUpdate(this, &Hx, innovationX, vel->stdDev);
 
-  // First update
-  scalarUpdate(this, &Hx, measuredNX - predictedNX, flow->stdDevX);
-
-  // ~~~ Y velocity prediction and update ~~~
+  // Y velocity update
   float hy[KC_STATE_DIM] = {0};
   xtensa_matrix_instance_f32 Hy = {1, KC_STATE_DIM, hy};
-  predictedNY = (flow->dt * Npix / thetapix) * ((dy_g * this->R[2][2] / z_g) + omegaFactor * omegax_b);
-  measuredNY = flow->dpixely;
 
-  // derive measurement equation with respect to dy (and z?)
-  hy[KC_STATE_Z] = (Npix * flow->dt / thetapix) * ((this->R[2][2] * dy_g) / (-z_g * z_g));
-  hy[KC_STATE_PY] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
-
-  // Second update
-  scalarUpdate(this, &Hy, measuredNY - predictedNY, flow->stdDevY);
+  // Direct observation of body Y velocity
+  hy[KC_STATE_PY] = 1.0f;
+  float innovationY = vel->velY - this->S[KC_STATE_PY];
+  scalarUpdate(this, &Hy, innovationY, vel->stdDev);
 }
 
 void kalmanCoreUpdateWithTof(kalmanCoreData_t *this, tofMeasurement_t *tof)
@@ -566,6 +566,20 @@ void kalmanCoreUpdateWithTof(kalmanCoreData_t *this, tofMeasurement_t *tof)
   // Only update the filter if the measurement is reliable (\hat{h} -> infty when R[2][2] -> 0)
   if (fabs(this->R[2][2]) > 0.1 && this->R[2][2] > 0)
   {
+    float measuredDistance = tof->distance; // [m]
+
+    // 首次有效TOF读数时，直接用它初始化高度状态（禁用气压计时尤为重要）
+    if (!tofInitialized)
+    {
+      // 计算世界坐标系中的高度：Z = distance * R[2][2]（考虑倾斜）
+      float initialHeight = measuredDistance * this->R[2][2];
+      this->S[KC_STATE_Z] = initialHeight;
+      this->S[KC_STATE_PZ] = 0.0f; // 初始垂直速度设为0
+      tofInitialized = true;
+      ESP_LOGI("KALMAN", "TOF initialized height: %.2f m (TOF distance: %.2f m)",
+               initialHeight, measuredDistance);
+    }
+
     float angle = fabsf(acosf(this->R[2][2])) - DEG_TO_RAD * (15.0f / 2.0f);
     if (angle < 0.0f)
     {
@@ -573,7 +587,30 @@ void kalmanCoreUpdateWithTof(kalmanCoreData_t *this, tofMeasurement_t *tof)
     }
     // float predictedDistance = S[KC_STATE_Z] / cosf(angle);
     float predictedDistance = this->S[KC_STATE_Z] / this->R[2][2];
-    float measuredDistance = tof->distance; // [m]
+
+    // 计算测量残差（innovation）
+    float innovation = measuredDistance - predictedDistance;
+    float innovationAbs = fabsf(innovation);
+
+    // 如果测量值突变过大（超过0.5米），可能是传感器测到了不同表面
+    // 这时候增加测量噪声，让滤波器更慢地跟踪变化，或者重置状态
+    float effectiveStdDev = tof->stdDev;
+
+    if (innovationAbs > 1.0f)
+    {
+      // 突变超过1米：直接重置高度状态（可能是传感器看到了完全不同的表面）
+      float newHeight = measuredDistance * this->R[2][2];
+      this->S[KC_STATE_Z] = newHeight;
+      this->S[KC_STATE_PZ] = 0.0f;
+      ESP_LOGW("KALMAN", "TOF large jump detected (%.2fm), reset height to %.2fm",
+               innovation, newHeight);
+      return;
+    }
+    else if (innovationAbs > 0.3f)
+    {
+      // 突变0.3-1米：增加测量噪声，让滤波器更缓慢地跟踪
+      effectiveStdDev = tof->stdDev * 5.0f;
+    }
 
     // Measurement equation
     //
@@ -582,7 +619,7 @@ void kalmanCoreUpdateWithTof(kalmanCoreData_t *this, tofMeasurement_t *tof)
     // h[KC_STATE_Z] = 1 / cosf(angle);
 
     // Scalar update
-    scalarUpdate(this, &H, measuredDistance - predictedDistance, tof->stdDev);
+    scalarUpdate(this, &H, innovation, effectiveStdDev);
   }
 }
 
@@ -1199,17 +1236,15 @@ void kalmanCoreDecoupleXY(kalmanCoreData_t *this)
   decoupleState(this, KC_STATE_PY);
 }
 
-// Stock log groups
-LOG_GROUP_START(kalman_pred)
-LOG_ADD(LOG_FLOAT, predNX, &predictedNX)
-LOG_ADD(LOG_FLOAT, predNY, &predictedNY)
-LOG_ADD(LOG_FLOAT, measNX, &measuredNX)
-LOG_ADD(LOG_FLOAT, measNY, &measuredNY)
-LOG_GROUP_STOP(kalman_pred)
+// Note: kalman_pred log group removed - dpixel format no longer used with MTF01 velocity input
 
 LOG_GROUP_START(outlierf)
 LOG_ADD(LOG_INT32, lhWin, &sweepOutlierFilterState.openingWindow)
 LOG_GROUP_STOP(outlierf)
+
+LOG_GROUP_START(kalman_baro)
+LOG_ADD(LOG_FLOAT, height, &baroCalibratedHeight)
+LOG_GROUP_STOP(kalman_baro)
 
 PARAM_GROUP_START(kalman)
 PARAM_ADD(PARAM_FLOAT, pNAcc_xy, &procNoiseAcc_xy)
@@ -1218,6 +1253,8 @@ PARAM_ADD(PARAM_FLOAT, pNVel, &procNoiseVel)
 PARAM_ADD(PARAM_FLOAT, pNPos, &procNoisePos)
 PARAM_ADD(PARAM_FLOAT, pNAtt, &procNoiseAtt)
 PARAM_ADD(PARAM_FLOAT, mNBaro, &measNoiseBaro)
+PARAM_ADD(PARAM_FLOAT, flowStdDev, &flowStdDev)
+PARAM_ADD(PARAM_FLOAT, tofStdDev, &tofStdDev)
 PARAM_ADD(PARAM_FLOAT, mNGyro_rollpitch, &measNoiseGyro_rollpitch)
 PARAM_ADD(PARAM_FLOAT, mNGyro_yaw, &measNoiseGyro_yaw)
 PARAM_ADD(PARAM_FLOAT, initialX, &initialX)

@@ -20,6 +20,7 @@
 #include "commander.h"
 #include "crtp_commander.h"
 #include "pm_esplane.h"
+#include "estimator_kalman.h"
 #include "log.h"
 #include "param.h"
 
@@ -232,6 +233,8 @@ bool vehicleArm(bool force)
 
     // 同步到旧系统
     systemSetArmed(true);
+
+    // 气压计已在启动时自动校准，不再需要手动校准
 
     xSemaphoreGive(stateMutex);
 

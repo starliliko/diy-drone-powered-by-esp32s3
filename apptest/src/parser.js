@@ -65,6 +65,13 @@ function createHeader(pktType, seq, payloadLength) {
  * 解析遥测数据 - PX4/QGC 风格 (Protocol V2/V3)
  */
 function parseTelemetry(buffer) {
+    // 调试：打印收到的数据包大小（每100个包打印一次）
+    if (!parseTelemetry.debugCount) parseTelemetry.debugCount = 0;
+    if (++parseTelemetry.debugCount >= 100) {
+        console.log(`[DEBUG] Telemetry buffer size: ${buffer.length} bytes`);
+        parseTelemetry.debugCount = 0;
+    }
+
     if (buffer.length < 42) {
         console.log(`[WARN] Telemetry buffer too small: ${buffer.length} bytes`);
         return null;
@@ -142,12 +149,16 @@ function parseTelemetry(buffer) {
             telemetry.estVelX = buffer.readInt16LE(offset + 75) / 1000.0;
             // 估计器Y速度 (mm/s -> m/s)
             telemetry.estVelY = buffer.readInt16LE(offset + 77) / 1000.0;
+            // 估计器Z速度 (mm/s -> m/s)
+            telemetry.estVelZ = buffer.readInt16LE(offset + 79) / 1000.0;
         } else {
+            console.log(`[WARN] Telemetry buffer too small for altitude/velocity data: ${buffer.length} bytes (need 81)`);
             telemetry.estAltitude = 0;
             telemetry.baroAltitude = 0;
             telemetry.tofDistance = 0;
             telemetry.estVelX = 0;
             telemetry.estVelY = 0;
+            telemetry.estVelZ = 0;
         }
 
         // 从状态标志位解析

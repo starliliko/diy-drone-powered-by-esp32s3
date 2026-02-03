@@ -84,9 +84,9 @@ static bool flowValid = false;
 /* Statistics */
 static uint32_t rxCount = 0;
 
-/* Estimator data submission */
-static float flowStdDev = 0.25f; // Standard deviation for flow
-static float tofStdDev = 0.01f;  // Standard deviation for ToF (1cm)
+/* Estimator data submission (defined in kalman_core.c) */
+extern float flowStdDev; // Standard deviation for flow
+extern float tofStdDev;  // Standard deviation for ToF (1cm)
 
 /* Task stack allocation */
 STATIC_MEM_TASK_ALLOC(mtf01Task, FLOW_TASK_STACKSIZE);
@@ -140,6 +140,7 @@ static bool mtf01UartInit(void)
 static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
 {
     uint32_t timestamp = usecTimestamp();
+    static uint32_t lastDebugTime = 0;
 
     // Update ToF data
     distance_mm = payload->distance;
@@ -148,9 +149,11 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
     tofStatus = payload->tof_status;
 
     // Validate distance
+    // MTF01 tof_status: 0=无效/初始化中, 1=数据有效, 2+=错误
+    // 只要距离在有效范围内且 status 不是严重错误即可使用
     distanceValid = (distance_mm >= MTF01_MIN_DISTANCE) &&
                     (distance_mm <= MTF01_MAX_DISTANCE) &&
-                    (tofStatus == 0);
+                    (tofStatus == 1);
 
     // Update optical flow data
     flowVelX = payload->flow_vel_x;
@@ -159,13 +162,18 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
     flowStatus = payload->flow_status;
 
     // Validate flow
-    flowValid = (flowStatus == 0) && (flowQuality > 0);
+    // MTF01 flow_status: 0=无效/初始化中, 1=数据有效, 2+=错误
+    flowValid = (flowStatus == 1) && (flowQuality > 0);
 
     rxCount++;
 
-    // // Debug output
-    // printf("%d, %d, %d ,%d, %d,%d\n",
-    //        distance_mm, tofStatus, flowVelX, flowVelY, flowStatus, flowQuality);
+    // Debug output every 2 seconds
+    if (timestamp - lastDebugTime > 2000000)
+    {
+        lastDebugTime = timestamp;
+        ESP_LOGI("MTF01", "dist=%dmm status=%d valid=%d | flow: vx=%d vy=%d q=%d s=%d",
+                 distance_mm, tofStatus, distanceValid, flowVelX, flowVelY, flowQuality, flowStatus);
+    }
 
     // Submit ToF data to estimator
     if (distanceValid)
@@ -178,25 +186,20 @@ static void mtf01DataCallback(const MICOLINK_PAYLOAD_RANGE_SENSOR_t *payload)
         estimatorEnqueueTOF(&tofData);
     }
 
-    // Submit optical flow data to estimator
+    // Submit velocity data directly to estimator
+    // MTF01 outputs velocity in cm/s @ 1m height (normalized)
+    // Actual velocity = flow_vel * height(m) / 100 (convert cm/s to m/s)
     if (flowValid && distanceValid)
     {
-        // Convert flow velocity to accumulated pixels
-        // MTF01 gives velocity in cm/s @ 1m, need to convert to dpixel format
-        // dpixel = velocity * dt / height_scale
-        // For now, use velocity directly as dpixel (simplified model)
-        float dt = 1.0f / MTF01_TASK_FREQ; // Time between samples
         float height_m = (float)distance_mm / 1000.0f;
 
-        flowMeasurement_t flowData = {
+        velocityMeasurement_t velData = {
             .timestamp = timestamp,
-            .dpixelx = (float)flowVelX * dt * height_m / 100.0f, // Convert cm/s to m/s then to dpixel
-            .dpixely = (float)flowVelY * dt * height_m / 100.0f,
-            .stdDevX = flowStdDev,
-            .stdDevY = flowStdDev,
-            .dt = dt,
+            .velX = (float)flowVelX * height_m / 100.0f, // cm/s @ 1m -> m/s
+            .velY = (float)flowVelY * height_m / 100.0f,
+            .stdDev = flowStdDev,
         };
-        estimatorEnqueueFlow(&flowData);
+        estimatorEnqueueVelocity(&velData);
     }
 }
 
@@ -330,12 +333,6 @@ LOG_ADD(LOG_UINT8, tofStatus, &tofStatus)
 LOG_ADD(LOG_UINT8, flowStatus, &flowStatus)
 LOG_ADD(LOG_UINT32, rxCount, &rxCount)
 LOG_GROUP_STOP(mtf01)
-
-/* Parameters - runtime tuning */
-PARAM_GROUP_START(mtf01)
-PARAM_ADD(PARAM_FLOAT, flowStdDev, &flowStdDev)
-PARAM_ADD(PARAM_FLOAT, tofStdDev, &tofStdDev)
-PARAM_GROUP_STOP(mtf01)
 
 #else /* CONFIG_ENABLE_MTF01 not defined */
 

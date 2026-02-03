@@ -127,6 +127,7 @@ export function updateDashboard(data) {
     setText('tof-alt-txt', (data.tofDistance !== undefined ? data.tofDistance.toFixed(2) : '0.00') + ' m');
     setText('vel-x-txt', (data.estVelX !== undefined ? data.estVelX.toFixed(2) : '0.00') + ' m/s');
     setText('vel-y-txt', (data.estVelY !== undefined ? data.estVelY.toFixed(2) : '0.00') + ' m/s');
+    setText('vel-z-txt', (data.estVelZ !== undefined ? data.estVelZ.toFixed(2) : '0.00') + ' m/s');
 }
 
 function setText(id, text) {

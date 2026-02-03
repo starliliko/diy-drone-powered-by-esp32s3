@@ -387,8 +387,8 @@ menu "ESPDrone Config"
             config MTF01_MAX_DISTANCE
                 int "MTF01 maximum valid distance (mm)"
                 depends on ENABLE_MTF01
-                range 1000 5000
-                default 2000
+                range 1000 10000
+                default 5000
                 help
                     Maximum valid distance measurement in millimeters.
                     Distance values above this threshold are considered invalid.

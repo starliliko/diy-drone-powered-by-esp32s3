@@ -1016,8 +1016,8 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t accXId, accYId, accZId;
     static logVarId_t motorM1Id, motorM2Id, motorM3Id, motorM4Id;
     // V3.2 新增：高度和速度日志变量ID
-    static logVarId_t estZId, estVxId, estVyId;
-    static logVarId_t baroAslId, tofDistanceId;
+    static logVarId_t estZId, estVxId, estVyId, estVzId;
+    static logVarId_t baroHeightId, tofDistanceId;
     static uint32_t lastMotorPrintTick = 0;
 
     // 等待一段时间让日志系统初始化
@@ -1065,17 +1065,20 @@ static void remoteServerTelemetryTask(void *param)
                 motorM4Id = logGetVarId("motors", "m4");
 
             // V3.2 新增：获取高度和速度日志ID
-            // 估计器输出 (kalman组)
-            estZId = logGetVarId("kalman", "stateZ");
-            estVxId = logGetVarId("kalman", "statePX");
-            estVyId = logGetVarId("kalman", "statePY");
-            // 气压计高度 (baro组)
-            baroAslId = logGetVarId("baro", "asl");
+            // 使用stateEstimate组（导出的最终状态），而非kalman内部状态
+            estZId = logGetVarId("stateEstimate", "z");
+            estVxId = logGetVarId("stateEstimate", "vx");
+            estVyId = logGetVarId("stateEstimate", "vy");
+            estVzId = logGetVarId("stateEstimate", "vz");
+            // 校准后的气压高度 (kalman_baro组)
+            baroHeightId = logGetVarId("kalman_baro", "height");
             // ToF距离 (mtf01组)
             tofDistanceId = logGetVarId("mtf01", "distance");
 
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
+            DEBUG_PRINT("  estZ=%d, estVx=%d, estVy=%d, estVz=%d, baro=%d, tof=%d\n",
+                        estZId, estVxId, estVyId, estVzId, baroHeightId, tofDistanceId);
         }
 
         // 填充遥测数据
@@ -1238,10 +1241,10 @@ static void remoteServerTelemetryTask(void *param)
             telemetry.estAltitude = 0;
         }
 
-        // 气压计高度 (baro asl, 单位: m -> mm)
-        if (LOG_VARID_IS_VALID(baroAslId))
+        // 校准后的气压计高度 (单位: m -> mm)
+        if (LOG_VARID_IS_VALID(baroHeightId))
         {
-            telemetry.baroAltitude = (int32_t)(logGetFloat(baroAslId) * 1000.0f);
+            telemetry.baroAltitude = (int32_t)(logGetFloat(baroHeightId) * 1000.0f);
         }
         else
         {
@@ -1276,6 +1279,16 @@ static void remoteServerTelemetryTask(void *param)
         else
         {
             telemetry.estVelY = 0;
+        }
+
+        // 估计器速度Z (世界坐标系垂直速度, 单位: m/s -> mm/s)
+        if (LOG_VARID_IS_VALID(estVzId))
+        {
+            telemetry.estVelZ = (int16_t)(logGetFloat(estVzId) * 1000.0f);
+        }
+        else
+        {
+            telemetry.estVelZ = 0;
         }
 
         // 发送遥测数据

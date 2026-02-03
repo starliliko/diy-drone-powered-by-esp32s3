@@ -82,7 +82,7 @@
 #define DEBUG_MODULE "ESTKALMAN"
 #include "debug_cf.h"
 
-#define KALMAN_USE_BARO_UPDATE // 启用气压计更新（室内定高飞行必需）
+// #define KALMAN_USE_BARO_UPDATE // 禁用气压计更新，室内完全使用TOF
 
 /**
  * Additionally, the filter supports the incorporation of additional sensors into the state estimate
@@ -131,13 +131,13 @@ static inline bool stateEstimatorHasTDOAPacket(tdoaMeasurement_t *uwb)
   return (pdTRUE == xQueueReceive(tdoaDataQueue, uwb, 0));
 }
 
-// Measurements of flow (dnx, dny)
-static xQueueHandle flowDataQueue;
-STATIC_MEM_QUEUE_ALLOC(flowDataQueue, 10, sizeof(flowMeasurement_t));
+// Measurements of velocity from MTF01 optical flow
+static xQueueHandle velocityDataQueue;
+STATIC_MEM_QUEUE_ALLOC(velocityDataQueue, 10, sizeof(velocityMeasurement_t));
 
-static inline bool stateEstimatorHasFlowPacket(flowMeasurement_t *flow)
+static inline bool stateEstimatorHasVelocityPacket(velocityMeasurement_t *vel)
 {
-  return (pdTRUE == xQueueReceive(flowDataQueue, flow, 0));
+  return (pdTRUE == xQueueReceive(velocityDataQueue, vel, 0));
 }
 
 // Measurements of TOF from laser sensor
@@ -192,8 +192,8 @@ static StaticSemaphore_t dataMutexBuffer;
 /**
  * Tuning parameters
  */
-#define PREDICT_RATE RATE_500_HZ // 提高预测频率减少积分误差（原100Hz）
-#define BARO_RATE RATE_25_HZ
+#define PREDICT_RATE RATE_500_HZ        // 提高预测频率减少积分误差（原100Hz）
+#define BARO_RATE RATE_50_HZ            // 气压计更新频率（MS5611输出约50Hz）
 #define ACCEL_ATTITUDE_RATE RATE_100_HZ // Rate for accelerometer attitude correction
 
 // the point at which the dynamics change from stationary to flying
@@ -275,7 +275,7 @@ void estimatorKalmanTaskInit()
   posDataQueue = STATIC_MEM_QUEUE_CREATE(posDataQueue);
   poseDataQueue = STATIC_MEM_QUEUE_CREATE(poseDataQueue);
   tdoaDataQueue = STATIC_MEM_QUEUE_CREATE(tdoaDataQueue);
-  flowDataQueue = STATIC_MEM_QUEUE_CREATE(flowDataQueue);
+  velocityDataQueue = STATIC_MEM_QUEUE_CREATE(velocityDataQueue);
   tofDataQueue = STATIC_MEM_QUEUE_CREATE(tofDataQueue);
   heightDataQueue = STATIC_MEM_QUEUE_CREATE(heightDataQueue);
   yawErrorDataQueue = STATIC_MEM_QUEUE_CREATE(yawErrorDataQueue);
@@ -305,7 +305,8 @@ static void kalmanTask(void *parameters)
   uint32_t nextBaroUpdate = xTaskGetTickCount();
   uint32_t nextAccelAttitudeUpdate = xTaskGetTickCount();
 
-  rateSupervisorInit(&rateSupervisorContext, xTaskGetTickCount(), M2T(1000), 99, 101, 1);
+  // rateSupervisor 配置：期望每秒 490-510 次预测（对应 500Hz）
+  rateSupervisorInit(&rateSupervisorContext, xTaskGetTickCount(), M2T(1000), 490, 510, 1);
 
   while (true)
   {
@@ -342,7 +343,7 @@ static void kalmanTask(void *parameters)
 
       if (!rateSupervisorValidate(&rateSupervisorContext, T2M(osTick)))
       {
-        DEBUG_PRINT("WARNING: Kalman prediction rate low (%" PRIu32 ")\n", rateSupervisorLatestCount(&rateSupervisorContext));
+        ESP_LOGI("ESTKALMAN", "WARNING: Kalman prediction rate low (%u)", rateSupervisorLatestCount(&rateSupervisorContext));
       }
     }
 
@@ -373,6 +374,8 @@ static void kalmanTask(void *parameters)
         baroAccumulatorCount = 0;
         xSemaphoreGive(dataMutex);
 
+        // 校准逻辑已移至 kalmanCoreUpdateWithBaro 内部
+        // 自动累积样本并计算参考高度
         kalmanCoreUpdateWithBaro(&coreData, baroAslAverage, quadIsFlying);
 
         nextBaroUpdate = osTick + S2T(1.0f / BARO_RATE);
@@ -439,7 +442,7 @@ static void kalmanTask(void *parameters)
         if (osTick > warningBlockTime)
         {
           warningBlockTime = osTick + WARNING_HOLD_BACK_TIME;
-          DEBUG_PRINT("State out of bounds, resetting\n");
+          ESP_LOGI("ESTKALMAN", "State out of bounds, resetting");
         }
       }
     }
@@ -491,10 +494,29 @@ void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, 
   // Average barometer data
   if (useBaroUpdate)
   {
-    if (sensorsReadBaro(&sensors->baro))
+    bool baroRead = sensorsReadBaro(&sensors->baro);
+    if (baroRead)
     {
       baroAslAccumulator += sensors->baro.asl;
       baroAccumulatorCount++;
+
+      // // 调试：第一次和之后每100次输出一次
+      // static uint32_t baroReadCount = 0;
+      // if (baroReadCount == 0 || ++baroReadCount >= 100)
+      // {
+      //   ESP_LOGI("ESTKALMAN", "Baro read: asl=%.2f, accumCount=%lu", (double)sensors->baro.asl, baroAccumulatorCount);
+      //   baroReadCount = (baroReadCount >= 100) ? 1 : 0;
+      // }
+    }
+    else
+    {
+      // // 调试：如果读不到数据，每100次输出一次
+      // static uint32_t baroFailCount = 0;
+      // if (++baroFailCount >= 1000)
+      // {
+      //   ESP_LOGI("ESTKALMAN", "Baro read failed, accumCount=%lu", baroAccumulatorCount);
+      //   baroFailCount = 0;
+      // }
     }
   }
 
@@ -616,10 +638,10 @@ static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick)
     doneUpdate = true;
   }
 
-  flowMeasurement_t flow;
-  while (stateEstimatorHasFlowPacket(&flow))
+  velocityMeasurement_t vel;
+  while (stateEstimatorHasVelocityPacket(&vel))
   {
-    kalmanCoreUpdateWithFlow(&coreData, &flow, gyro);
+    kalmanCoreUpdateWithVelocity(&coreData, &vel);
     doneUpdate = true;
   }
 
@@ -640,7 +662,7 @@ void estimatorKalmanInit(void)
   xQueueReset(posDataQueue);
   xQueueReset(poseDataQueue);
   xQueueReset(tdoaDataQueue);
-  xQueueReset(flowDataQueue);
+  xQueueReset(velocityDataQueue);
   xQueueReset(tofDataQueue);
 
   xSemaphoreTake(dataMutex, portMAX_DELAY);
@@ -656,6 +678,11 @@ void estimatorKalmanInit(void)
   xSemaphoreGive(dataMutex);
 
   kalmanCoreInit(&coreData);
+}
+
+bool estimatorKalmanIsBaroCalibrated(void)
+{
+  return kalmanCoreIsBaroCalibrated();
 }
 
 static bool appendMeasurement(xQueueHandle queue, void *measurement)
@@ -713,11 +740,11 @@ bool estimatorKalmanEnqueueDistance(const distanceMeasurement_t *dist)
   return appendMeasurement(distDataQueue, (void *)dist);
 }
 
-bool estimatorKalmanEnqueueFlow(const flowMeasurement_t *flow)
+bool estimatorKalmanEnqueueVelocity(const velocityMeasurement_t *vel)
 {
-  // A flow measurement (dnx,  dny) [accumulated pixels]
+  // Direct velocity measurement from MTF01 optical flow (m/s)
   ASSERT(isInit);
-  return appendMeasurement(flowDataQueue, (void *)flow);
+  return appendMeasurement(velocityDataQueue, (void *)vel);
 }
 
 bool estimatorKalmanEnqueueTOF(const tofMeasurement_t *tof)
