@@ -142,8 +142,9 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
         };
         ESP_ERROR_CHECK(mcpwm_new_generator(motor_operators[i], &generator_config, &motor_generators[i]));
 
-        // 设置初始比较值为最小油门（1000us）
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[i], ESC_PULSE_MIN_US));
+        // 设置初始比较值为最大油门（2000us）用于校准
+        // 电调上电时需要检测到最大油门信号才能进入校准模式
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[i], ESC_PULSE_MAX_US));
 
         // 设置生成器动作：计数器为空时输出高电平，达到比较值时输出低电平
         ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(motor_generators[i],
@@ -155,15 +156,18 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
         ESP_ERROR_CHECK(mcpwm_timer_enable(motor_timers[i]));
         ESP_ERROR_CHECK(mcpwm_timer_start_stop(motor_timers[i], MCPWM_TIMER_START_NO_STOP));
 
-        motor_pulse_us[i] = ESC_PULSE_MIN_US;
-        motor_ratios[i] = 0;
+        motor_pulse_us[i] = ESC_PULSE_MAX_US; // 初始为最大油门
+        motor_ratios[i] = 65535;
     }
 
-    DEBUG_PRINT("MCPWM ESC motors initialized (400Hz, 1000-2000us)\n");
+    DEBUG_PRINT("MCPWM ESC motors initialized (400Hz, 1000-2000us)\\n");
+    DEBUG_PRINT("PWM outputting MAX throttle for ESC calibration...\\n");
 
-    vTaskDelay(pdMS_TO_TICKS(50)); // 等待PWM稳定
-    motorsUnlockESC();             // 电调解锁
-    motorsSetRatio(MOTOR_M1, 0);   // 确保所有电机推力为0
+    // 不需要额外延时，直接执行校准流程
+    motorsUnlockESC(); // 电调校准
+
+    // 校准完成后确保所有电机停止
+    motorsSetRatio(MOTOR_M1, 0);
     motorsSetRatio(MOTOR_M2, 0);
     motorsSetRatio(MOTOR_M3, 0);
     motorsSetRatio(MOTOR_M4, 0);
@@ -238,23 +242,37 @@ int motorsGetRatio(uint32_t id)
     return pulseWidthToThrust(motor_pulse_us[id]);
 }
 
-// 电调解锁
-// 发送最大油门2秒，再发送最小油门2秒，实际上也做了电调校准
+// 电调油门行程校准（每次启动执行）
+// 根据电调说明书：上电时需要先检测到最大油门信号
+// 流程：最大油门(上电检测) → 等待"哔-哔-"两声 → 最小油门 → 校准完成
 static void motorsUnlockESC(void)
 {
-    // 步骤1：最大油门
+    DEBUG_PRINT("ESC calibration started...\\n");
+    DEBUG_PRINT("Step 1: Max throttle (wait for ESC power-up detection)\\n");
+
+    // 步骤1：立即发送最大油门
+    // 电调上电后会检测到高油门信号，进入校准模式
     motorsSetRatio(MOTOR_M1, 65535);
     motorsSetRatio(MOTOR_M2, 65535);
     motorsSetRatio(MOTOR_M3, 65535);
     motorsSetRatio(MOTOR_M4, 65535);
 
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    // 步骤2：最小油门
+    // 等待足够长时间让电调完成初始化并识别最大油门
+    // 电调需要时间：上电自检 + 检测油门信号 + 发出确认音
+    vTaskDelay(pdMS_TO_TICKS(4000)); // 4秒，确保听到"哔-哔-"声
+
+    DEBUG_PRINT("Step 2: Min throttle (completing calibration)\\n");
+
+    // 步骤2：发送最小油门，完成校准
     motorsSetRatio(MOTOR_M1, 0);
     motorsSetRatio(MOTOR_M2, 0);
     motorsSetRatio(MOTOR_M3, 0);
     motorsSetRatio(MOTOR_M4, 0);
+
+    // 等待电调确认校准完成（通常会有确认音）
     vTaskDelay(pdMS_TO_TICKS(2000));
+
+    DEBUG_PRINT("ESC calibration complete!\\n");
 }
 
 // 无刷电机+ESC不支持蜂鸣功能，保留空函数

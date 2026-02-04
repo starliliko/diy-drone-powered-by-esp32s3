@@ -59,7 +59,7 @@
 #define MOT_PWM_CH4 7 // Motor M4 pwmchannel
 
 // 测试用占空比
-#define MOTORS_TEST_RATIO (uint16_t)(0.05 * (1 << 16)) // 5% 推力
+#define MOTORS_TEST_RATIO (uint16_t)(0.18 * (1 << 16)) // 18% 推力
 #define MOTORS_TEST_ON_TIME_MS 200
 #define MOTORS_TEST_DELAY_TIME_MS 200
 

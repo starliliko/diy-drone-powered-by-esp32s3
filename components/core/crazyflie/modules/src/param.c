@@ -218,7 +218,11 @@ void paramTask(void *prm)
 
         if (error != 0)
         {
-          ESP_LOGE("PARAM", "SET error: %s.%s err=%d", group, name, error);
+          ESP_LOGE("PARAM", "SET error: %s.%s type=0x%02x err=%d", group, name, type, error);
+        }
+        else
+        {
+          ESP_LOGI("PARAM", "SET OK: %s.%s type=0x%02x", group, name, type);
         }
 
         p.data[1 + strlen(group) + 1 + strlen(name) + 1] = error;

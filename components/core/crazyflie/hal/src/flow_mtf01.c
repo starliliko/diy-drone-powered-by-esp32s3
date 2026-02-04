@@ -90,9 +90,9 @@ static float filteredFlowVelX = 0.0f;
 static float filteredFlowVelY = 0.0f;
 
 /* 滤波参数 */
-#define FLOW_DEADZONE 15    // 死区阈值 (cm/s @ 1m)，消除静止噪声
+#define FLOW_DEADZONE 20    // 死区阈值 (cm/s @ 1m)，消除静止噪声
 #define FLOW_LPF_ALPHA 0.3f // 低通滤波系数 (0~1, 越小越平滑)
-#define FLOW_MAX_CHANGE 100 // 最大变化率限制 (cm/s @ 1m per sample)
+#define FLOW_MAX_CHANGE 200 // 最大变化率限制 (cm/s @ 1m per sample)
 
 /* Estimator data submission (defined in kalman_core.c) */
 extern float flowStdDev; // Standard deviation for flow

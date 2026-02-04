@@ -56,7 +56,7 @@
 #define MOTOR_TEST_TASK_PRI (tskIDLE_PRIORITY + 1)
 #define MOTOR_TEST_TASK_NAME "MOTOR_TEST"
 
-#define SEQUENTIAL_TEST_THRUST (uint16_t)(0.10 * 65535) // 顺序测试推力：10%
+#define SEQUENTIAL_TEST_THRUST (uint16_t)(0.20 * 65535) // 顺序测试推力：20%（需高于电机启动死区~15%）
 #define SEQUENTIAL_TEST_DURATION_MS 1000                // 每个电机运行时长
 #define SEQUENTIAL_TEST_INTERVAL_MS 500                 // 电机间隔时长
 
@@ -276,10 +276,10 @@ static void motorTestTask(void *param)
             break;
         }
 
-        // 周期性输出电机值（每500ms一次，仅在测试运行时输出）
+        // 周期性输出电机值（每500ms一次）
         static uint32_t lastPrintTime = 0;
         uint32_t now = xTaskGetTickCount();
-        if (testRunning && (now - lastPrintTime >= pdMS_TO_TICKS(500)))
+        if (now - lastPrintTime >= pdMS_TO_TICKS(500))
         {
             lastPrintTime = now;
             ESP_LOGI("MOTOR", "M1=%5d M2=%5d M3=%5d M4=%5d (%d%% %d%% %d%% %d%%)",
