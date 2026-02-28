@@ -11,8 +11,14 @@
 #include "debug_cf.h"
 #include "param.h"
 #include "math3d.h"
+#include <stdio.h>
 
 #define ATTITUDE_UPDATE_DT (float)(1.0f / ATTITUDE_RATE)
+
+// 油门死区阈值: 低于此值时视为零油门，清零所有PID输出
+// 防止SBUS摇杆最低位微小偏移导致PID积分饱和
+// SBUS最低位(CH2≈290)经转换后约为2091，需要覆盖此值
+#define THRUST_DEAD_ZONE 3000
 
 static bool tiltCompensationEnabled = false;
 
@@ -126,9 +132,73 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
                                         &control->pitch,
                                         &control->yaw);
 
-    control->roll = -control->roll;   // 反转Roll控制方向
-    control->pitch = -control->pitch; // 反转Pitch控制方向
-    control->yaw = -control->yaw;
+    // 符号链分析 — 基于 sensfusion6 欧拉角定义和四元数严格推导:
+    //   四元数推导: nose up 绕Y轴旋转-θ → q=(cosθ/2, 0, -sinθ/2, 0)
+    //     → gravX = 2*(qx*qz - qw*qy) = sinθ > 0
+    //   pitch = asin(gravX): 鼻子上仰 → pitch为正; 鼻子下压 → pitch为负
+    //   roll = atan2(gravY, gravZ): 右倾 → roll为正
+    //
+    // X构型 mixer (r=R/2, p=P/2): M1=T-r+p-Y, M2=T+r+p+Y, M3=T+r-p-Y, M4=T-r-p+Y
+    //
+    // Roll:  飞机右倾(roll>0) → PID输出负R → r<0
+    //        → 右侧(M1,M4)加速 → 右侧上抬 → roll减小 → 正确负反馈 ✓
+    //        → Roll: 不取反
+    //
+    // Pitch: 鼻子下压(pitch<0) → PID输出正P → p>0
+    //        → 前方(M1,M2)加速 → 鼻子上仰 → pitch增大 → 正确负反馈 ✓
+    //        → Pitch: 不取反
+    //
+    // Yaw:   "+"构型CW电机系数+Y, "X"构型CW电机系数-Y → 方向相反
+    //        → Yaw: 需要取反
+    // Roll: 不取反
+    // Pitch: 不取反 (nose up = pitch正, 正p→前方加速→nose up→pitch增大→负反馈)
+    control->yaw = -control->yaw; // Yaw: X构型与+构型CW电机系数相反, 需取反
+
+    // 推力比例输出限幅:
+    // 在mixer中: M = T ± R/2 ± P/2 ± Y
+    // 为保证所有电机 > 0, 需要: |R/2| + |P/2| + |Y| < T
+    // 限制: |R| ≤ 0.6T, |P| ≤ 0.6T, |Y| ≤ 0.2T
+    // → 最差电机 ≥ T - 0.3T - 0.3T - 0.2T = 0.2T (至少20%推力)
+    {
+      float thr = actuatorThrust;
+      if (thr > THRUST_DEAD_ZONE)
+      {
+        // 使用int32_t中间变量避免int16_t溢出 (thr*0.6在T>54612时超过32767)
+        int32_t rpLim32 = (int32_t)(thr * 0.6f);
+        int32_t yLim32 = (int32_t)(thr * 0.2f);
+        // 限幅值本身不能超过INT16_MAX
+        int16_t rpLim = (rpLim32 > INT16_MAX) ? INT16_MAX : (int16_t)rpLim32;
+        int16_t yLim = (yLim32 > INT16_MAX) ? INT16_MAX : (int16_t)yLim32;
+        if (control->roll > rpLim)
+          control->roll = rpLim;
+        else if (control->roll < -rpLim)
+          control->roll = -rpLim;
+        if (control->pitch > rpLim)
+          control->pitch = rpLim;
+        else if (control->pitch < -rpLim)
+          control->pitch = -rpLim;
+        if (control->yaw > yLim)
+          control->yaw = yLim;
+        else if (control->yaw < -yLim)
+          control->yaw = -yLim;
+      }
+    }
+
+    // 诊断日志：每500次（约500ms@1kHz）打印PID中间变量
+    {
+      static uint32_t pidDbgCnt = 0;
+      if (control->thrust >= THRUST_DEAD_ZONE && ++pidDbgCnt % 500 == 0)
+      {
+        printf("[PID] att: R=%.1f P=%.1f | des: R=%.1f P=%.1f | "
+               "rDes: R=%.1f P=%.1f | gyro: x=%.1f y=%.1f | "
+               "out: R=%d P=%d Y=%d\n",
+               state->attitude.roll, state->attitude.pitch,
+               attitudeDesired.roll, attitudeDesired.pitch,
+               rateDesired.roll, rateDesired.pitch,
+               sensors->gyro.x, sensors->gyro.y,
+               (int)control->roll, (int)control->pitch, (int)control->yaw);
+      }
+    }
 
     cmd_thrust = control->thrust;
     cmd_roll = control->roll;
@@ -149,7 +219,7 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
     control->thrust = actuatorThrust;
   }
 
-  if (control->thrust == 0)
+  if (control->thrust < THRUST_DEAD_ZONE)
   {
     control->thrust = 0;
     control->roll = 0;

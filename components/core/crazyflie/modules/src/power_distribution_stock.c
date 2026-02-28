@@ -95,11 +95,32 @@ void powerDistribution(const control_t *control)
 #ifdef QUAD_FORMATION_X
   int16_t r = control->roll / 2.0f;
   int16_t p = control->pitch / 2.0f;
+  int16_t y = control->yaw;
+
+  // 输出限幅: 当修正量总和超过推力时，等比例缩放
+  // 约束 |r|+|p|+|y| ≤ T，确保所有电机输出 ≥ 0
+  // 防止低油门时PID积分饱和导致单个电机输出异常
+  {
+    int32_t absR = (r >= 0) ? r : -r;
+    int32_t absP = (p >= 0) ? p : -p;
+    int32_t absY = (y >= 0) ? y : -y;
+    int32_t totalCorrection = absR + absP + absY;
+    int32_t thrust = (int32_t)control->thrust;
+
+    if (thrust > 0 && totalCorrection > thrust)
+    {
+      float scale = (float)thrust / (float)totalCorrection;
+      r = (int16_t)(r * scale);
+      p = (int16_t)(p * scale);
+      y = (int16_t)(y * scale);
+    }
+  }
+
   // X构型: M1前右CW, M2前左CCW, M3后左CW, M4后右CCW
-  motorPower.m1 = limitThrust(control->thrust - r + p - control->yaw);
-  motorPower.m2 = limitThrust(control->thrust + r + p + control->yaw);
-  motorPower.m3 = limitThrust(control->thrust + r - p - control->yaw);
-  motorPower.m4 = limitThrust(control->thrust - r - p + control->yaw);
+  motorPower.m1 = limitThrust(control->thrust - r + p - y);
+  motorPower.m2 = limitThrust(control->thrust + r + p + y);
+  motorPower.m3 = limitThrust(control->thrust + r - p - y);
+  motorPower.m4 = limitThrust(control->thrust - r - p + y);
 #else // QUAD_FORMATION_NORMAL
   motorPower.m1 = limitThrust(control->thrust + control->pitch +
                               control->yaw);

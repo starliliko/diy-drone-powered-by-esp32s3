@@ -555,8 +555,18 @@ static void extRxDecodeChannels(void)
 {
 #ifdef CONFIG_ENABLE_SBUS
   /* Convert SBUS values to setpoint */
-  /* Thrust: 0-65535 as float */
-  extrxSetpoint.thrust = (float)sbusConvertToUint16(ch[EXTRX_CH_THRUST]);
+  /* Thrust: apply dead zone on RAW SBUS value before conversion.
+   * Actual stick minimum is ~290, SBUS_CHANNEL_MIN=240, difference=50.
+   * Use threshold of SBUS_CHANNEL_MIN + 80 to cover all transmitters with margin.
+   * This prevents PID integral windup when throttle stick is at bottom. */
+  if (ch[EXTRX_CH_THRUST] < (SBUS_CHANNEL_MIN + 80))
+  {
+    extrxSetpoint.thrust = 0.0f;
+  }
+  else
+  {
+    extrxSetpoint.thrust = (float)sbusConvertToUint16(ch[EXTRX_CH_THRUST]);
+  }
 
   /* Roll: -SCALE to +SCALE degrees */
   extrxSetpoint.attitude.roll = EXTRX_SIGN_ROLL *

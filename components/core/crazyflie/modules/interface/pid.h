@@ -31,14 +31,21 @@
 #include "filter.h"
 
 #ifdef CONFIG_TARGET_ESP32_S2_DRONE_V1_2
-#define PID_ROLL_RATE_KP 190.0
-#define PID_ROLL_RATE_KI 440.0
-#define PID_ROLL_RATE_KD 2.6
+// ===================================================================
+// 首飞调参策略: 内环纯PD(KI=0), 外环低KI, 飞稳后再逐步加KI
+// ===================================================================
+
+// --- 内环 Rate PID (角速率控制) ---
+// 输入: rateDesired(°/s) vs gyro(°/s)  输出: int16 → mixer
+// KI=0: 彻底消除桌面积分饱和问题, 飞起来确认方向正确后再加
+#define PID_ROLL_RATE_KP 250.0
+#define PID_ROLL_RATE_KI 0.0
+#define PID_ROLL_RATE_KD 2.5
 #define PID_ROLL_RATE_INTEGRATION_LIMIT 33.3
 
-#define PID_PITCH_RATE_KP 190.0
-#define PID_PITCH_RATE_KI 440.0
-#define PID_PITCH_RATE_KD 2.6
+#define PID_PITCH_RATE_KP 250.0
+#define PID_PITCH_RATE_KI 0.0
+#define PID_PITCH_RATE_KD 2.5
 #define PID_PITCH_RATE_INTEGRATION_LIMIT 33.3
 
 #define PID_YAW_RATE_KP 120.0
@@ -46,21 +53,23 @@
 #define PID_YAW_RATE_KD 0.0
 #define PID_YAW_RATE_INTEGRATION_LIMIT 166.7
 
-// Attitude PID gains (outer loop)
-#define PID_ROLL_KP 2.0 // Reduced from 5.3 to prevent saturation
-#define PID_ROLL_KI 2.5
+// --- 外环 Attitude PID (姿态角控制) ---
+// 输入: attDesired(°) vs attActual(°)  输出: rateDesired(°/s)
+// KI保留小值处理静态偏差, iLimit限制最大积分贡献
+#define PID_ROLL_KP 6.0
+#define PID_ROLL_KI 1.0
 #define PID_ROLL_KD 0.0
-#define PID_ROLL_INTEGRATION_LIMIT 20.0
+#define PID_ROLL_INTEGRATION_LIMIT 10.0 // 最大积分输出 = 1.0*10 = 10°/s
 
-#define PID_PITCH_KP 2.0 // Reduced from 5.3 to prevent saturation
-#define PID_PITCH_KI 2.5
+#define PID_PITCH_KP 6.0
+#define PID_PITCH_KI 1.0
 #define PID_PITCH_KD 0.0
-#define PID_PITCH_INTEGRATION_LIMIT 20.0
+#define PID_PITCH_INTEGRATION_LIMIT 10.0
 
-#define PID_YAW_KP 1.5                 // Further reduced to prevent integral windup
-#define PID_YAW_KI 0.5                 // Reduced from 1.0
-#define PID_YAW_KD 0.0                 // Removed to reduce oscillation
-#define PID_YAW_INTEGRATION_LIMIT 20.0 // Reduced from 360 to prevent windup
+#define PID_YAW_KP 6.0
+#define PID_YAW_KI 1.0
+#define PID_YAW_KD 0.35
+#define PID_YAW_INTEGRATION_LIMIT 20.0
 
 #define DEFAULT_PID_INTEGRATION_LIMIT 5000.0
 #define DEFAULT_PID_OUTPUT_LIMIT 0.0
