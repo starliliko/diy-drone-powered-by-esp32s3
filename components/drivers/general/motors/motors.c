@@ -259,7 +259,7 @@ static void motorsUnlockESC(void)
 
     // 等待足够长时间让电调完成初始化并识别最大油门
     // 电调需要时间：上电自检 + 检测油门信号 + 发出确认音
-    vTaskDelay(pdMS_TO_TICKS(4000)); // 4秒，确保听到"哔-哔-"声
+    vTaskDelay(pdMS_TO_TICKS(500)); // 0.5秒，确保听到"哔-哔-"声
 
     DEBUG_PRINT("Step 2: Min throttle (completing calibration)\\n");
 

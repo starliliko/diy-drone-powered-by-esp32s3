@@ -533,10 +533,16 @@ static bool connectToServer(void)
     // 如果还未发现服务器，尝试通过 UDP 广播发现
     if (!serverDiscovered)
     {
-        discoverServerViaUDP();
+        if (!discoverServerViaUDP())
+        {
+            // 发现失败，不回退到硬编码 IP，等待下次重连重试
+            ESP_LOGW("REMOTE", "Server not found via UDP broadcast, will retry later");
+            updateConnectionState(REMOTE_STATE_DISCONNECTED);
+            return false;
+        }
     }
 
-    // 解析服务器地址（使用动态发现的IP或配置的IP）
+    // 解析服务器地址（使用动态发现的IP）
     destAddr.sin_addr.s_addr = inet_addr(serverIP);
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(REMOTE_SERVER_PORT);
@@ -587,6 +593,8 @@ static void disconnectFromServer(void)
         close(sock);
         sock = -1;
     }
+    // 重置发现状态，下次重连时重新通过 UDP 广播发现服务器
+    serverDiscovered = false;
     updateConnectionState(REMOTE_STATE_DISCONNECTED);
     xEventGroupSetBits(eventGroup, EVT_DISCONNECTED);
     xEventGroupClearBits(eventGroup, EVT_CONNECTED);

@@ -95,10 +95,11 @@ void powerDistribution(const control_t *control)
 #ifdef QUAD_FORMATION_X
   int16_t r = control->roll / 2.0f;
   int16_t p = control->pitch / 2.0f;
-  motorPower.m1 = limitThrust(control->thrust - r + p + control->yaw);
-  motorPower.m2 = limitThrust(control->thrust - r - p - control->yaw);
-  motorPower.m3 = limitThrust(control->thrust + r - p + control->yaw);
-  motorPower.m4 = limitThrust(control->thrust + r + p - control->yaw);
+  // X构型: M1前右CW, M2前左CCW, M3后左CW, M4后右CCW
+  motorPower.m1 = limitThrust(control->thrust - r + p - control->yaw);
+  motorPower.m2 = limitThrust(control->thrust + r + p + control->yaw);
+  motorPower.m3 = limitThrust(control->thrust + r - p - control->yaw);
+  motorPower.m4 = limitThrust(control->thrust - r - p + control->yaw);
 #else // QUAD_FORMATION_NORMAL
   motorPower.m1 = limitThrust(control->thrust + control->pitch +
                               control->yaw);
@@ -148,10 +149,10 @@ void powerDistribution(const control_t *control)
 #ifdef QUAD_FORMATION_X
       int16_t r = control->roll / 2;
       int16_t p = control->pitch / 2;
-      int32_t raw_m1 = (int32_t)(control->thrust - r + p + control->yaw);
-      int32_t raw_m2 = (int32_t)(control->thrust - r - p - control->yaw);
-      int32_t raw_m3 = (int32_t)(control->thrust + r - p + control->yaw);
-      int32_t raw_m4 = (int32_t)(control->thrust + r + p - control->yaw);
+      int32_t raw_m1 = (int32_t)(control->thrust - r + p - control->yaw);
+      int32_t raw_m2 = (int32_t)(control->thrust + r + p + control->yaw);
+      int32_t raw_m3 = (int32_t)(control->thrust + r - p - control->yaw);
+      int32_t raw_m4 = (int32_t)(control->thrust - r - p + control->yaw);
 #else
       int32_t raw_m1 = (int32_t)(control->thrust + control->pitch + control->yaw);
       int32_t raw_m2 = (int32_t)(control->thrust - control->roll - control->yaw);

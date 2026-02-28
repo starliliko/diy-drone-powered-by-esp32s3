@@ -206,6 +206,11 @@ function updateAllSliders() {
         if (rawEl) {
             rawEl.textContent = motorValues[i];
         }
+        // 同时更新左侧栏实时电机输出（指令发出时立即渲染）
+        const displayEl = document.getElementById(`motor-m${i + 1}-display`);
+        if (displayEl) {
+            displayEl.textContent = `${percent}%`;
+        }
     }
 }
 
@@ -379,15 +384,18 @@ async function sequentialTest(thrustPercent = 15, durationMs = 2000) {
         });
 
         if (response.ok) {
-            // 模拟 UI 更新
+            // 模拟 UI 更新：每个电机持续刷新显示，对抗遥测数据覆盖
             for (let i = 0; i < 4; i++) {
-                // 设置当前电机
+                // 设置当前电机值
                 for (let j = 0; j < 4; j++) {
                     motorValues[j] = (j === i) ? rawValue : 0;
                 }
                 updateAllSliders();
 
+                // 在等待期间每 200ms 持续刷新 UI，防止遥测数据把显示清零
+                const refreshInterval = setInterval(() => updateAllSliders(), 200);
                 await new Promise(r => setTimeout(r, durationMs));
+                clearInterval(refreshInterval);
             }
 
             // 测试完成，复位
@@ -415,11 +423,6 @@ async function testAllMotors(thrustPercent = 10) {
  * @param {Object|Array} data - 电机遥测数据 {m1, m2, m3, m4} 或 [m1, m2, m3, m4]
  */
 function updateMotorOutputDisplay(data) {
-    // 如果正在测试中，不更新UI（避免覆盖用户设置）
-    if (motorTestActive) {
-        return;
-    }
-
     // 支持数组格式 [m1, m2, m3, m4] 或对象格式 {m1, m2, m3, m4}
     let motors;
     if (Array.isArray(data)) {
@@ -430,19 +433,24 @@ function updateMotorOutputDisplay(data) {
         return;
     }
 
-    // 从遥测数据更新显示
     for (let i = 0; i < 4; i++) {
-        // 将原始值(0-65535)转换为百分比
         const percent = Math.round((motors[i] / 65535) * 100);
-        // 更新飞行监控页面的电机显示
-        const display = document.getElementById(`motor-m${i + 1}-display`);
-        if (display) {
-            display.textContent = `${percent}%`;
+
+        // 左侧栏实时电机输出：测试中由 updateAllSliders 维护，不被遥测覆盖
+        if (!motorTestActive) {
+            const display = document.getElementById(`motor-m${i + 1}-display`);
+            if (display) {
+                display.textContent = `${percent}%`;
+            }
         }
-        // 也更新电机测试页面的显示
-        const output = document.getElementById(`m${i + 1}-output`);
-        if (output) {
-            output.textContent = `${percent}%`;
+
+        // 电机测试页显示：测试进行中不被遥测数据覆盖
+        // （由 updateAllSliders 维护显示当前指令值）
+        if (!motorTestActive) {
+            const output = document.getElementById(`m${i + 1}-output`);
+            if (output) {
+                output.textContent = `${percent}%`;
+            }
         }
     }
 }
