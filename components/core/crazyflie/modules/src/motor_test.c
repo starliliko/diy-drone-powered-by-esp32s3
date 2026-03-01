@@ -276,17 +276,17 @@ static void motorTestTask(void *param)
             break;
         }
 
-        // 周期性输出电机值（每500ms一次）
-        static uint32_t lastPrintTime = 0;
-        uint32_t now = xTaskGetTickCount();
-        if (now - lastPrintTime >= pdMS_TO_TICKS(500))
-        {
-            lastPrintTime = now;
-            ESP_LOGI("MOTOR", "M1=%5d M2=%5d M3=%5d M4=%5d (%d%% %d%% %d%% %d%%)",
-                     motorOutput[0], motorOutput[1], motorOutput[2], motorOutput[3],
-                     (motorOutput[0] * 100) / 65535, (motorOutput[1] * 100) / 65535,
-                     (motorOutput[2] * 100) / 65535, (motorOutput[3] * 100) / 65535);
-        }
+        // // 周期性输出电机值（每500ms一次）
+        // static uint32_t lastPrintTime = 0;
+        // uint32_t now = xTaskGetTickCount();
+        // if (now - lastPrintTime >= pdMS_TO_TICKS(500))
+        // {
+        //     lastPrintTime = now;
+        //     ESP_LOGI("MOTOR", "M1=%5d M2=%5d M3=%5d M4=%5d (%d%% %d%% %d%% %d%%)",
+        //              motorOutput[0], motorOutput[1], motorOutput[2], motorOutput[3],
+        //              (motorOutput[0] * 100) / 65535, (motorOutput[1] * 100) / 65535,
+        //              (motorOutput[2] * 100) / 65535, (motorOutput[3] * 100) / 65535);
+        // }
 
         // 50Hz 更新频率
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));

@@ -40,12 +40,12 @@
 // KI=0: 彻底消除桌面积分饱和问题, 飞起来确认方向正确后再加
 #define PID_ROLL_RATE_KP 250.0
 #define PID_ROLL_RATE_KI 0.0
-#define PID_ROLL_RATE_KD 2.5
+#define PID_ROLL_RATE_KD 2.5 // 0→2.5: 增加角速率阻尼, 抑制振荡后无减速力问题
 #define PID_ROLL_RATE_INTEGRATION_LIMIT 33.3
 
 #define PID_PITCH_RATE_KP 250.0
 #define PID_PITCH_RATE_KI 0.0
-#define PID_PITCH_RATE_KD 2.5
+#define PID_PITCH_RATE_KD 2.5 // 0→2.5: 增加角速率阻尼, 与Roll对称
 #define PID_PITCH_RATE_INTEGRATION_LIMIT 33.3
 
 #define PID_YAW_RATE_KP 120.0
@@ -56,18 +56,18 @@
 // --- 外环 Attitude PID (姿态角控制) ---
 // 输入: attDesired(°) vs attActual(°)  输出: rateDesired(°/s)
 // KI保留小值处理静态偏差, iLimit限制最大积分贡献
-#define PID_ROLL_KP 6.0
-#define PID_ROLL_KI 1.0
+#define PID_ROLL_KP 3.5 // 6.0→3.5: 降低总增益, 20°误差→70°/s需求(不再饱和内环)
+#define PID_ROLL_KI 0.0
 #define PID_ROLL_KD 0.0
 #define PID_ROLL_INTEGRATION_LIMIT 10.0 // 最大积分输出 = 1.0*10 = 10°/s
 
-#define PID_PITCH_KP 6.0
-#define PID_PITCH_KI 1.0
+#define PID_PITCH_KP 3.5 // 6.0→3.5: 与Roll对称
+#define PID_PITCH_KI 0.0
 #define PID_PITCH_KD 0.0
 #define PID_PITCH_INTEGRATION_LIMIT 10.0
 
 #define PID_YAW_KP 6.0
-#define PID_YAW_KI 1.0
+#define PID_YAW_KI 0.0
 #define PID_YAW_KD 0.35
 #define PID_YAW_INTEGRATION_LIMIT 20.0
 

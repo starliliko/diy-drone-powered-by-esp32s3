@@ -188,7 +188,7 @@ static void compressState()
 
   float const deg2millirad = ((float)M_PI * 1000.0f) / 180.0f;
   stateCompressed.rateRoll = sensorData.gyro.x * deg2millirad;
-  stateCompressed.ratePitch = -sensorData.gyro.y * deg2millirad;
+  stateCompressed.ratePitch = sensorData.gyro.y * deg2millirad; // gyro.y 已在驱动层对齐，此处无需取反
   stateCompressed.rateYaw = sensorData.gyro.z * deg2millirad;
 }
 

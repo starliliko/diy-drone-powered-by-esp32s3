@@ -110,6 +110,19 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
                                          attitudeDesired.roll, attitudeDesired.pitch, attitudeDesired.yaw,
                                          &rateDesired.roll, &rateDesired.pitch, &rateDesired.yaw);
 
+// 外环输出(角速率需求)限幅: 防止大角度误差时内环完全饱和
+// 内环饱和阈值 = rpLim/RATE_KP = 12044/250 ≈ 48°/s
+// 限制rDes在±100°/s内, 保证内环大部分时间工作在线性区间
+#define RATE_DESIRED_LIMIT 100.0f
+    if (rateDesired.roll > RATE_DESIRED_LIMIT)
+      rateDesired.roll = RATE_DESIRED_LIMIT;
+    else if (rateDesired.roll < -RATE_DESIRED_LIMIT)
+      rateDesired.roll = -RATE_DESIRED_LIMIT;
+    if (rateDesired.pitch > RATE_DESIRED_LIMIT)
+      rateDesired.pitch = RATE_DESIRED_LIMIT;
+    else if (rateDesired.pitch < -RATE_DESIRED_LIMIT)
+      rateDesired.pitch = -RATE_DESIRED_LIMIT;
+
     // For roll and pitch, if velocity mode, overwrite rateDesired with the setpoint
     // value. Also reset the PID to avoid error buildup, which can lead to unstable
     // behavior if level mode is engaged later
@@ -124,8 +137,8 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
       attitudeControllerResetPitchAttitudePID();
     }
 
-    // TODO: Investigate possibility to subtract gyro drift.
-    attitudeControllerCorrectRatePID(sensors->gyro.x, -sensors->gyro.y, sensors->gyro.z,
+    // gyro 已在驱动层对齐坐标系（sensors_bmi088_spi_ms5611.c），此处直通无需取反。
+    attitudeControllerCorrectRatePID(sensors->gyro.x, sensors->gyro.y, sensors->gyro.z,
                                      rateDesired.roll, rateDesired.pitch, rateDesired.yaw);
 
     attitudeControllerGetActuatorOutput(&control->roll,
@@ -205,7 +218,7 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
     cmd_pitch = control->pitch;
     cmd_yaw = control->yaw;
     r_roll = radians(sensors->gyro.x);
-    r_pitch = -radians(sensors->gyro.y);
+    r_pitch = radians(sensors->gyro.y);
     r_yaw = radians(sensors->gyro.z);
     accelz = sensors->acc.z;
   }
