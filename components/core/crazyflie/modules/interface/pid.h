@@ -38,37 +38,37 @@
 // --- 内环 Rate PID (角速率控制) ---
 // 输入: rateDesired(°/s) vs gyro(°/s)  输出: int16 → mixer
 // KI=0: 彻底消除桌面积分饱和问题, 飞起来确认方向正确后再加
-#define PID_ROLL_RATE_KP 250.0
+#define PID_ROLL_RATE_KP 150.0 // 250→150: 内环饱和阈值从48°/s提升到80°/s
 #define PID_ROLL_RATE_KI 0.0
-#define PID_ROLL_RATE_KD 2.5 // 0→2.5: 增加角速率阻尼, 抑制振荡后无减速力问题
+#define PID_ROLL_RATE_KD 1.5 // 2.5→1.5: 保留阻尼同时降低陀螺噪声放大
 #define PID_ROLL_RATE_INTEGRATION_LIMIT 33.3
 
-#define PID_PITCH_RATE_KP 250.0
+#define PID_PITCH_RATE_KP 150.0 // 250→150: 与Roll对称
 #define PID_PITCH_RATE_KI 0.0
-#define PID_PITCH_RATE_KD 2.5 // 0→2.5: 增加角速率阻尼, 与Roll对称
+#define PID_PITCH_RATE_KD 1.5 // 2.5→1.5: 与Roll对称
 #define PID_PITCH_RATE_INTEGRATION_LIMIT 33.3
 
-#define PID_YAW_RATE_KP 120.0
-#define PID_YAW_RATE_KI 16.7
+#define PID_YAW_RATE_KP 80.0 // 120→80: 降低偏航响应
+#define PID_YAW_RATE_KI 0.0  // 🔴 16.7→0: 台架上yaw积分漂移到±4014导致roll/pitch耦合失控
 #define PID_YAW_RATE_KD 0.0
 #define PID_YAW_RATE_INTEGRATION_LIMIT 166.7
 
 // --- 外环 Attitude PID (姿态角控制) ---
 // 输入: attDesired(°) vs attActual(°)  输出: rateDesired(°/s)
 // KI保留小值处理静态偏差, iLimit限制最大积分贡献
-#define PID_ROLL_KP 3.5 // 6.0→3.5: 降低总增益, 20°误差→70°/s需求(不再饱和内环)
+#define PID_ROLL_KP 4.0 // 3.5→4.0: 稍提高外环响应, 5°误差→20°/s, 内环输出3000(安全)
 #define PID_ROLL_KI 0.0
 #define PID_ROLL_KD 0.0
-#define PID_ROLL_INTEGRATION_LIMIT 10.0 // 最大积分输出 = 1.0*10 = 10°/s
+#define PID_ROLL_INTEGRATION_LIMIT 20.0
 
-#define PID_PITCH_KP 3.5 // 6.0→3.5: 与Roll对称
+#define PID_PITCH_KP 4.0 // 3.5→4.0: 与Roll对称
 #define PID_PITCH_KI 0.0
 #define PID_PITCH_KD 0.0
-#define PID_PITCH_INTEGRATION_LIMIT 10.0
+#define PID_PITCH_INTEGRATION_LIMIT 20.0
 
-#define PID_YAW_KP 6.0
+#define PID_YAW_KP 4.0 // 6.0→4.0: 降低偏航外环增益
 #define PID_YAW_KI 0.0
-#define PID_YAW_KD 0.35
+#define PID_YAW_KD 0.0 // 0.35→0: 首飞先去掉减少变量
 #define PID_YAW_INTEGRATION_LIMIT 20.0
 
 #define DEFAULT_PID_INTEGRATION_LIMIT 5000.0
