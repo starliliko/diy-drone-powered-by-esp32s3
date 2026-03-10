@@ -49,7 +49,7 @@
 #define PID_PITCH_RATE_INTEGRATION_LIMIT 33.3
 
 #define PID_YAW_RATE_KP 80.0 // 120→80: 降低偏航响应
-#define PID_YAW_RATE_KI 0.0  // 🔴 16.7→0: 台架上yaw积分漂移到±4014导致roll/pitch耦合失控
+#define PID_YAW_RATE_KI 0.0  //  16.7→0: 台架上yaw积分漂移到±4014导致roll/pitch耦合失控
 #define PID_YAW_RATE_KD 0.0
 #define PID_YAW_RATE_INTEGRATION_LIMIT 166.7
 

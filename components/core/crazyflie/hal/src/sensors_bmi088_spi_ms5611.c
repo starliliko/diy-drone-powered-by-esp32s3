@@ -52,7 +52,7 @@
 #define GYRO_NBR_OF_AXES 3                        // 陀螺仪轴数
 #define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000)    // 陀螺仪最小偏置超时时间
 #define GYRO_DYNAMIC_CALIB_DELAY_MS M2T(2 * 1000) // 动态校准延迟时间（着陆后2秒开始）
-#define GYRO_DYNAMIC_CALIB_ALPHA 0.001f           // 动态校准低通滤波系数（time constant ~1s）
+#define GYRO_DYNAMIC_CALIB_ALPHA 0.002f           // 动态校准低通滤波系数（time constant ~1s）
 #define SENSORS_NBR_OF_BIAS_SAMPLES 1024          // 偏置样本数量
 
 // BMI088噪声差异：
@@ -67,7 +67,7 @@
 #define SENSORS_ACC_SCALE_SAMPLES 200 // 加速度计比例样本数量
 
 // 参数适合平稳飞行
-#define GYRO_LPF_CUTOFF_FREQ 50  // 陀螺仪低通滤波器截止频率
+#define GYRO_LPF_CUTOFF_FREQ 30  // 陀螺仪低通滤波器截止频率 (降低: 80→30Hz 减少噪声带宽)
 #define ACCEL_LPF_CUTOFF_FREQ 20 // 加速度计低通滤波器截止频率
 
 #define ESP_INTR_FLAG_DEFAULT 0 // 默认中断优先级
@@ -225,56 +225,63 @@ static void sensorsTask(void *param)
             interruptCount++;
             sensorData.interruptTimestamp = imuIntTimestamp;
 
-            // 读取BMI088原始数据
-            int16_t raw_ax, raw_ay, raw_az;
+            // ========================================
+            // FIX: Check data-ready flags to prevent double-processing
+            // ========================================
+            // ACC INT and GYRO INT both give the SAME binary semaphore.
+            // Without flag check, EVERY wakeup reads+processes BOTH sensors,
+            // causing the gyro LPF to process each raw sample TWICE.
+            // This distorts the biquad filter state, effectively doubling
+            // the noise bandwidth (80Hz designed → ~160Hz actual).
+            bool newGyro = bmi088GyroDataReady;
+            bool newAccel = bmi088AccDataReady;
+
+            // Read SPI only for sensors with new data
             int16_t raw_gx, raw_gy, raw_gz;
-            bmi088_get_gyro_data(&raw_gx, &raw_gy, &raw_gz);
-            bmi088_get_accel_data(&raw_ax, &raw_ay, &raw_az);
+            int16_t raw_ax, raw_ay, raw_az;
+            if (newGyro) {
+                bmi088GyroDataReady = false;
+                bmi088_get_gyro_data(&raw_gx, &raw_gy, &raw_gz);
+                gyroRaw.x = raw_gx;
+                gyroRaw.y = raw_gy;
+                gyroRaw.z = raw_gz;
+            }
+            if (newAccel) {
+                bmi088AccDataReady = false;
+                bmi088_get_accel_data(&raw_ax, &raw_ay, &raw_az);
+                accelRaw.x = raw_ax;
+                accelRaw.y = raw_ay;
+                accelRaw.z = raw_az;
+            }
 
-            // === 轴向重映射 ===
-            // 根据BMI088安装方向调整坐标系，使其符合Crazyflie坐标系：
-            // Crazyflie: X=前, Y=左, Z=上; 静止水平时acc=(0,0,+1g)
-            // 实测: 水平时 raw_az ≈ +5400 (正值), 所以Z轴不需要取反
-            accelRaw.x = raw_ax; // 直接使用原始轴向
-            accelRaw.y = raw_ay;
-            accelRaw.z = raw_az; // Z轴保持正向（水平时为+1g）
-
-            gyroRaw.x = raw_gx; // 陀螺仪轴向映射需与加速度计一致
-            gyroRaw.y = raw_gy;
-            gyroRaw.z = raw_gz;
-
-            // 数据读取完成后重新启用中断(电平触发模式需要)
+            // Re-enable interrupts after SPI read complete
             gpio_intr_enable(BMI088_INT1_PIN);
             gpio_intr_enable(BMI088_INT3_PIN);
 
-            // 陀螺仪校准
-            gyroBiasFound = processGyroBias(gyroRaw.x, gyroRaw.y, gyroRaw.z, &gyroBias);
+            // Process gyro data (only when fresh sample available)
+            if (newGyro) {
+                gyroBiasFound = processGyroBias(gyroRaw.x, gyroRaw.y, gyroRaw.z, &gyroBias);
+                if (gyroBiasFound) {
+                    gyroDynamicCalibUpdate(gyroRaw.x, gyroRaw.y, gyroRaw.z, quadIsFlying);
+                }
 
-            if (gyroBiasFound)
-            {
-                processAccScale(accelRaw.x, accelRaw.y, accelRaw.z);
-
-                // 动态校准：在着陆且静止时持续更新零点偏差（通过gyroDynamicCalibEnabled控制）
-                gyroDynamicCalibUpdate(gyroRaw.x, gyroRaw.y, gyroRaw.z, quadIsFlying);
+                sensorData.gyro.x = -(gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG;
+                sensorData.gyro.y = (gyroRaw.x - gyroBias.x) * SENSORS_BMI088_DEG_PER_LSB_CFG;
+                sensorData.gyro.z = -(gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG;
+                applyAxis3fLpf((lpf2pData *)(&gyroLpf), &sensorData.gyro);
             }
 
-            // 陀螺仪数据处理
-            // 坐标轴映射修正：
-            //   - 原roll输出pitch，pitch输出roll → 交换x和y
-            //   - pitch抬头应为正 → 取反y(交换后)
-            //   - yaw顺时针应为正 → 取反z
-            sensorData.gyro.x = -(gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG; // pitch轴(原y) → roll，取反
-            sensorData.gyro.y = (gyroRaw.x - gyroBias.x) * SENSORS_BMI088_DEG_PER_LSB_CFG;  // roll轴(原x) → pitch
-            sensorData.gyro.z = -(gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG; // yaw轴取反
-            applyAxis3fLpf((lpf2pData *)(&gyroLpf), &sensorData.gyro);
-
-            // 加速度计数据处理 - 轴映射与陀螺仪一致
-            accScaled.x = -accelRaw.y * SENSORS_BMI088_G_PER_LSB_CFG / accScale; // 交换并取反
-            accScaled.y = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;  // 交换
-            accScaled.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
-
-            sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
-            applyAxis3fLpf((lpf2pData *)(&accLpf), &sensorData.acc);
+            // Process accel data (only when fresh sample available)
+            if (newAccel) {
+                if (gyroBiasFound) {
+                    processAccScale(accelRaw.x, accelRaw.y, accelRaw.z);
+                }
+                accScaled.x = -accelRaw.y * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
+                accScaled.y = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
+                accScaled.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
+                sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
+                applyAxis3fLpf((lpf2pData *)(&accLpf), &sensorData.acc);
+            }
         }
 
         // 读取气压计数据

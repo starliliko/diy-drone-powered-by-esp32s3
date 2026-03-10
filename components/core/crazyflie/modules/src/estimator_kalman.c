@@ -192,9 +192,11 @@ static StaticSemaphore_t dataMutexBuffer;
 /**
  * Tuning parameters
  */
-#define PREDICT_RATE RATE_500_HZ        // 提高预测频率减少积分误差（原100Hz）
-#define BARO_RATE RATE_50_HZ            // 气压计更新频率（MS5611输出约50Hz）
-#define ACCEL_ATTITUDE_RATE RATE_100_HZ // Rate for accelerometer attitude correction
+#define PREDICT_RATE RATE_500_HZ       // 提高预测频率减少积分误差（原100Hz）
+#define BARO_RATE RATE_50_HZ           // 气压计更新频率（MS5611输出约50Hz）
+#define ACCEL_ATTITUDE_RATE RATE_25_HZ // Accel attitude correction: 25Hz gives ~64 samples/update
+                                       // (sensor ODR 1600Hz / 25Hz = 64 samples averaged)
+                                       // vs old 100Hz which only got ~2 samples (stolen by 500Hz predict)
 
 // the point at which the dynamics change from stationary to flying
 #define IN_FLIGHT_THRUST_THRESHOLD (GRAVITY_MAGNITUDE * 0.1f)
@@ -231,6 +233,12 @@ static uint32_t accAccumulatorCount;
 static uint32_t thrustAccumulatorCount;
 static uint32_t gyroAccumulatorCount;
 static uint32_t baroAccumulatorCount;
+// Separate accumulator for attitude update — NOT cleared by predictStateForward.
+// predictStateForward runs at 500Hz and clears accAccumulator every 2ms, leaving
+// only ~1-2 samples for the attitude update. This accumulator is only cleared
+// by the attitude update itself, giving ~64 samples/update at 25Hz (1600Hz ODR).
+static Axis3f accAttAccumulator;
+static uint32_t accAttAccumulatorCount;
 bool quadIsFlying = false; // 非静态，供传感器模块访问
 static uint32_t lastFlightCmd;
 static uint32_t takeoffTime;
@@ -389,23 +397,28 @@ static void kalmanTask(void *parameters)
      * Update attitude using accelerometer (gravity direction)
      * This provides attitude correction when no external sensors (TOF/flow) are available
      */
-    if (osTick > nextAccelAttitudeUpdate && accAccumulatorCount > 0)
+    if (osTick > nextAccelAttitudeUpdate && accAttAccumulatorCount > 0)
     {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       Axis3f accAvg;
-      accAvg.x = accAccumulator.x / accAccumulatorCount;
-      accAvg.y = accAccumulator.y / accAccumulatorCount;
-      accAvg.z = accAccumulator.z / accAccumulatorCount;
+      accAvg.x = accAttAccumulator.x / accAttAccumulatorCount;
+      accAvg.y = accAttAccumulator.y / accAttAccumulatorCount;
+      accAvg.z = accAttAccumulator.z / accAttAccumulatorCount;
 
-      // 重要：清零累加器，避免重复使用旧数据
-      accAccumulator = (Axis3f){.axis = {0}};
-      accAccumulatorCount = 0;
+      // 清零独立累加器（不影响 predict 使用的 accAccumulator）
+      accAttAccumulator = (Axis3f){.axis = {0}};
+      accAttAccumulatorCount = 0;
       xSemaphoreGive(dataMutex);
 
-      // Standard deviation for accelerometer attitude measurement (tunable)
-      // Lower value = trust accelerometer more (0.05 = strong correction)
-      // Higher value = trust gyro integration more (1.0 = weak correction)
-      const float accelAttitudeStdDev = 0.05f;
+      // Dynamic standard deviation: trust decreases as acceleration deviates from 1g
+      // Base stdDev=0.15 (R=0.0225) matched to measNoiseGyro_rollpitch=0.07:
+      //   Steady-state P grows ~2e-4 between 25Hz updates
+      //   K = P/(P+R) ≈ 0.01 → smooth correction, <0.1° noise contribution
+      // At 0.95g deviation=0.05 -> stdDev=0.55 (moderate)
+      // At 0.90g deviation=0.10 -> stdDev=0.95 (weak, near gate threshold)
+      float accMagAvg = sqrtf(accAvg.x * accAvg.x + accAvg.y * accAvg.y + accAvg.z * accAvg.z);
+      float accelDeviation = fabsf(accMagAvg - 1.0f);
+      float accelAttitudeStdDev = 0.15f + accelDeviation * 8.0f;
       kalmanCoreUpdateWithAccel(&coreData, &accAvg, accelAttitudeStdDev);
 
       nextAccelAttitudeUpdate = osTick + S2T(1.0f / ACCEL_ATTITUDE_RATE);
@@ -477,6 +490,11 @@ void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, 
     accAccumulator.y += sensors->acc.y;
     accAccumulator.z += sensors->acc.z;
     accAccumulatorCount++;
+    // Also feed the attitude-update accumulator (independent, not cleared by predict)
+    accAttAccumulator.x += sensors->acc.x;
+    accAttAccumulator.y += sensors->acc.y;
+    accAttAccumulator.z += sensors->acc.z;
+    accAttAccumulatorCount++;
   }
 
   if (gyroRead)
@@ -675,6 +693,8 @@ void estimatorKalmanInit(void)
   gyroAccumulatorCount = 0;
   thrustAccumulatorCount = 0;
   baroAccumulatorCount = 0;
+  accAttAccumulator = (Axis3f){.axis = {0}};
+  accAttAccumulatorCount = 0;
   xSemaphoreGive(dataMutex);
 
   kalmanCoreInit(&coreData);

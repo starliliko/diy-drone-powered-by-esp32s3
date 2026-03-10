@@ -11,8 +11,8 @@ extern "C"
 // ======================== SPI总线引脚配置 ========================
 // SPI2总线引脚配置（推荐用于外设）
 #define SPI_BUS_SCLK_PIN CONFIG_SPI_PIN_CLK  // GPIO12 - 时钟线
-#define SPI_BUS_MOSI_PIN CONFIG_SPI_PIN_MOSI // GPIO13 - 主机输出
-#define SPI_BUS_MISO_PIN CONFIG_SPI_PIN_MISO // GPIO11 - 主机输入
+#define SPI_BUS_MOSI_PIN CONFIG_SPI_PIN_MOSI // GPIO11 - 主机输出
+#define SPI_BUS_MISO_PIN CONFIG_SPI_PIN_MISO // GPIO13 - 主机输入
 
 // SPI主机选择
 #define SPI_BUS_HOST_ID SPI2_HOST
@@ -21,8 +21,8 @@ extern "C"
 
 // ======================== CS片选引脚配置 ========================
 // BMI088传感器CS引脚
-#define BMI088_ACCEL_CS_PIN CONFIG_SPI_PIN_CS0 // GPIO10 - BMI088加速度计CS
-#define BMI088_GYRO_CS_PIN CONFIG_SPI_PIN_CS1  // GPIO21 - BMI088陀螺仪CS
+#define BMI088_ACCEL_CS_PIN CONFIG_SPI_PIN_CS0 // GPIO45 - BMI088加速度计CS
+#define BMI088_GYRO_CS_PIN CONFIG_SPI_PIN_CS1  // GPIO10 - BMI088陀螺仪CS
 
 // ======================== SPI传输速率配置 ========================
 // BMI088传输速率

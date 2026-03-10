@@ -194,9 +194,9 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 21 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 21 if TARGET_ESP32_S2_DRONE_V1_2
+            default 0 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) BUZ1_PIN_POS (避免与I2C1冲突,改为GPIO21)
+                GPIO number (IOxx) BUZ1_PIN_POS (0=禁用)
 
         config BUZ2_PIN_NEG
             int "BUZ2_PIN_NEG GPIO number"
@@ -205,9 +205,9 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 48 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 48 if TARGET_ESP32_S2_DRONE_V1_2
+            default 0 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) BUZ2_PIN_NEG (避免与I2C1冲突,改为GPIO48)
+                GPIO number (IOxx) BUZ2_PIN_NEG (0=禁用)
 
     endmenu
 
@@ -216,28 +216,28 @@ menu "ESPDrone Config"
         config I2C0_PIN_SDA
             int "I2C0_PIN_SDA GPIO number"
             range 0 43 
-            default 41 
+            default 20 
             help
                 GPIO number (IOxx) I2C0_PIN_SDA 
 
         config I2C0_PIN_SCL
             int "I2C0_PIN_SCL GPIO number"
             range 0 43 
-            default 40 
+            default 19 
             help
                 GPIO number (IOxx) I2C0_PIN_SCL 
 
         config I2C1_PIN_SDA
             int "I2C1_PIN_SDA GPIO number"
             range 0 43 
-            default 38 
+            default 18 
             help
                 GPIO number (IOxx) I2C1_PIN_SDA
 
         config I2C1_PIN_SCL
             int "I2C1_PIN_SCL GPIO number"
             range 0 43 
-            default 39 
+            default 17 
             help
                 GPIO number (IOxx) I2C1_PIN_SCL
 
@@ -267,28 +267,28 @@ menu "ESPDrone Config"
         config SPI_PIN_CS0
             int "SPI_PIN_CS0 GPIO number"
             range 0 48 
-            default 10
+            default 45
             help
                 GPIO number (IOxx) SPI_PIN_CS0 (BMI088 Accelerometer)
 
         config SPI_PIN_CS1
             int "SPI_PIN_CS1 GPIO number"
             range 0 48 
-            default 16
+            default 10
             help
                 GPIO number (IOxx) SPI_PIN_CS1 (BMI088 Gyroscope) - 独立引脚避免冲突
 
         config  BMI088_INT1_PIN
             int "BMI088_INT1_PIN GPIO number"
             range 0 43 
-            default 15 
+            default 14 
             help
                 GPIO number (IOxx) BMI088_INT1_PIN
 
         config BMI088_INT3_PIN
             int "BMI088_INT3_PIN GPIO number"
             range 0 43 
-            default 14 
+            default 21 
             help
                 GPIO number (IOxx) BMI088_INT3_PIN
         endmenu
@@ -332,7 +332,7 @@ menu "ESPDrone Config"
         menu "MTF01 Optical Flow Config"
             config ENABLE_MTF01
                 bool "Enable MTF01 optical flow & rangefinder module"
-                default n
+                default y
                 help
                     Enable MTF01 UART optical flow and rangefinder module.
                     MTF01 provides: distance(mm), flow velocity(cm/s@1m), signal strength.
@@ -352,7 +352,7 @@ menu "ESPDrone Config"
                 int "MTF01 RX GPIO number"
                 depends on ENABLE_MTF01
                 range 0 48
-                default 19
+                default 39
                 help
                     GPIO number (IOxx) for MTF01 UART RX pin.
                     Connect to MTF01 TX pin.
@@ -361,7 +361,7 @@ menu "ESPDrone Config"
                 int "MTF01 TX GPIO number"
                 depends on ENABLE_MTF01
                 range 0 48
-                default 20
+                default 40
                 help
                     GPIO number (IOxx) for MTF01 UART TX pin.
                     Connect to MTF01 RX pin.
@@ -388,7 +388,7 @@ menu "ESPDrone Config"
                 int "MTF01 maximum valid distance (mm)"
                 depends on ENABLE_MTF01
                 range 1000 10000
-                default 5000
+                default 10000
                 help
                     Maximum valid distance measurement in millimeters.
                     Distance values above this threshold are considered invalid.
@@ -403,9 +403,9 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 7 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 7 if TARGET_ESP32_S2_DRONE_V1_2
+            default 0 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) LED_PIN_BLUE
+                GPIO number (IOxx) LED_PIN_BLUE (0=禁用)
 
         config LED_PIN_GREEN
             int "LED_PIN_GREEN GPIO number"
@@ -414,9 +414,9 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 17 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 17 if TARGET_ESP32_S2_DRONE_V1_2
+            default 0 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) LED_PIN_GREEN (避免与SPI_CS1冲突,改为GPIO17)
+                GPIO number (IOxx) LED_PIN_GREEN (0=禁用)
 
         config LED_PIN_RED
             int "LED_PIN_RED GPIO number"
@@ -425,9 +425,9 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 8 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 8 if TARGET_ESP32_S2_DRONE_V1_2
+            default 0 if TARGET_ESP32_S2_DRONE_V1_2
             help
-                GPIO number (IOxx) LED_PIN_RED
+                GPIO number (IOxx) LED_PIN_RED (0=禁用)
 
     endmenu
 
@@ -440,7 +440,7 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 3 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 5 if TARGET_ESP32_S2_DRONE_V1_2
+            default 7 if TARGET_ESP32_S2_DRONE_V1_2
             help
                 GPIO number (IOxx) MOTOR01_PIN
 
@@ -451,7 +451,7 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 4 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 6 if TARGET_ESP32_S2_DRONE_V1_2
+            default 4 if TARGET_ESP32_S2_DRONE_V1_2
             help
                 GPIO number (IOxx) MOTOR02_PIN
 
@@ -462,7 +462,7 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 5 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 3 if TARGET_ESP32_S2_DRONE_V1_2
+            default 6 if TARGET_ESP32_S2_DRONE_V1_2
             help
                 GPIO number (IOxx) MOTOR03_PIN
 
@@ -473,7 +473,7 @@ menu "ESPDrone Config"
             range 0 43 if TARGET_ESPLANE_V2_S2
             default 6 if TARGET_ESPLANE_V2_S2
             range 0 43 if TARGET_ESP32_S2_DRONE_V1_2
-            default 4 if TARGET_ESP32_S2_DRONE_V1_2
+            default 5 if TARGET_ESP32_S2_DRONE_V1_2
             help
                 GPIO number (IOxx) MOTOR04_PIN
     endmenu
@@ -481,7 +481,7 @@ menu "ESPDrone Config"
     menu "SBUS config"
         config ENABLE_SBUS
             bool "Enable SBUS receiver input"
-            default n
+            default y
             help
                 Enable SBUS protocol support for external RC receiver.
                 SBUS uses inverted UART at 100000 baud, 8E2 format.
@@ -499,7 +499,7 @@ menu "ESPDrone Config"
             int "SBUS RX GPIO number"
             depends on ENABLE_SBUS
             range 0 48 
-            default 18 
+            default 41 
             help
                 GPIO number (IOxx) connected to SBUS receiver signal output.
                 Note: SBUS uses inverted UART signal, handled by ESP32 UART peripheral.
@@ -556,15 +556,15 @@ menu "ESPDrone Config"
             range 0 15
             default 6
             help
-                SBUS channel for arm/disarm switch (typically channel 5, index 4)
+                SBUS channel for arm/disarm switch (typically channel 7, index 6)
 
         config SBUS_CH_MODE
             int "Flight mode switch channel (0-15)"
             depends on ENABLE_SBUS
             range 0 15
-            default 5
+            default 8
             help
-                SBUS channel for flight mode switch (typically channel 6, index 5)
+                SBUS channel for flight mode switch (typically channel 9, index 8)
 
         menu "SBUS Endpoint Calibration"
             depends on ENABLE_SBUS
