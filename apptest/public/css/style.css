@@ -716,3 +716,490 @@ body {
     font-weight: bold;
     color: var(--qgc-green);
 }
+
+/* ========== PID 调参页面 v2 ========== */
+
+.pid-page-layout {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* 左侧: 图表主区域 (占大部分空间) */
+.pid-chart-panel {
+    flex: 2.5;
+    min-width: 400px;
+    display: flex;
+    flex-direction: column;
+    background: var(--qgc-bg-dark);
+    border-right: 1px solid var(--qgc-border);
+}
+
+/* 右侧: 参数面板 (窄侧栏) */
+.pid-param-panel {
+    width: 320px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--qgc-panel-bg);
+    overflow: hidden;
+}
+
+/* 图表工具栏 */
+.pid-chart-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--qgc-border);
+    background: rgba(0,0,0,0.4);
+    flex-shrink: 0;
+}
+
+.pid-chart-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pid-chart-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--qgc-text-main);
+}
+
+.pid-conn-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--qgc-text-muted);
+}
+
+/* 图表通道切换按钮组 */
+.pid-chart-toggles {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.pid-ch-toggle {
+    padding: 3px 10px;
+    border: 1px solid #444;
+    border-radius: 12px;
+    background: transparent;
+    color: #777;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pid-ch-toggle:hover {
+    border-color: #888;
+    color: #ccc;
+}
+
+.pid-ch-toggle.active {
+    background: rgba(100, 100, 100, 0.2);
+    border-color: var(--ch-color);
+    color: var(--ch-color);
+}
+
+/* 多通道图表区 (uPlot) */
+.pid-charts-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: #111;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.pid-chart-track {
+    flex: 1;
+    min-height: 80px;
+    position: relative;
+    overflow: hidden;
+}
+
+.pid-chart-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 0.9rem;
+}
+
+/* uPlot 暗色主题 */
+.pid-chart-track .uplot {
+    background: #0d0d0d;
+}
+
+.pid-chart-track .u-title {
+    color: #888;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 0 0;
+}
+
+.pid-chart-track .u-legend {
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    text-align: left;
+}
+
+.pid-chart-track .u-legend th {
+    display: none;
+}
+
+.pid-chart-track .u-legend td {
+    padding: 0 6px 0 0;
+}
+
+.pid-chart-track .u-series > td {
+    color: #aaa;
+}
+
+.pid-chart-track .u-value {
+    font-family: Consolas, monospace;
+}
+
+.pid-chart-track .u-series:first-child .u-value {
+    display: none;
+}
+
+.pid-chart-track .u-legend .u-marker {
+    width: 8px;
+    height: 3px;
+    border-radius: 1px;
+}
+
+.pid-chart-track .u-select {
+    background: rgba(44, 158, 221, 0.15);
+}
+
+.pid-chart-track .u-cursor-x,
+.pid-chart-track .u-cursor-y {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* PID 参数面板内部 */
+.pid-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--qgc-border);
+    background: rgba(0,0,0,0.3);
+    flex-shrink: 0;
+}
+
+.pid-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pid-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pid-title {
+    color: var(--qgc-blue);
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.pid-pending-badge {
+    background: var(--qgc-orange);
+    color: #000;
+    font-size: 0.7rem;
+    font-weight: bold;
+    padding: 1px 6px;
+    border-radius: 8px;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* 参数组选项卡 */
+.pid-group-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--qgc-border);
+    background: rgba(0,0,0,0.2);
+    flex-shrink: 0;
+}
+
+.pid-group-tab {
+    padding: 5px 14px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    color: var(--qgc-text-muted);
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.pid-group-tab:hover {
+    color: var(--qgc-text-main);
+    background: rgba(255,255,255,0.05);
+}
+
+.pid-group-tab.active {
+    color: var(--qgc-blue);
+    border-bottom-color: var(--qgc-blue);
+    background: rgba(44, 158, 221, 0.08);
+}
+
+/* 参数卡片滚动区 */
+.pid-params-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    min-height: 0;
+}
+
+.pid-params-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 单轴 PID 卡片 */
+.pid-axis-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--qgc-border);
+    border-left: 3px solid var(--qgc-blue);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.pid-axis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.pid-axis-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.pid-copy-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid #444;
+    color: var(--qgc-text-muted);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.68rem;
+    transition: all 0.2s;
+}
+
+.pid-copy-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--qgc-text-main);
+}
+
+/* P/I/D 三列布局 */
+.pid-gains-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.pid-gain-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pid-gain-label {
+    font-size: 0.72rem;
+    color: var(--qgc-text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+}
+
+.pid-num-input {
+    width: 100%;
+    padding: 5px 4px;
+    background: #1a1a1a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: var(--qgc-green);
+    font-family: 'Consolas', monospace;
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.pid-num-input:focus {
+    border-color: var(--qgc-blue);
+    box-shadow: 0 0 0 2px rgba(44, 158, 221, 0.2);
+}
+
+.pid-num-input:hover {
+    border-color: #666;
+}
+
+.pid-slider {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #333;
+    outline: none;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.pid-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--qgc-blue);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.pid-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.3);
+}
+
+.pid-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: var(--qgc-blue);
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+}
+
+/* 底部操作栏 */
+.pid-bottom-bar {
+    padding: 8px 10px;
+    border-top: 1px solid var(--qgc-border);
+    background: rgba(0,0,0,0.3);
+    flex-shrink: 0;
+}
+
+.pid-action-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pid-action-btn {
+    padding: 5px 10px;
+    border: 1px solid #444;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.pid-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.pid-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.pid-btn-sync {
+    background: #1a3a1a;
+    border-color: var(--qgc-green);
+    color: var(--qgc-green);
+}
+
+.pid-btn-sync.has-changes {
+    background: rgba(44, 158, 221, 0.15);
+    border-color: var(--qgc-blue);
+    color: var(--qgc-blue);
+    animation: pulse 1.5s infinite;
+}
+
+.pid-btn-save {
+    background: rgba(39, 217, 101, 0.1);
+    color: var(--qgc-green);
+    border-color: rgba(39, 217, 101, 0.3);
+}
+
+.pid-btn-default {
+    background: rgba(217, 153, 39, 0.1);
+    color: var(--qgc-orange);
+    border-color: rgba(217, 153, 39, 0.3);
+}
+
+.pid-btn-export {
+    background: rgba(44, 158, 221, 0.1);
+    color: var(--qgc-blue);
+    border-color: rgba(44, 158, 221, 0.3);
+}
+
+.pid-btn-import {
+    background: rgba(44, 158, 221, 0.1);
+    color: var(--qgc-blue);
+    border-color: rgba(44, 158, 221, 0.3);
+}
+
+/* 日志区 */
+.pid-log-section {
+    height: 120px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    border-top: 1px solid var(--qgc-border);
+}
+
+.pid-log-header {
+    padding: 4px 10px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--qgc-blue);
+    border-bottom: 1px solid var(--qgc-border);
+    background: rgba(0,0,0,0.3);
+    font-weight: 600;
+}
+
+.pid-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.7rem;
+}
+
+.pid-log-entry {
+    margin-bottom: 2px;
+    padding-bottom: 1px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.pid-log-info { color: #888; }
+.pid-log-success { color: var(--qgc-green); }
+.pid-log-warn { color: var(--qgc-orange); }
+.pid-log-error { color: var(--qgc-red); }

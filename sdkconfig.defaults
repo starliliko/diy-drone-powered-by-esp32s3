@@ -1,72 +1,72 @@
 # ======================== ESPDrone sdkconfig.defaults ========================
-# 此文件包含项目的所有自定义配置默认值
-# 删除 sdkconfig 后运行 idf.py set-target esp32s3 会自动应用这些默认值
-# 最后更新: 2026-03-10
+#
+#  sdkconfig  idf.py set-target esp32s3 
+# : 2026-03-10
 # =============================================================================
 
-# ======================== 硬件版本选择 ========================
+# ========================  ========================
 CONFIG_TARGET_ESP32_S2_DRONE_V1_2=y
 CONFIG_EXT_AUTO_DETECT=y
 
-# ======================== 应用功能 ========================
+# ========================  ========================
 CONFIG_ENABLE_POSITION_HOLD_MODE=y
 CONFIG_ENABLE_COMMAND_MODE_SET=y
 
-# ======================== Wi-Fi 配置 ========================
+# ======================== Wi-Fi  ========================
 CONFIG_WIFI_BASE_SSID="ESP-DRONE"
 CONFIG_WIFI_PASSWORD="12345678"
 CONFIG_WIFI_CHANNEL=6
 CONFIG_WIFI_MAX_STA_CONN=3
 
-# STA 模式 (连接路由器)
+# STA  ()
 CONFIG_WIFI_ENABLE_STA_MODE=y
 CONFIG_WIFI_STA_SSID="BO"
 CONFIG_WIFI_STA_PASSWORD="141173LI"
 CONFIG_WIFI_STA_RETRY_MAX=10
 
-# 远程服务器
+#
 CONFIG_REMOTE_SERVER_ENABLE=y
 CONFIG_REMOTE_SERVER_IP="192.168.36.232"
 CONFIG_REMOTE_SERVER_PORT=8080
 CONFIG_REMOTE_SERVER_RECONNECT_INTERVAL=5
 CONFIG_REMOTE_SERVER_HEARTBEAT_INTERVAL=1000
-CONFIG_REMOTE_SERVER_TELEMETRY_INTERVAL=100
+CONFIG_REMOTE_SERVER_TELEMETRY_INTERVAL=20
 
-# ======================== 校准角度 ========================
+# ========================  ========================
 CONFIG_PITCH_CALIB=0
 CONFIG_ROLL_CALIB=0
 
-# ======================== 系统 ========================
+# ========================  ========================
 CONFIG_BASE_STACK_SIZE=1024
 
-# ======================== 蜂鸣器 (0=禁用) ========================
+# ========================  (0=) ========================
 CONFIG_BUZZER_ON=y
 CONFIG_BUZ1_PIN_POS=0
 CONFIG_BUZ2_PIN_NEG=0
 
-# ======================== I2C 引脚配置 ========================
-# I2C0 (MS5611 气压计)
+# ======================== I2C  ========================
+# I2C0 (MS5611 )
 CONFIG_I2C0_PIN_SDA=20
 CONFIG_I2C0_PIN_SCL=19
 # I2C1
 CONFIG_I2C1_PIN_SDA=18
 CONFIG_I2C1_PIN_SCL=17
 
-# ======================== SPI 引脚配置 (BMI088) ========================
+# ======================== SPI  (BMI088) ========================
 CONFIG_SPI_PIN_MISO=13
 CONFIG_SPI_PIN_MOSI=11
 CONFIG_SPI_PIN_CLK=12
 CONFIG_SPI_PIN_CS0=45
 CONFIG_SPI_PIN_CS1=10
 
-# ======================== BMI088 中断引脚 ========================
+# ======================== BMI088  ========================
 CONFIG_BMI088_INT1_PIN=14
 CONFIG_BMI088_INT3_PIN=21
 
 # ======================== ADC ========================
 CONFIG_ADC1_PIN=2
 
-# ======================== MTF01 光流模块 ========================
+# ======================== MTF01  ========================
 CONFIG_ENABLE_MTF01=y
 CONFIG_MTF01_UART_NUM=2
 CONFIG_MTF01_RX_PIN=39
@@ -75,18 +75,18 @@ CONFIG_MTF01_BAUDRATE=115200
 CONFIG_MTF01_MIN_DISTANCE=2
 CONFIG_MTF01_MAX_DISTANCE=10000
 
-# ======================== LED (0=禁用) ========================
+# ======================== LED (0=) ========================
 CONFIG_LED_PIN_BLUE=0
 CONFIG_LED_PIN_GREEN=0
 CONFIG_LED_PIN_RED=0
 
-# ======================== 电机引脚 ========================
+# ========================  ========================
 CONFIG_MOTOR01_PIN=7
 CONFIG_MOTOR02_PIN=4
 CONFIG_MOTOR03_PIN=6
 CONFIG_MOTOR04_PIN=5
 
-# ======================== SBUS 遥控器 ========================
+# ======================== SBUS  ========================
 CONFIG_ENABLE_SBUS=y
 CONFIG_SBUS_UART_NUM=1
 CONFIG_SBUS_RX_PIN=41
@@ -102,7 +102,7 @@ CONFIG_SBUS_CHANNEL_MAX=1807
 CONFIG_SBUS_CHANNEL_CENTER=1024
 CONFIG_SBUS_DEADBAND=20
 
-# ======================== FreeRTOS 配置 ========================
+# ======================== FreeRTOS  ========================
 CONFIG_FREERTOS_UNICORE=n
 CONFIG_FREERTOS_NO_AFFINITY=0x7FFFFFFF
 CONFIG_FREERTOS_CORETIMER_0=y
@@ -118,24 +118,27 @@ CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 
-# ======================== 编译器优化 ========================
+# ========================  ========================
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y
 CONFIG_COMPILER_STACK_CHECK_MODE_NONE=y
 
-# ======================== Flash 配置 ========================
+# ======================== Flash  ========================
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
-# ======================== Wi-Fi 射频 ========================
+# ======================== Wi-Fi  ========================
 CONFIG_ESP32_PHY_MAX_WIFI_TX_POWER=20
 CONFIG_ESP32_PHY_MAX_TX_POWER=20
 
-# ======================== 看门狗 ========================
-# 禁用 IDLE 任务看门狗 - 1kHz 控制循环需要高 CPU 占用
+# ========================  ========================
+#  IDLE  - 1kHz  CPU 
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+
+
+

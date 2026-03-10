@@ -25,6 +25,7 @@ const MISC_SETBYNAME = 0x00;
 // Param 类型常量（与 param.h 保持一致）
 const PARAM_UINT8 = 0x08;  // PARAM_1BYTE | PARAM_TYPE_INT | PARAM_UNSIGNED
 const PARAM_UINT16 = 0x09; // PARAM_2BYTES | PARAM_TYPE_INT | PARAM_UNSIGNED
+const PARAM_FLOAT = 0x06;  // PARAM_4BYTES | PARAM_TYPE_FLOAT
 
 class DroneServer {
     constructor() {
@@ -72,6 +73,10 @@ class DroneServer {
             buf.writeUInt8(value & 0xFF, offset);
         } else if (valueSize === 2) {
             buf.writeUInt16LE(value & 0xFFFF, offset);
+        } else if (valueSize === 4 && type === PARAM_FLOAT) {
+            buf.writeFloatLE(value, offset);
+        } else if (valueSize === 4) {
+            buf.writeUInt32LE(value & 0xFFFFFFFF, offset);
         } else {
             throw new Error('Unsupported param size');
         }
@@ -375,6 +380,79 @@ class DroneServer {
                 client.sendCRTP(this.buildParamSetByNamePacket('motortest', 'mode', PARAM_UINT8, 1, 1));
             }
             res.json({ success: true });
+        });
+
+        // ========== PID 调参 API ==========
+
+        // 设置单个 PID 参数 (float)
+        app.post('/api/pid/set', (req, res) => {
+            const { group, name, value } = req.body;
+            console.log(`[API] /api/pid/set - ${group}.${name} = ${value}`);
+
+            if (this.clients.size === 0) {
+                return res.status(400).json({ error: 'No drone connected' });
+            }
+
+            // 校验参数组名
+            const allowedGroups = ['pid_attitude', 'pid_rate', 'velCtlPid', 'posCtlPid'];
+            if (!allowedGroups.includes(group)) {
+                return res.status(400).json({ error: `Invalid param group: ${group}` });
+            }
+
+            const floatValue = parseFloat(value);
+            if (isNaN(floatValue)) {
+                return res.status(400).json({ error: `Invalid float value: ${value}` });
+            }
+
+            try {
+                for (const client of this.clients.values()) {
+                    const pkt = this.buildParamSetByNamePacket(group, name, PARAM_FLOAT, floatValue, 4);
+                    client.sendCRTP(pkt);
+                }
+                res.json({ success: true, group, name, value: floatValue });
+            } catch (err) {
+                console.error('[PID] Set param error:', err.message);
+                res.status(500).json({ error: err.message });
+            }
+        });
+
+        // 批量设置 PID 参数
+        app.post('/api/pid/batch', (req, res) => {
+            const { params } = req.body;
+            console.log(`[API] /api/pid/batch - ${params ? params.length : 0} params`);
+
+            if (this.clients.size === 0) {
+                return res.status(400).json({ error: 'No drone connected' });
+            }
+
+            if (!Array.isArray(params) || params.length === 0) {
+                return res.status(400).json({ error: 'No params provided' });
+            }
+
+            const results = [];
+            const allowedGroups = ['pid_attitude', 'pid_rate', 'velCtlPid', 'posCtlPid'];
+
+            for (const p of params) {
+                if (!allowedGroups.includes(p.group)) {
+                    results.push({ ...p, error: 'Invalid group' });
+                    continue;
+                }
+                const floatValue = parseFloat(p.value);
+                if (isNaN(floatValue)) {
+                    results.push({ ...p, error: 'Invalid value' });
+                    continue;
+                }
+                try {
+                    for (const client of this.clients.values()) {
+                        const pkt = this.buildParamSetByNamePacket(p.group, p.name, PARAM_FLOAT, floatValue, 4);
+                        client.sendCRTP(pkt);
+                    }
+                    results.push({ group: p.group, name: p.name, value: floatValue, success: true });
+                } catch (err) {
+                    results.push({ ...p, error: err.message });
+                }
+            }
+            res.json({ success: true, results });
         });
     }
 

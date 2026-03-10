@@ -9,6 +9,40 @@ import { connectWS, setTelemetryCallback, setConnectionChangeCallback, log } fro
 import { sendAction, setRemoteControlMode } from './control.js';
 import { updateDashboard } from './dashboard.js';
 
+let wsConnected = false;
+let lastTelemetryTs = 0;
+let droneConnected = false;
+let hasDroneClient = false;
+
+async function refreshDroneClientStatus() {
+    try {
+        const resp = await fetch('/api/status', { cache: 'no-store' });
+        if (!resp.ok) {
+            return;
+        }
+        const status = await resp.json();
+        hasDroneClient = Array.isArray(status.clients) && status.clients.length > 0;
+        updateDroneConnectionState();
+    } catch (_) {
+        // 忽略轮询异常，等待下一次
+    }
+}
+
+function updateDroneConnectionState() {
+    // 认为 2 秒内收到过遥测即飞控在线
+    const telemetryAlive = (Date.now() - lastTelemetryTs) <= 2000;
+    const nextState = wsConnected && (telemetryAlive || hasDroneClient);
+    droneConnected = nextState;
+
+    if (window.motorTest) {
+        window.motorTest.setConnected(droneConnected);
+    }
+
+    if (window.pidTuner) {
+        window.pidTuner.setConnected(droneConnected);
+    }
+}
+
 // 页面切换
 function switchPage(pageName) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -17,7 +51,8 @@ function switchPage(pageName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
 
-    log('切换到: ' + (pageName === 'flight' ? '飞行监控' : '电机测试'), 'info');
+    const nameMap = { flight: '飞行监控', motor: '电机测试', pid: 'PID调参' };
+    log('切换到: ' + (nameMap[pageName] || pageName), 'info');
 }
 
 // 控制台折叠
@@ -28,14 +63,21 @@ function toggleConsole(element) {
 
 // 连接状态变化回调
 function onConnectionChange(connected) {
-    // 更新电机测试模块的连接状态
-    if (window.motorTest) {
-        window.motorTest.setConnected(connected);
+    wsConnected = connected;
+    if (!connected) {
+        lastTelemetryTs = 0;
+        hasDroneClient = false;
+    } else {
+        refreshDroneClientStatus();
     }
+    updateDroneConnectionState();
 }
 
 // 扩展的遥测回调，同时更新仪表盘和电机测试模块
 function onTelemetryUpdate(data) {
+    lastTelemetryTs = Date.now();
+    updateDroneConnectionState();
+
     // 更新仪表盘
     updateDashboard(data);
 
@@ -45,6 +87,11 @@ function onTelemetryUpdate(data) {
             data.remoteCtrlMode !== undefined ? data.remoteCtrlMode : 0,
             data.controlSource !== undefined ? data.controlSource : 0
         );
+    }
+
+    // 更新 PID 调参模块的实时曲线
+    if (window.pidTuner) {
+        window.pidTuner.updateTelemetry(data);
     }
 }
 
@@ -67,4 +114,13 @@ window.addEventListener('load', () => {
     setTelemetryCallback(onTelemetryUpdate);
     setConnectionChangeCallback(onConnectionChange);
     connectWS();
+
+    // 周期检查飞控是否仍在发送遥测，避免状态卡死在“已连接”
+    setInterval(updateDroneConnectionState, 1000);
+    // 周期查询服务器上的飞控客户端数量，作为无遥测时的连接兜底判断
+    setInterval(() => {
+        if (wsConnected) {
+            refreshDroneClientStatus();
+        }
+    }, 1500);
 });
