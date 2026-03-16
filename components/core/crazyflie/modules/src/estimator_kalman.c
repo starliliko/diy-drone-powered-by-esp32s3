@@ -239,6 +239,8 @@ static uint32_t baroAccumulatorCount;
 // by the attitude update itself, giving ~64 samples/update at 25Hz (1600Hz ODR).
 static Axis3f accAttAccumulator;
 static uint32_t accAttAccumulatorCount;
+static float accelAttitudeStdDevBase = 0.45f; //重力
+static float accelAttitudeStdDevSlope = 12.0f;
 bool quadIsFlying = false; // 非静态，供传感器模块访问
 static uint32_t lastFlightCmd;
 static uint32_t takeoffTime;
@@ -410,15 +412,12 @@ static void kalmanTask(void *parameters)
       accAttAccumulatorCount = 0;
       xSemaphoreGive(dataMutex);
 
-      // Dynamic standard deviation: trust decreases as acceleration deviates from 1g
-      // Base stdDev=0.15 (R=0.0225) matched to measNoiseGyro_rollpitch=0.07:
-      //   Steady-state P grows ~2e-4 between 25Hz updates
-      //   K = P/(P+R) ≈ 0.01 → smooth correction, <0.1° noise contribution
-      // At 0.95g deviation=0.05 -> stdDev=0.55 (moderate)
-      // At 0.90g deviation=0.10 -> stdDev=0.95 (weak, near gate threshold)
+      // Dynamic standard deviation: trust decreases as acceleration deviates from 1g.
+      // 调弱默认回正速度，避免解锁后 pitch/roll 被过快拉回 0，影响 PID 调试判读。
+      // 若仍觉得回正快，可继续增大 accelAttitudeStdDevBase / accelAttitudeStdDevSlope。
       float accMagAvg = sqrtf(accAvg.x * accAvg.x + accAvg.y * accAvg.y + accAvg.z * accAvg.z);
       float accelDeviation = fabsf(accMagAvg - 1.0f);
-      float accelAttitudeStdDev = 0.15f + accelDeviation * 8.0f;
+      float accelAttitudeStdDev = accelAttitudeStdDevBase + accelDeviation * accelAttitudeStdDevSlope;
       kalmanCoreUpdateWithAccel(&coreData, &accAvg, accelAttitudeStdDev);
 
       nextAccelAttitudeUpdate = osTick + S2T(1.0f / ACCEL_ATTITUDE_RATE);
@@ -855,4 +854,6 @@ LOG_GROUP_STOP(kalman)
 PARAM_GROUP_START(kalman)
 PARAM_ADD(PARAM_UINT8, resetEstimation, &coreData.resetEstimation)
 PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
+PARAM_ADD(PARAM_FLOAT, accAttStd0, &accelAttitudeStdDevBase)
+PARAM_ADD(PARAM_FLOAT, accAttStdK, &accelAttitudeStdDevSlope)
 PARAM_GROUP_STOP(kalman)

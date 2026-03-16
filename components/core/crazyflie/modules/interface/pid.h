@@ -56,19 +56,19 @@
 // --- 外环 Attitude PID (姿态角控制) ---
 // 输入: attDesired(°) vs attActual(°)  输出: rateDesired(°/s)
 // KI保留小值处理静态偏差, iLimit限制最大积分贡献
-#define PID_ROLL_KP 4.0 // 3.5→4.0: 稍提高外环响应, 5°误差→20°/s, 内环输出3000(安全)
+#define PID_ROLL_KP 0.0
 #define PID_ROLL_KI 0.0
 #define PID_ROLL_KD 0.0
 #define PID_ROLL_INTEGRATION_LIMIT 20.0
 
-#define PID_PITCH_KP 4.0 // 3.5→4.0: 与Roll对称
+#define PID_PITCH_KP 0.0
 #define PID_PITCH_KI 0.0
 #define PID_PITCH_KD 0.0
 #define PID_PITCH_INTEGRATION_LIMIT 20.0
 
-#define PID_YAW_KP 4.0 // 6.0→4.0: 降低偏航外环增益
+#define PID_YAW_KP 0.0
 #define PID_YAW_KI 0.0
-#define PID_YAW_KD 0.0 // 0.35→0: 首飞先去掉减少变量
+#define PID_YAW_KD 0.0
 #define PID_YAW_INTEGRATION_LIMIT 20.0
 
 #define DEFAULT_PID_INTEGRATION_LIMIT 5000.0
@@ -90,19 +90,19 @@
 #define PID_YAW_RATE_INTEGRATION_LIMIT 166.7
 
 // Attitude PID gains (outer loop)
-#define PID_ROLL_KP 2.0 // Reduced from 5.9 to prevent saturation
-#define PID_ROLL_KI 2.9
+#define PID_ROLL_KP 0.0
+#define PID_ROLL_KI 0.0
 #define PID_ROLL_KD 0.0
 #define PID_ROLL_INTEGRATION_LIMIT 20.0
 
-#define PID_PITCH_KP 2.0 // Reduced from 5.9 to prevent saturation
-#define PID_PITCH_KI 2.9
+#define PID_PITCH_KP 0.0
+#define PID_PITCH_KI 0.0
 #define PID_PITCH_KD 0.0
 #define PID_PITCH_INTEGRATION_LIMIT 20.0
 
-#define PID_YAW_KP 1.5                 // Further reduced to prevent integral windup
-#define PID_YAW_KI 0.5                 // Reduced from 1.0
-#define PID_YAW_KD 0.0                 // Removed to reduce oscillation
+#define PID_YAW_KP 0.0
+#define PID_YAW_KI 0.0
+#define PID_YAW_KD 0.0
 #define PID_YAW_INTEGRATION_LIMIT 20.0 // Reduced from 360 to prevent windup
 
 #define DEFAULT_PID_INTEGRATION_LIMIT 5000.0

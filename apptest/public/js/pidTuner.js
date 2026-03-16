@@ -125,18 +125,25 @@ var currentParams = {};
 var pendingChanges = {};
 var isDroneConnected = false;
 var activeGroup = 'pid_rate';
-var CHART_MAX_POINTS = 1000;
+var CHART_MAX_POINTS = 360;
 var CHART_SAMPLE_INTERVAL_S = 0.02; // 50Hz
-var CHART_SMOOTH_ALPHA = 0.35;
+var CHART_TRIM_BATCH = 64;
+var CHART_RENDER_FPS = 30;
+var CHART_SMOOTH_ALPHA = 0.25;
+var CHART_SMOOTH_WINDOW = 3;
 var statusPollTimer = null;
 var chartDataStore = {};
 var chartTimestamps = [];
 var chartStartTime = 0;
 var chartSampleIndex = 0;
 var chartSmoothedValues = {};
+var chartRawWindowStore = {};
 var chartUPlots = {};
 var chartDirty = false;
-var chartBatchTimer = null;
+var chartLatestTelemetry = null;
+var chartRafId = 0;
+var chartLastRenderTs = 0;
+var syncStatusQueued = false;
 
 // ========== 初始化 ==========
 function initPidTuner() {
@@ -150,7 +157,7 @@ function initPidTuner() {
     buildPidUI();
     buildChartToggles();
     buildCharts();
-    startBatchTimer();
+    startChartRenderLoop();
 
     if (statusPollTimer) clearInterval(statusPollTimer);
     refreshConnection();
@@ -278,50 +285,22 @@ function createUPlotChart(container, chId, channel) {
                 }
             ],
             cursor: {
-                drag: { x: true, y: true, setScale: true },
+                show: false,
+                drag: { x: false, y: false, setScale: false },
                 sync: { key: 'pid-sync' },
                 points: { show: false }
             },
-            legend: { show: true, live: true },
-            hooks: {
-                setSelect: [function(u) {
-                    if (u.select.width > 0 || u.select.height > 0) userZoomed = true;
-                }]
-            }
+            legend: { show: true, live: false }
         };
 
         var data = getChannelDataRefs(channel);
         var plot = new uPlot(opts, data, wrapper);
 
-        // 鼠标滚轮缩放 (以光标位置为中心)
+        // 禁用鼠标交互，保持实时滚动更新
         var over = plot.root.querySelector('.u-over');
         if (over) {
-            over.addEventListener('wheel', function(e) {
-                e.preventDefault();
-                var r2 = over.getBoundingClientRect();
-                var cx = e.clientX - r2.left;
-                var xPos = plot.posToVal(cx, 'x');
-                var xMin = plot.scales.x.min;
-                var xMax = plot.scales.x.max;
-                var range = xMax - xMin;
-                if (range <= 0) return;
-
-                var factor = e.deltaY > 0 ? 1.25 : 0.8;
-                var newRange = range * factor;
-                var ratio = (xPos - xMin) / range;
-                plot.setScale('x', {
-                    min: xPos - newRange * ratio,
-                    max: xPos + newRange * (1 - ratio)
-                });
-                userZoomed = true;
-            }, { passive: false });
+            over.style.pointerEvents = 'none';
         }
-
-        // 双击重置缩放
-        wrapper.addEventListener('dblclick', function() {
-            userZoomed = false;
-            plot.setData(data, true);
-        });
 
         // ResizeObserver 自动适配尺寸
         var ro = null;
@@ -338,6 +317,7 @@ function createUPlotChart(container, chId, channel) {
         chartUPlots[chId] = {
             plot: plot, channel: channel, wrapper: wrapper, ro: ro, dataRef: data,
             isZoomed: function() { return userZoomed; },
+            isInteracting: function() { return false; },
             resetZoom: function() { userZoomed = false; }
         };
     });
@@ -357,16 +337,31 @@ function getChannelDataRefs(channel) {
     return data;
 }
 
-function updateChartData(telemetry) {
-    if (!telemetry) return;
+function appendBounded(arr, val) {
+    arr.push(val);
+    if (arr.length > (CHART_MAX_POINTS + CHART_TRIM_BATCH)) {
+        arr.splice(0, arr.length - CHART_MAX_POINTS);
+    }
+}
+
+function resetChartData() {
+    chartDataStore = {};
+    chartTimestamps.length = 0;
+    chartSmoothedValues = {};
+    chartRawWindowStore = {};
+    chartLatestTelemetry = null;
+    chartSampleIndex = 0;
+    chartStartTime = 0;
+    chartDirty = true;
+}
+
+function consumeTelemetry(telemetry) {
+    if (!telemetry) return false;
 
     if (chartStartTime === 0) chartStartTime = Date.now();
     var t = chartSampleIndex * CHART_SAMPLE_INTERVAL_S;
     chartSampleIndex++;
-    chartTimestamps.push(t);
-    if (chartTimestamps.length > CHART_MAX_POINTS) {
-        chartTimestamps.splice(0, chartTimestamps.length - CHART_MAX_POINTS);
-    }
+    appendBounded(chartTimestamps, t);
 
     var values = {
         roll: telemetry.roll || 0,
@@ -383,7 +378,11 @@ function updateChartData(telemetry) {
         tofDistance: telemetry.tofDistance || 0,
         estVelX: telemetry.estVelX || 0,
         estVelY: telemetry.estVelY || 0,
-        estVelZ: telemetry.estVelZ || 0
+        estVelZ: telemetry.estVelZ || 0,
+        motor0: telemetry.motor0 || 0,
+        motor1: telemetry.motor1 || 0,
+        motor2: telemetry.motor2 || 0,
+        motor3: telemetry.motor3 || 0
     };
 
     if (telemetry.motorOutputs && telemetry.motorOutputs.length === 4) {
@@ -395,34 +394,66 @@ function updateChartData(telemetry) {
 
     for (var key in values) {
         var rawVal = values[key];
+
+        var rawWindow = chartRawWindowStore[key];
+        if (!rawWindow) {
+            rawWindow = [];
+            chartRawWindowStore[key] = rawWindow;
+        }
+        rawWindow.push(rawVal);
+        if (rawWindow.length > CHART_SMOOTH_WINDOW) rawWindow.shift();
+
+        var sum = 0;
+        for (var wi = 0; wi < rawWindow.length; wi++) sum += rawWindow[wi];
+        var windowAvg = sum / rawWindow.length;
+
         var prev = chartSmoothedValues[key];
         var smoothVal = (prev === undefined)
-            ? rawVal
-            : (prev + CHART_SMOOTH_ALPHA * (rawVal - prev));
+            ? windowAvg
+            : (prev + CHART_SMOOTH_ALPHA * (windowAvg - prev));
         chartSmoothedValues[key] = smoothVal;
 
         var arr = getSeriesArray(key);
-        arr.push(smoothVal);
-        if (arr.length > CHART_MAX_POINTS) {
-            arr.splice(0, arr.length - CHART_MAX_POINTS);
-        }
+        appendBounded(arr, smoothVal);
     }
 
-    chartDirty = true;
+    return true;
 }
 
-function startBatchTimer() {
-    if (chartBatchTimer) clearInterval(chartBatchTimer);
-    chartBatchTimer = setInterval(function() {
-        if (!chartDirty) return;
-        chartDirty = false;
+function updateChartData(telemetry) {
+    chartLatestTelemetry = telemetry;
+}
 
-        for (var id in chartUPlots) {
-            var entry = chartUPlots[id];
-            if (!entry.plot) continue;
-            entry.plot.setData(entry.dataRef, !entry.isZoomed());
+function chartRenderTick(ts) {
+    chartRafId = requestAnimationFrame(chartRenderTick);
+
+    var frameInterval = 1000 / CHART_RENDER_FPS;
+    if ((ts - chartLastRenderTs) < frameInterval) return;
+    chartLastRenderTs = ts;
+
+    if (chartLatestTelemetry) {
+        if (consumeTelemetry(chartLatestTelemetry)) {
+            chartDirty = true;
         }
-    }, 33);
+        chartLatestTelemetry = null;
+    }
+
+    if (!chartDirty) return;
+    chartDirty = false;
+
+    for (var id in chartUPlots) {
+        var entry = chartUPlots[id];
+        if (!entry.plot) continue;
+        var keepScale = entry.isZoomed() || (entry.isInteracting && entry.isInteracting());
+        entry.plot.setData(entry.dataRef, !keepScale);
+    }
+}
+
+function startChartRenderLoop() {
+    if (chartRafId) cancelAnimationFrame(chartRafId);
+    chartRafId = 0;
+    chartLastRenderTs = 0;
+    chartRafId = requestAnimationFrame(chartRenderTick);
 }
 
 // ========== PID 参数 UI ==========
@@ -505,7 +536,7 @@ function onParamInput(paramKey, rawValue) {
     pendingChanges[paramKey] = val;
     var slider = document.getElementById('slider-' + paramKey);
     if (slider) slider.value = val;
-    updateSyncStatus();
+    scheduleSyncStatusUpdate();
 }
 
 function onSliderInput(paramKey, rawValue) {
@@ -515,7 +546,16 @@ function onSliderInput(paramKey, rawValue) {
     pendingChanges[paramKey] = val;
     var input = document.getElementById('input-' + paramKey);
     if (input) input.value = val;
-    updateSyncStatus();
+    scheduleSyncStatusUpdate();
+}
+
+function scheduleSyncStatusUpdate() {
+    if (syncStatusQueued) return;
+    syncStatusQueued = true;
+    requestAnimationFrame(function() {
+        syncStatusQueued = false;
+        updateSyncStatus();
+    });
 }
 
 function copyAxisParams(groupName, srcAxis) {
@@ -678,7 +718,13 @@ function pidLog(msg, type) {
 
 // ========== 连接状态 ==========
 function setPidConnected(connected) {
+    var prev = isDroneConnected;
     isDroneConnected = connected;
+
+    if (prev !== connected) {
+        resetChartData();
+    }
+
     var dot = document.getElementById('pid-conn-dot');
     var text = document.getElementById('pid-conn-text');
     if (dot) dot.className = 'indicator-dot ' + (connected ? 'green' : 'red');
