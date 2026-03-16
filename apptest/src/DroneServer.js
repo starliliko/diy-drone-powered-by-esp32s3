@@ -13,7 +13,8 @@ const dgram = require('dgram');
 const os = require('os');
 
 const CONFIG = require('./config');
-const { DISCOVERY_MAGIC, ControlCmdType } = require('./protocol');
+const { DISCOVERY_MAGIC, UDP_TELEMETRY_MAGIC, UDP_TELEMETRY_HEADER_SIZE, ControlCmdType } = require('./protocol');
+const { parseTelemetry } = require('./parser');
 const DroneClient = require('./DroneClient');
 
 // CRTP 参数写入（按名称）常量
@@ -29,7 +30,8 @@ const PARAM_FLOAT = 0x06;  // PARAM_4BYTES | PARAM_TYPE_FLOAT
 
 class DroneServer {
     constructor() {
-        this.clients = new Map();
+        this.clients = new Map();          // key: remoteAddr (ip:port)
+        this.clientsByIP = new Map();      // key: droneIP, 用于 UDP 包匹配
         this.webClients = new Set();
         this.tcpServer = null;
         this.httpServer = null;
@@ -37,6 +39,10 @@ class DroneServer {
         this.discoverySocket = null;
         this.discoveryInterval = null;
         this.wsPingTimer = null;
+        this.udpTelemetrySocket = null;
+        this.vofaSocket = null;            // vofa+ UDP socket
+        this.vofaEnabled = true;           // vofa+ 默认启用
+        this.vofaClients = new Set();      // vofa+ 客户端 IP 集合
     }
 
     buildParamSetByNamePacket(group, name, type, value, valueSize) {
@@ -89,6 +95,8 @@ class DroneServer {
         this.startTCPServer();
         this.startWebServer();
         this.startDiscoveryBroadcast();
+        this.startUDPTelemetryServer();
+        this.startVofaServer();
     }
 
     /**
@@ -179,10 +187,12 @@ class DroneServer {
                 const reqPort = msg.readUInt16BE(4);
 
                 // TCP端口=0 视为发现请求，单播回应
+                // 回应格式: [4字节 ESPD] + [2字节 TCP端口] + [2字节 UDP遥测端口]
                 if (reqPort === 0) {
-                    const resp = Buffer.alloc(6);
+                    const resp = Buffer.alloc(8);
                     DISCOVERY_MAGIC.copy(resp, 0);
                     resp.writeUInt16BE(CONFIG.TCP_PORT, 4);
+                    resp.writeUInt16BE(CONFIG.UDP_TELEMETRY_PORT, 6);
 
                     this.discoverySocket.send(resp, rinfo.port, rinfo.address, (err) => {
                         if (err) {
@@ -200,12 +210,14 @@ class DroneServer {
                 const subnetBroadcast = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.255`;
 
                 console.log(`✓ UDP Discovery broadcasting on port ${CONFIG.DISCOVERY_PORT}`);
-                console.log(`  Local IP: ${localIP}, TCP port: ${CONFIG.TCP_PORT}`);
+                console.log(`  Local IP: ${localIP}, TCP port: ${CONFIG.TCP_PORT}, UDP telemetry port: ${CONFIG.UDP_TELEMETRY_PORT}`);
                 console.log(`  Broadcast address: ${subnetBroadcast}`);
 
-                const packet = Buffer.alloc(6);
+                // 广播包 8 字节: [4字节 ESPD] + [2字节 TCP端口] + [2字节 UDP遥测端口]
+                const packet = Buffer.alloc(8);
                 DISCOVERY_MAGIC.copy(packet, 0);
                 packet.writeUInt16BE(CONFIG.TCP_PORT, 4);
+                packet.writeUInt16BE(CONFIG.UDP_TELEMETRY_PORT, 6);
 
                 this.discoveryInterval = setInterval(() => {
                     this.discoverySocket.send(packet, CONFIG.DISCOVERY_PORT, subnetBroadcast);
@@ -225,6 +237,8 @@ class DroneServer {
             const remoteAddr = `${socket.remoteAddress}:${socket.remotePort}`;
             const client = new DroneClient(socket, remoteAddr, this);
             this.clients.set(remoteAddr, client);
+            // 同时按 IP 建立索引，供 UDP 包匹配
+            this.clientsByIP.set(client.droneIP, client);
         });
 
         this.tcpServer.listen(CONFIG.TCP_PORT, () => {
@@ -234,6 +248,91 @@ class DroneServer {
         this.tcpServer.on('error', (err) => {
             console.error('TCP Server error:', err.message);
         });
+    }
+
+    /**
+     * 根据 IP 地址匹配已连接的飞控客户端
+     */
+    findClientByIP(ip) {
+        const normalizedIP = ip.replace(/^::ffff:/, '');
+        return this.clientsByIP.get(normalizedIP) || null;
+    }
+
+    /**
+     * 启动 UDP 遥测服务器
+     * 飞控向此端口发送高频遥测包（姿态角/电机输出/陀螺仪等）
+     * UDP 包格式: [4字节 ESPU 魔数] + [1字节类型] + [1字节序号] + [payload]
+     */
+    /**
+     * 启动 vofa+ UDP 转发服务
+     * 接收 vofa+ 客户端注册请求，将遥测数据通过 FireWater 协议转发
+     */
+    startVofaServer() {
+        try {
+            this.vofaSocket = dgram.createSocket('udp4');
+
+            this.vofaSocket.on('error', (err) => {
+                console.error('✗ vofa+ UDP socket error:', err.message);
+            });
+
+            this.vofaSocket.bind(CONFIG.VOFA_UDP_PORT, () => {
+                console.log(`✓ vofa+ Server listening on port ${CONFIG.VOFA_UDP_PORT}`);
+                console.log(`  FireWater 协议，13 个浮点数通道`);
+                console.log(`  通道: roll,pitch,yaw,gyroX,gyroY,gyroZ,accX,accY,accZ,M1,M2,M3,M4`);
+            });
+        } catch (err) {
+            console.error('✗ vofa+ server failed:', err.message);
+        }
+    }
+
+    startUDPTelemetryServer() {
+        try {
+            this.udpTelemetrySocket = dgram.createSocket('udp4');
+
+            this.udpTelemetrySocket.on('error', (err) => {
+                console.error('✗ UDP Telemetry socket error:', err.message);
+            });
+
+            this.udpTelemetrySocket.on('message', (msg, rinfo) => {
+                try {
+                    // 校验魔数
+                    if (msg.length < UDP_TELEMETRY_HEADER_SIZE) return;
+                    if (!msg.subarray(0, 4).equals(UDP_TELEMETRY_MAGIC)) return;
+
+                    const pktType = msg.readUInt8(4);
+                    // 目前只处理遥测包 (type=0x01)
+                    if (pktType !== 0x01) return;
+
+                    const payload = msg.subarray(UDP_TELEMETRY_HEADER_SIZE);
+                    const telemetry = parseTelemetry(payload);
+                    if (!telemetry) return;
+
+                    // 匹配对应的 TCP 客户端，更新其遥测缓存
+                    const client = this.findClientByIP(rinfo.address);
+                    if (client) {
+                        client.latestTelemetry = telemetry;
+                        if (telemetry.motorOutputs && telemetry.motorOutputs.length === 4) {
+                            client.motorOutputs = telemetry.motorOutputs;
+                        }
+                    }
+
+                    // 转发到所有 WebSocket 客户端
+                    this.broadcastTelemetry(
+                        client ? client.remoteAddr : rinfo.address,
+                        telemetry
+                    );
+                } catch (err) {
+                    // 静默丢弃假包
+                }
+            });
+
+            this.udpTelemetrySocket.bind(CONFIG.UDP_TELEMETRY_PORT, () => {
+                console.log(`✓ UDP Telemetry Server listening on port ${CONFIG.UDP_TELEMETRY_PORT}`);
+                console.log(`  飞控向此端口发送遥测包（姿态角/电机/陀螺仪），释放 TCP 带宽`);
+            });
+        } catch (err) {
+            console.error('✗ UDP Telemetry server failed:', err.message);
+        }
     }
 
     startWebServer() {
@@ -401,7 +500,41 @@ class DroneServer {
             }
         });
 
-        // ========== PID 调参 API ==========
+        // ========== vofa+ 配置 API ==========
+        app.post('/api/vofa/enable', (req, res) => {
+            const { enabled } = req.body || {};
+            this.vofaEnabled = enabled === true;
+            console.log(`[API] vofa+ ${this.vofaEnabled ? 'enabled' : 'disabled'}`);
+            res.json({ success: true, enabled: this.vofaEnabled });
+        });
+
+        app.get('/api/vofa/status', (req, res) => {
+            res.json({
+                enabled: this.vofaEnabled,
+                port: CONFIG.VOFA_UDP_PORT,
+                clientCount: this.vofaClients.size
+            });
+        });
+
+        app.post('/api/vofa/add-client', (req, res) => {
+            const { ip } = req.body || {};
+            if (!ip || typeof ip !== 'string') {
+                return res.status(400).json({ error: 'Invalid IP' });
+            }
+            this.vofaClients.add(ip);
+            console.log(`[API] Added vofa+ client: ${ip} (total: ${this.vofaClients.size})`);
+            res.json({ success: true, clientCount: this.vofaClients.size });
+        });
+
+        app.post('/api/vofa/remove-client', (req, res) => {
+            const { ip } = req.body || {};
+            if (!ip || typeof ip !== 'string') {
+                return res.status(400).json({ error: 'Invalid IP' });
+            }
+            this.vofaClients.delete(ip);
+            console.log(`[API] Removed vofa+ client: ${ip} (remaining: ${this.vofaClients.size})`);
+            res.json({ success: true, clientCount: this.vofaClients.size });
+        });
 
         // 设置单个 PID 参数 (float)
         app.post('/api/pid/set', (req, res) => {
@@ -542,6 +675,7 @@ class DroneServer {
 
     removeClient(client, reason = null) {
         this.clients.delete(client.remoteAddr);
+        this.clientsByIP.delete(client.droneIP);
 
         if (reason) {
             console.log(
@@ -593,9 +727,17 @@ class DroneServer {
             ];
         }
 
+        this.broadcastTelemetry(client.remoteAddr, telemetry);
+    }
+
+    /**
+     * 将遥测数据广播到所有 WebSocket 客户端
+     * TCP 路径和 UDP 路径共用此方法
+     */
+    broadcastTelemetry(addr, telemetry) {
         const data = JSON.stringify({
             type: 'telemetry',
-            addr: client.remoteAddr,
+            addr,
             data: telemetry,
             timestamp: Date.now()
         });
@@ -604,6 +746,47 @@ class DroneServer {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(data);
             }
+        }
+
+        // 同时转发到 vofa+ (FireWater 协议)
+        if (this.vofaEnabled && this.vofaSocket && this.vofaClients.size > 0) {
+            this.sendToVofaClients(telemetry);
+        }
+    }
+
+    /**
+     * FireWater 协议转发遥测数据到 vofa+
+     * 格式: channel1:value1,channel2:value2,channel3:value3\n
+     */
+    sendToVofaClients(telemetry) {
+        if (!telemetry) return;
+
+        // 构建 FireWater 格式字符串（逗号分隔浮点数）
+        const values = [
+            telemetry.roll || 0,
+            telemetry.pitch || 0,
+            telemetry.yaw || 0,
+            telemetry.gyroX || 0,
+            telemetry.gyroY || 0,
+            telemetry.gyroZ || 0,
+            telemetry.accX || 0,
+            telemetry.accY || 0,
+            telemetry.accZ || 0,
+            (telemetry.motorOutputs && telemetry.motorOutputs[0]) || 0,
+            (telemetry.motorOutputs && telemetry.motorOutputs[1]) || 0,
+            (telemetry.motorOutputs && telemetry.motorOutputs[2]) || 0,
+            (telemetry.motorOutputs && telemetry.motorOutputs[3]) || 0
+        ];
+
+        // FireWater 格式: 13 个浮点数，逗号分隔，最后加换行
+        const payload = values.map(v => v.toFixed(2)).join(',') + '\n';
+
+        for (const clientIp of this.vofaClients) {
+            this.vofaSocket.send(Buffer.from(payload), CONFIG.VOFA_UDP_PORT, clientIp, (err) => {
+                if (err && err.code !== 'ENETUNREACH') {
+                    console.error(`[vofa+] Send error to ${clientIp}:`, err.message);
+                }
+            });
         }
     }
 
@@ -620,6 +803,12 @@ class DroneServer {
         }
         if (this.discoverySocket) {
             this.discoverySocket.close();
+        }
+        if (this.udpTelemetrySocket) {
+            this.udpTelemetrySocket.close();
+        }
+        if (this.vofaSocket) {
+            this.vofaSocket.close();
         }
         if (this.tcpServer) {
             this.tcpServer.close();

@@ -12,6 +12,11 @@ const HEADER_SIZE = 8;
 // 发现协议魔数 "ESPD"
 const DISCOVERY_MAGIC = Buffer.from([0x45, 0x53, 0x50, 0x44]);
 
+// UDP 遥测包魔数 "ESPU" + 类型字节
+// 格式: [0x45 0x53 0x50 0x55] [1字节类型=PacketType.TELEMETRY] [1字节序号] [遥测payload]
+const UDP_TELEMETRY_MAGIC = Buffer.from([0x45, 0x53, 0x50, 0x55]);
+const UDP_TELEMETRY_HEADER_SIZE = 6; // magic(4) + type(1) + seq(1)
+
 // 数据包类型
 const PacketType = {
     HEARTBEAT: 0x00,
@@ -165,6 +170,8 @@ module.exports = {
     PROTOCOL_VERSION,
     HEADER_SIZE,
     DISCOVERY_MAGIC,
+    UDP_TELEMETRY_MAGIC,
+    UDP_TELEMETRY_HEADER_SIZE,
     PacketType,
     ControlCmdType,
     RemoteControlMode,

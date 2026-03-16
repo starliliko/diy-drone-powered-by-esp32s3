@@ -82,6 +82,15 @@
 #define DISCOVERY_MAGIC 0x45535044 // "ESPD" 魔数
 #define DISCOVERY_TIMEOUT_MS 5000  // 发现超时时间
 
+// UDP 遥测发送配置
+// 包格式: [0x45 'E'][0x53 'S'][0x50 'P'][0x55 'U'][type=0x01][seq][payload]
+#define UDP_TELEM_MAGIC_0 0x45
+#define UDP_TELEM_MAGIC_1 0x53
+#define UDP_TELEM_MAGIC_2 0x50
+#define UDP_TELEM_MAGIC_3 0x55
+#define UDP_TELEM_PKT_TELEMETRY 0x01
+#define UDP_TELEM_HEADER_SIZE   6   // magic(4) + type(1) + seq(1)
+
 // 任务配置
 #define REMOTE_TX_TASK_NAME "remoteTx"
 #define REMOTE_TX_TASK_PRI 3
@@ -109,6 +118,11 @@ static EventGroupHandle_t eventGroup = NULL;
 // 动态服务器地址
 static char serverIP[16] = REMOTE_SERVER_IP; // 默认使用配置的IP
 static bool serverDiscovered = false;
+
+// UDP 遥测通道
+static uint16_t udpTelemetryPort = 0; // 从发现响应读取，0=不可用
+static int      udpSock          = -1;
+static uint8_t  udpTxSeq         = 0;
 
 #define EVT_CONNECTED (1 << 0)
 #define EVT_DISCONNECTED (1 << 1)
@@ -156,6 +170,7 @@ static void processReceivedPacket(const RemotePacketHeader *header, const uint8_
 static void handleControlPacket(const uint8_t *data, uint16_t size);
 static void handleCRTPPacket(const uint8_t *data, uint16_t size);
 static bool sendPacketInternal(RemotePacketType type, const uint8_t *data, uint16_t size);
+static bool sendUDPTelemetry(const uint8_t *payload, uint16_t size);
 static void updateConnectionState(RemoteConnectionState newState);
 static bool validateControlCmd(const RemoteControlCmd *cmd);
 
@@ -488,14 +503,45 @@ static bool discoverServerViaUDP(void)
             continue;
         }
 
+        // 读取 UDP 遥测端口（8字节扩展响应）
+        if (len >= 8)
+        {
+            udpTelemetryPort = (buffer[6] << 8) | buffer[7];
+            ESP_LOGI("REMOTE", "UDP telemetry port: %d", udpTelemetryPort);
+        }
+        else
+        {
+            udpTelemetryPort = 0;
+            ESP_LOGW("REMOTE", "Server response too short (%d bytes), UDP telemetry unavailable", len);
+        }
+
         // 使用发送方的 IP 地址
         char *ipStr = inet_ntoa(srcAddr.sin_addr);
         strncpy(serverIP, ipStr, sizeof(serverIP) - 1);
         serverIP[sizeof(serverIP) - 1] = '\0';
         serverDiscovered = true;
 
-        ESP_LOGI("REMOTE", "Discovered server at %s:%d (TCP port from packet: %d)",
-                 serverIP, REMOTE_SERVER_PORT, tcpPort);
+        // 如果服务器支持 UDP 遥测，提前创建 UDP socket
+        if (udpTelemetryPort > 0)
+        {
+            if (udpSock >= 0)
+            {
+                close(udpSock);
+            }
+            udpSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            if (udpSock < 0)
+            {
+                ESP_LOGE("REMOTE", "Failed to create UDP telemetry socket: errno=%d", errno);
+                udpTelemetryPort = 0; // 回退到 TCP
+            }
+            else
+            {
+                ESP_LOGI("REMOTE", "UDP telemetry socket created (fd=%d)", udpSock);
+            }
+        }
+
+        ESP_LOGI("REMOTE", "Discovered server at %s:%d (TCP=%d, UDP=%d)",
+                 serverIP, REMOTE_SERVER_PORT, tcpPort, udpTelemetryPort);
         close(discoverySock);
         return true;
     }
@@ -594,6 +640,12 @@ static void disconnectFromServer(void)
         close(sock);
         sock = -1;
     }
+    if (udpSock >= 0)
+    {
+        close(udpSock);
+        udpSock = -1;
+    }
+    udpTelemetryPort = 0;
     // 重置发现状态，下次重连时重新通过 UDP 广播发现服务器
     serverDiscovered = false;
     updateConnectionState(REMOTE_STATE_DISCONNECTED);
@@ -650,6 +702,48 @@ static bool sendPacketInternal(RemotePacketType type, const uint8_t *data, uint1
     }
 
     return success;
+}
+
+/**
+ * @brief 通过 UDP 发送遥测数据（高频路径，不占用 TCP 带宽）
+ * 包格式: [4字节魔数 ESPU] + [1字节类型] + [1字节序号] + [payload]
+ */
+static bool sendUDPTelemetry(const uint8_t *payload, uint16_t size)
+{
+    if (udpSock < 0 || udpTelemetryPort == 0 || !serverDiscovered)
+    {
+        return false;
+    }
+
+    // 构造 UDP 包头 (6字节)
+    uint8_t header[UDP_TELEM_HEADER_SIZE];
+    header[0] = UDP_TELEM_MAGIC_0;
+    header[1] = UDP_TELEM_MAGIC_1;
+    header[2] = UDP_TELEM_MAGIC_2;
+    header[3] = UDP_TELEM_MAGIC_3;
+    header[4] = UDP_TELEM_PKT_TELEMETRY;
+    header[5] = udpTxSeq++;
+
+    // 组装完整包
+    uint16_t totalSize = UDP_TELEM_HEADER_SIZE + size;
+    uint8_t *buf = (uint8_t *)malloc(totalSize);
+    if (!buf)
+    {
+        return false;
+    }
+    memcpy(buf, header, UDP_TELEM_HEADER_SIZE);
+    memcpy(buf + UDP_TELEM_HEADER_SIZE, payload, size);
+
+    struct sockaddr_in destAddr;
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port   = htons(udpTelemetryPort);
+    destAddr.sin_addr.s_addr = inet_addr(serverIP);
+
+    int ret = sendto(udpSock, buf, totalSize, 0,
+                     (struct sockaddr *)&destAddr, sizeof(destAddr));
+    free(buf);
+
+    return ret == totalSize;
 }
 
 static void remoteServerTxTask(void *param)
@@ -1341,8 +1435,23 @@ static void remoteServerTelemetryTask(void *param)
         }
 
         // 发送遥测数据
-        remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
-                               (uint8_t *)&telemetry, sizeof(telemetry));
+        // 优先走 UDP（高频、低延迟），UDP 不可用时回退 TCP
+        if (udpSock >= 0 && udpTelemetryPort > 0)
+        {
+            bool udpOk = sendUDPTelemetry((uint8_t *)&telemetry, sizeof(telemetry));
+            if (!udpOk)
+            {
+                ESP_LOGW("REMOTE", "UDP telemetry send failed, fallback to TCP");
+                remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
+                                       (uint8_t *)&telemetry, sizeof(telemetry));
+            }
+        }
+        else
+        {
+            // 旧服务器或 UDP 不可用，使用 TCP
+            remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
+                                   (uint8_t *)&telemetry, sizeof(telemetry));
+        }
     }
 }
 

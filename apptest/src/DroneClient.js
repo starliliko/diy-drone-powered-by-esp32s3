@@ -12,6 +12,9 @@ class DroneClient {
     constructor(socket, remoteAddr, server) {
         this.socket = socket;
         this.remoteAddr = remoteAddr;
+        this.droneIP = socket.remoteAddress
+            ? socket.remoteAddress.replace(/^::ffff:/, '')
+            : remoteAddr.split(':')[0];
         this.server = server;
         this.rxBuffer = Buffer.alloc(0);
         this.txSeq = 0;
