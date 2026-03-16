@@ -186,6 +186,7 @@ function parseTelemetry(buffer) {
         telemetry.isRcConnected = !!(telemetry.statusFlags & STATUS_FLAGS.RC_CONNECTED);
         telemetry.isGcsConnected = !!(telemetry.statusFlags & STATUS_FLAGS.GCS_CONNECTED);
         telemetry.isLowBattery = !!(telemetry.statusFlags & STATUS_FLAGS.BATTERY_LOW);
+        telemetry.isTumbled = !!(telemetry.statusFlags & STATUS_FLAGS.TUMBLED);
 
         // 添加可读的状态名称
         telemetry.armingStateName = ArmingState[telemetry.armingState] || 'UNKNOWN';
@@ -225,6 +226,7 @@ function parseTelemetry(buffer) {
         telemetry.actualFlightModeNameCN = '自稳模式';
         telemetry.controlSourceName = 'NONE';
         telemetry.controlSourceNameCN = '未知';
+        telemetry.isTumbled = false;
     }
 
     // 添加可读的目标模式名称

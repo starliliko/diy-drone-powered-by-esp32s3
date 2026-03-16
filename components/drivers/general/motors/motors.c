@@ -27,6 +27,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_attr.h"
+#include "esp_system.h"
+
 // ESP-IDF MCPWM driver
 #include "driver/mcpwm_prelude.h"
 
@@ -34,6 +37,7 @@
 #include "motors.h"
 #include "pm_esplane.h"
 #include "log.h"
+#include "param.h"
 #define DEBUG_MODULE "MOTORS"
 #include "debug_cf.h"
 
@@ -57,6 +61,10 @@ static mcpwm_oper_handle_t motor_operators[NBR_OF_MOTORS] = {NULL};
 static mcpwm_cmpr_handle_t motor_comparators[NBR_OF_MOTORS] = {NULL};
 static mcpwm_gen_handle_t motor_generators[NBR_OF_MOTORS] = {NULL};
 
+#define ESC_CALIB_BOOT_MAGIC 0xEC51CA1Bu
+static RTC_NOINIT_ATTR uint32_t escCalibBootFlag;
+static uint8_t escCalibRequest = 0;
+
 // 电机当前脉宽（us），用于读取和日志
 static uint32_t motor_pulse_us[NBR_OF_MOTORS] = {ESC_PULSE_MIN_US, ESC_PULSE_MIN_US, ESC_PULSE_MIN_US, ESC_PULSE_MIN_US};
 
@@ -65,6 +73,8 @@ uint32_t motor_ratios[NBR_OF_MOTORS] = {0, 0, 0, 0};
 
 void motorsBeep(int id, bool enable, uint16_t frequency, uint16_t ratio);
 static void motorsUnlockESC(void);
+static uint16_t pulseWidthToThrust(uint32_t pulse_us);
+static inline void motorSetPulseWidthRaw(uint32_t id, uint32_t pulse_us);
 const MotorPerifDef **motorMap; /* Current map configuration */
 
 const uint32_t MOTORS[] = {MOTOR_M1, MOTOR_M2, MOTOR_M3, MOTOR_M4};
@@ -72,6 +82,14 @@ const uint32_t MOTORS[] = {MOTOR_M1, MOTOR_M2, MOTOR_M3, MOTOR_M4};
 const uint16_t testsound[NBR_OF_MOTORS] = {0, 0, 0, 0};
 
 static bool isInit = false;
+
+static inline void motorSetPulseWidthRaw(uint32_t id, uint32_t pulse_us)
+{
+    ASSERT(id < NBR_OF_MOTORS);
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[id], pulse_us));
+    motor_pulse_us[id] = pulse_us;
+    motor_ratios[id] = pulseWidthToThrust(pulse_us);
+}
 
 /* Private functions */
 
@@ -142,9 +160,10 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
         };
         ESP_ERROR_CHECK(mcpwm_new_generator(motor_operators[i], &generator_config, &motor_generators[i]));
 
-        // 设置初始比较值为最大油门（2000us）用于校准
-        // 电调上电时需要检测到最大油门信号才能进入校准模式
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[i], ESC_PULSE_MAX_US));
+        // 安全起见：初始比较值设为最小油门（1000us）
+        // 电调上电时应收到最小油门信号，自动完成解锁流程
+        // 注意：切勿在启动时发送最大油门——会导致螺旋桨在上电瞬间全速旋转！
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[i], ESC_PULSE_MIN_US));
 
         // 设置生成器动作：计数器为空时输出高电平，达到比较值时输出低电平
         ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(motor_generators[i],
@@ -156,21 +175,28 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
         ESP_ERROR_CHECK(mcpwm_timer_enable(motor_timers[i]));
         ESP_ERROR_CHECK(mcpwm_timer_start_stop(motor_timers[i], MCPWM_TIMER_START_NO_STOP));
 
-        motor_pulse_us[i] = ESC_PULSE_MAX_US; // 初始为最大油门
-        motor_ratios[i] = 65535;
+        motor_pulse_us[i] = ESC_PULSE_MIN_US; // 初始为最小油门（安全）
+        motor_ratios[i] = 0;
     }
 
     DEBUG_PRINT("MCPWM ESC motors initialized (400Hz, 1000-2000us)\\n");
-    DEBUG_PRINT("PWM outputting MAX throttle for ESC calibration...\\n");
 
-    // 不需要额外延时，直接执行校准流程
-    motorsUnlockESC(); // 电调校准
+    // 若收到“首次行程校准”请求（通过参数触发并重启），
+    // 在PWM初始化后立即执行校准，避免电调误判油门状态。
+    if (escCalibBootFlag == ESC_CALIB_BOOT_MAGIC)
+    {
+        escCalibBootFlag = 0;
+        DEBUG_PRINT("ESC first calibration requested, running now...\\n");
+        motorsUnlockESC();
+    }
+    else
+    {
+        DEBUG_PRINT("All motors set to MIN throttle (1000us), waiting for ESC arm...\\n");
+        // 安全启动：持续发送最小油门（1000us），等待电调自动解锁
+        vTaskDelay(pdMS_TO_TICKS(500)); // 等待 0.5s，电调完成解锁确认
+        DEBUG_PRINT("ESC arm complete.\\n");
+    }
 
-    // 校准完成后确保所有电机停止
-    motorsSetRatio(MOTOR_M1, 0);
-    motorsSetRatio(MOTOR_M2, 0);
-    motorsSetRatio(MOTOR_M3, 0);
-    motorsSetRatio(MOTOR_M4, 0);
     isInit = true;
 }
 
@@ -219,10 +245,7 @@ void motorsSetRatio(uint32_t id, uint16_t ithrust)
         uint32_t pulse_us = thrustToPulseWidth(ithrust);
 
         // 设置比较值
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[id], pulse_us));
-
-        // 保存当前状态
-        motor_pulse_us[id] = pulse_us;
+        motorSetPulseWidthRaw(id, pulse_us);
         motor_ratios[id] = ithrust;
 
 #ifdef DEBUG_EP2
@@ -232,6 +255,15 @@ void motorsSetRatio(uint32_t id, uint16_t ithrust)
         // printf("M%d:%d ", id + 1, ithrust);
         // if (id == 3)
         //     printf("\n"); // 4个电机输出完换行
+
+        if (escCalibRequest)
+        {
+            escCalibRequest = 0;
+            escCalibBootFlag = ESC_CALIB_BOOT_MAGIC;
+            DEBUG_PRINT("ESC calibration command received. Rebooting to run calibration right after PWM init...\\n");
+            vTaskDelay(pdMS_TO_TICKS(20));
+            esp_restart();
+        }
     }
 }
 
@@ -252,10 +284,10 @@ static void motorsUnlockESC(void)
 
     // 步骤1：立即发送最大油门
     // 电调上电后会检测到高油门信号，进入校准模式
-    motorsSetRatio(MOTOR_M1, 65535);
-    motorsSetRatio(MOTOR_M2, 65535);
-    motorsSetRatio(MOTOR_M3, 65535);
-    motorsSetRatio(MOTOR_M4, 65535);
+    motorSetPulseWidthRaw(MOTOR_M1, ESC_PULSE_MAX_US);
+    motorSetPulseWidthRaw(MOTOR_M2, ESC_PULSE_MAX_US);
+    motorSetPulseWidthRaw(MOTOR_M3, ESC_PULSE_MAX_US);
+    motorSetPulseWidthRaw(MOTOR_M4, ESC_PULSE_MAX_US);
 
     // 等待足够长时间让电调完成初始化并识别最大油门
     // 电调需要时间：上电自检 + 检测油门信号 + 发出确认音
@@ -264,10 +296,10 @@ static void motorsUnlockESC(void)
     DEBUG_PRINT("Step 2: Min throttle (completing calibration)\\n");
 
     // 步骤2：发送最小油门，完成校准
-    motorsSetRatio(MOTOR_M1, 0);
-    motorsSetRatio(MOTOR_M2, 0);
-    motorsSetRatio(MOTOR_M3, 0);
-    motorsSetRatio(MOTOR_M4, 0);
+    motorSetPulseWidthRaw(MOTOR_M1, ESC_PULSE_MIN_US);
+    motorSetPulseWidthRaw(MOTOR_M2, ESC_PULSE_MIN_US);
+    motorSetPulseWidthRaw(MOTOR_M3, ESC_PULSE_MIN_US);
+    motorSetPulseWidthRaw(MOTOR_M4, ESC_PULSE_MIN_US);
 
     // 等待电调确认校准完成（通常会有确认音）
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -292,3 +324,7 @@ LOG_ADD(LOG_UINT32, m2_pwm, &motor_ratios[1])
 LOG_ADD(LOG_UINT32, m3_pwm, &motor_ratios[2])
 LOG_ADD(LOG_UINT32, m4_pwm, &motor_ratios[3])
 LOG_GROUP_STOP(pwm)
+
+PARAM_GROUP_START(escCalib)
+PARAM_ADD(PARAM_UINT8, request, &escCalibRequest)
+PARAM_GROUP_STOP(escCalib)

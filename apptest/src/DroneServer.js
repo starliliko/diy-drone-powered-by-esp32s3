@@ -36,6 +36,7 @@ class DroneServer {
         this.wss = null;
         this.discoverySocket = null;
         this.discoveryInterval = null;
+        this.wsPingTimer = null;
     }
 
     buildParamSetByNamePacket(group, name, type, value, valueSize) {
@@ -382,6 +383,24 @@ class DroneServer {
             res.json({ success: true });
         });
 
+        // ESC 首次行程校准（触发参数 escCalib.request=1）
+        app.post('/api/esc/calibrate-first', (req, res) => {
+            if (this.clients.size === 0) {
+                return res.status(400).json({ error: 'No drone connected' });
+            }
+
+            try {
+                for (const client of this.clients.values()) {
+                    // 固件收到后会重启，并在 PWM 初始化后立即执行最大->最小校准序列
+                    client.sendCRTP(this.buildParamSetByNamePacket('escCalib', 'request', PARAM_UINT8, 1, 1));
+                }
+                res.json({ success: true, action: 'esc_first_calibration_triggered' });
+            } catch (err) {
+                console.error('[ESC] Trigger first calibration error:', err.message);
+                res.status(500).json({ error: err.message });
+            }
+        });
+
         // ========== PID 调参 API ==========
 
         // 设置单个 PID 参数 (float)
@@ -459,10 +478,36 @@ class DroneServer {
     setupWebSocket() {
         this.wss.on('connection', (ws) => {
             console.log('WebSocket client connected');
+            ws.isAlive = true;
+            ws.lastSeenAt = Date.now();
             this.webClients.add(ws);
 
-            ws.on('close', () => {
-                console.log('WebSocket client disconnected');
+            ws.on('pong', () => {
+                ws.isAlive = true;
+                ws.lastSeenAt = Date.now();
+            });
+
+            ws.on('message', (raw) => {
+                try {
+                    const msg = JSON.parse(raw.toString());
+                    if (msg && msg.type === 'ping') {
+                        ws.isAlive = true;
+                        ws.lastSeenAt = Date.now();
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+                        }
+                    }
+                } catch (_) {
+                    // 忽略非JSON消息
+                }
+            });
+
+            ws.on('close', (code, reasonBuffer) => {
+                const reason = reasonBuffer ? reasonBuffer.toString() : '';
+                console.log(
+                    `WebSocket client disconnected | code=${code}` +
+                    `${reason ? ` | reason=${reason}` : ''}`
+                );
                 this.webClients.delete(ws);
             });
 
@@ -470,10 +515,56 @@ class DroneServer {
                 console.error('WebSocket error:', err.message);
             });
         });
+
+        // 服务端保活：定时ping，超时终止僵尸连接
+        if (this.wsPingTimer) {
+            clearInterval(this.wsPingTimer);
+        }
+        this.wsPingTimer = setInterval(() => {
+            for (const ws of this.webClients) {
+                if (ws.readyState !== WebSocket.OPEN) {
+                    this.webClients.delete(ws);
+                    continue;
+                }
+
+                const sinceLastSeen = Date.now() - (ws.lastSeenAt || 0);
+                if (sinceLastSeen > (CONFIG.WS_PING_TIMEOUT || 15000)) {
+                    this.webClients.delete(ws);
+                    ws.terminate();
+                    continue;
+                }
+
+                ws.isAlive = false;
+                ws.ping();
+            }
+        }, CONFIG.WS_PING_INTERVAL || 10000);
     }
 
-    removeClient(client) {
+    removeClient(client, reason = null) {
         this.clients.delete(client.remoteAddr);
+
+        if (reason) {
+            console.log(
+                `[${client.remoteAddr}] Client removed | reason=${reason.code}` +
+                `${reason.detail ? ` | detail=${reason.detail}` : ''}`
+            );
+        } else {
+            console.log(`[${client.remoteAddr}] Client removed | reason=unknown`);
+        }
+
+        // 通知前端有飞控断开及原因
+        const evt = JSON.stringify({
+            type: 'drone_disconnected',
+            addr: client.remoteAddr,
+            reason: reason || { code: 'unknown', detail: '' },
+            timestamp: Date.now()
+        });
+
+        for (const ws of this.webClients) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(evt);
+            }
+        }
     }
 
     onTelemetry(client, telemetry) {
@@ -523,6 +614,9 @@ class DroneServer {
     stop() {
         if (this.discoveryInterval) {
             clearInterval(this.discoveryInterval);
+        }
+        if (this.wsPingTimer) {
+            clearInterval(this.wsPingTimer);
         }
         if (this.discoverySocket) {
             this.discoverySocket.close();

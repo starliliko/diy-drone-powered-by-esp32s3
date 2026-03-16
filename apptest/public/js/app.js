@@ -29,8 +29,8 @@ async function refreshDroneClientStatus() {
 }
 
 function updateDroneConnectionState() {
-    // 认为 2 秒内收到过遥测即飞控在线
-    const telemetryAlive = (Date.now() - lastTelemetryTs) <= 2000;
+    // 认为 5 秒内收到过遥测即飞控在线，避免瞬时抖动误判
+    const telemetryAlive = (Date.now() - lastTelemetryTs) <= 5000;
     const nextState = wsConnected && (telemetryAlive || hasDroneClient);
     droneConnected = nextState;
 
@@ -107,6 +107,7 @@ window.stopAllMotors = () => window.motorTest?.stopAll();
 window.setAllMotors = (val) => window.motorTest?.setAll(val);
 window.sequentialTest = (thrust, duration) => window.motorTest?.sequential(thrust, duration);
 window.testAllMotors = (thrust) => window.motorTest?.testAll(thrust);
+window.triggerEscFirstCalibration = () => window.motorTest?.triggerEscFirstCalibration();
 
 // 初始化
 window.addEventListener('load', () => {

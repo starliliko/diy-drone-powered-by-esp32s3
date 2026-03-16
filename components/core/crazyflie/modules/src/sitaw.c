@@ -140,6 +140,9 @@ static void sitAwPreThrustUpdateCallOut(setpoint_t *setpoint)
   /* Code that shall run BEFORE each thrust distribution update, should be placed here. */
 
 #if defined(SITAW_ENABLED)
+
+
+
 #ifdef SITAW_TU_ENABLED
       if(sitAwTuDetected()) {
         /* Kill the thrust to the motors if a Tumbled situation is detected. */

@@ -36,6 +36,7 @@
 #include "commander.h"
 #include "crtp_commander.h"
 #include "vehicle_state.h"
+#include "sitaw.h"
 #include "stabilizer_types.h"
 #include "log.h"
 #include "param.h"
@@ -1139,6 +1140,10 @@ static void remoteServerTelemetryTask(void *param)
             telemetry.statusFlags |= STATUS_FLAG_GCS_CONNECTED;
         if (vstate.isBatteryLow)
             telemetry.statusFlags |= STATUS_FLAG_BATTERY_LOW;
+#ifdef SITAW_TU_ENABLED
+        if (sitAwTuDetected())
+            telemetry.statusFlags |= STATUS_FLAG_TUMBLED;
+#endif
 
         // 飞行时间
         telemetry.flightTime = vstate.flightTime;

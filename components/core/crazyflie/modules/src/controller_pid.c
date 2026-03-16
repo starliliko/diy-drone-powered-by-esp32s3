@@ -232,6 +232,30 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
     control->thrust = actuatorThrust;
   }
 
+  // 安全联锁：若内环+外环 PID 全部被设置为 0，禁止输出推力
+  // 否则会形成“无姿态稳定的开环油门”，可导致失控。
+  if (control->thrust >= THRUST_DEAD_ZONE && attitudeControllerAllPidGainsAreZero())
+  {
+    control->thrust = 0;
+    control->roll = 0;
+    control->pitch = 0;
+    control->yaw = 0;
+
+    cmd_thrust = control->thrust;
+    cmd_roll = control->roll;
+    cmd_pitch = control->pitch;
+    cmd_yaw = control->yaw;
+
+    attitudeControllerResetAllPID();
+    positionControllerResetAllPID();
+
+    static uint32_t pidZeroWarnCount = 0;
+    if (++pidZeroWarnCount % 500 == 0)
+    {
+      DEBUG_PRINT("Safety interlock: all PID gains are zero, thrust output blocked\n");
+    }
+  }
+
   if (control->thrust < THRUST_DEAD_ZONE)
   {
     control->thrust = 0;

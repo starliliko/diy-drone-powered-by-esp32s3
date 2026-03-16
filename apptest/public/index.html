@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP Drone 地面站</title>
-    <link rel="stylesheet" href="css/style.css?v=5">
+    <link rel="stylesheet" href="css/style.css?v=8">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
@@ -88,6 +88,24 @@
                     <div class="telemetry-row">
                         <span class="t-label">电机 M4 (后右)</span>
                         <span class="t-value" id="motor-m4-display">0%</span>
+                    </div>
+                </div>
+
+                <div class="panel-header">失控保护状态</div>
+                <div class="telemetry-grid protection-panel">
+                    <div class="telemetry-row">
+                        <span class="t-label">保护状态</span>
+                        <span class="t-value protection-state normal" id="protection-state-txt">正常</span>
+                    </div>
+                    <div class="protection-detail">
+                        <div class="protection-line">
+                            <span class="protection-k">原因：</span>
+                            <span class="protection-v" id="protection-reason-txt">无</span>
+                        </div>
+                        <div class="protection-line">
+                            <span class="protection-k">措施：</span>
+                            <span class="protection-v" id="protection-action-txt">监控中</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -264,6 +282,7 @@
                     <button class="test-btn test-btn-danger" onclick="stopAllMotors()">急停</button>
                     <button class="test-btn test-btn-success" onclick="setAllMotors(6554)">设置10%</button>
                     <button class="test-btn test-btn-success" onclick="setAllMotors(13107)">设置20%</button>
+                    <button class="test-btn test-btn-danger" onclick="triggerEscFirstCalibration()">ESC 首次行程校准</button>
                 </div>
                 <div
                     style="margin-top: 15px; padding: 15px; background: rgba(255,152,0,0.1); border-left: 3px solid var(--qgc-orange); border-radius: 4px;">
@@ -272,6 +291,7 @@
                         • 请务必卸下螺旋桨后再进行测试<br>
                         • 建议从小推力（5-10%）开始逐步增加<br>
                         • 使用急停按钮可立即停止所有电机<br>
+                        • ESC 首次行程校准会触发飞控重启并输出最大→最小油门，请务必断桨<br>
                         • 测试时请确保飞行器固定稳定
                     </p>
                 </div>
@@ -352,9 +372,9 @@
         </div>
     </div>
 
-    <script src="js/motorTest.js?v=5"></script>
-    <script src="js/pidTuner.js?v=5"></script>
-    <script type="module" src="js/app.js?v=5"></script>
+    <script src="js/motorTest.js?v=8"></script>
+    <script src="js/pidTuner.js?v=8"></script>
+    <script type="module" src="js/app.js?v=8"></script>
 </body>
 
 </html>

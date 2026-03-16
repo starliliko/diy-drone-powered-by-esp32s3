@@ -419,6 +419,48 @@ async function testAllMotors(thrustPercent = 10) {
 }
 
 /**
+ * 触发 ESC 首次行程校准（远程命令）
+ * 固件将收到 escCalib.request=1 后自动重启，并在 PWM 初始化后立即执行校准序列。
+ */
+async function triggerEscFirstCalibration() {
+    if (!isDroneConnected) {
+        console.warn('[MotorTest] 未连接，无法触发 ESC 校准');
+        alert('无人机未连接，无法触发 ESC 首次校准');
+        return;
+    }
+
+    const ok1 = confirm('确认执行 ESC 首次行程校准？\n\n该操作会让飞控重启，并输出“最大油门→最小油门”校准脉冲。');
+    if (!ok1) return;
+
+    const ok2 = confirm('请再次确认：\n1) 螺旋桨已拆除\n2) 机体已固定\n3) 周围无人\n\n确认后立即执行。');
+    if (!ok2) return;
+
+    try {
+        // 先确保测试输出归零
+        await stopAllMotors();
+
+        const response = await fetch('/api/esc/calibrate-first', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            const msg = result && result.error ? result.error : `HTTP ${response.status}`;
+            console.error('[MotorTest] ESC 首次校准触发失败:', msg);
+            alert(`ESC 首次校准触发失败: ${msg}`);
+            return;
+        }
+
+        console.log('[MotorTest] ESC 首次行程校准命令已发送，飞控将重启并自动执行校准');
+        alert('ESC 首次行程校准命令已发送。\n飞控将重启，并在 PWM 初始化后自动执行最大→最小校准。');
+    } catch (error) {
+        console.error('[MotorTest] ESC 首次校准触发异常:', error);
+        alert(`ESC 首次校准触发异常: ${error.message}`);
+    }
+}
+
+/**
  * 更新电机输出显示（从遥测数据）
  * @param {Object|Array} data - 电机遥测数据 {m1, m2, m3, m4} 或 [m1, m2, m3, m4]
  */
@@ -480,6 +522,7 @@ window.motorTest = {
     setAll: setAllMotors,
     sequential: sequentialTest,
     testAll: testAllMotors,
+    triggerEscFirstCalibration: triggerEscFirstCalibration,
     updateDisplay: updateMotorOutputDisplay,
     getStatus: getMotorTestStatus,
     isAvailable: isMotorTestAvailable

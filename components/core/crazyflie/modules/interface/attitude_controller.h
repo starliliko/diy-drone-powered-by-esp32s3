@@ -73,5 +73,11 @@ void attitudeControllerResetAllPID(void);
  */
 void attitudeControllerGetActuatorOutput(int16_t* roll, int16_t* pitch, int16_t* yaw);
 
+/**
+ * Returns true if all attitude/rate PID gains are effectively zero.
+ * Used as a runtime safety guard to prevent uncontrolled flight.
+ */
+bool attitudeControllerAllPidGainsAreZero(void);
+
 
 #endif /* ATTITUDE_CONTROLLER_H_ */

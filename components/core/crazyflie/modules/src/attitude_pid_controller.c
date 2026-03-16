@@ -24,6 +24,7 @@
  * attitude_pid_controller.c: Attitude controler using PID correctors
  */
 #include <stdbool.h>
+#include <math.h>
 
 #include "FreeRTOS.h"
 
@@ -178,6 +179,19 @@ void attitudeControllerGetActuatorOutput(int16_t *roll, int16_t *pitch, int16_t 
   *roll = rollOutput;
   *pitch = pitchOutput;
   *yaw = yawOutput;
+}
+
+bool attitudeControllerAllPidGainsAreZero(void)
+{
+  const float eps = 1e-6f;
+
+  return
+      fabsf(pidRoll.kp) <= eps && fabsf(pidRoll.ki) <= eps && fabsf(pidRoll.kd) <= eps &&
+      fabsf(pidPitch.kp) <= eps && fabsf(pidPitch.ki) <= eps && fabsf(pidPitch.kd) <= eps &&
+      fabsf(pidYaw.kp) <= eps && fabsf(pidYaw.ki) <= eps && fabsf(pidYaw.kd) <= eps &&
+      fabsf(pidRollRate.kp) <= eps && fabsf(pidRollRate.ki) <= eps && fabsf(pidRollRate.kd) <= eps &&
+      fabsf(pidPitchRate.kp) <= eps && fabsf(pidPitchRate.ki) <= eps && fabsf(pidPitchRate.kd) <= eps &&
+      fabsf(pidYawRate.kp) <= eps && fabsf(pidYawRate.ki) <= eps && fabsf(pidYawRate.kd) <= eps;
 }
 
 LOG_GROUP_START(pid_attitude)

@@ -26,6 +26,21 @@ const controlSourceState = {
     gcsConnected: false
 };
 
+const protectionStateTracker = {
+    initialized: false,
+    key: 'NORMAL'
+};
+
+const FailsafeNameCN = {
+    0: '无',
+    1: '低电量',
+    2: '严重低电',
+    3: '遥控信号丢失',
+    4: '地面站信号丢失',
+    5: '传感器故障',
+    6: '地理围栏'
+};
+
 export function updateDashboard(data) {
     // 姿态数据
     setText('roll-txt', data.roll.toFixed(1) + '°');
@@ -85,6 +100,11 @@ export function updateDashboard(data) {
         fsEl.style.color = (data.failsafeState > 0) ? 'var(--qgc-red)' : 'var(--qgc-text-main)';
     }
 
+    // 失控保护状态展示与日志
+    const protection = evaluateProtectionState(data);
+    updateProtectionUI(protection);
+    emitProtectionLog(protection);
+
     // 电池状态
     const battPct = data.battPercent;
     const bBar = document.getElementById('batt-bar');
@@ -131,6 +151,129 @@ export function updateDashboard(data) {
     // V3.3 机体坐标系速度
     setText('body-vel-x-txt', (data.bodyVelX !== undefined ? data.bodyVelX.toFixed(2) : '0.00') + ' m/s');
     setText('body-vel-y-txt', (data.bodyVelY !== undefined ? data.bodyVelY.toFixed(2) : '0.00') + ' m/s');
+}
+
+function evaluateProtectionState(data) {
+    const failsafeCn = FailsafeNameCN[data.failsafeState] || '未知';
+
+    if (data.isTumbled) {
+        return {
+            key: 'SITAW_TUMBLED',
+            level: 'active',
+            state: '保护触发',
+            reason: '翻覆检测触发急停(SITAW_TU)',
+            action: '已切断电机输出，需排除风险后复位解锁'
+        };
+    }
+
+    if (data.isEmergency) {
+        return {
+            key: 'EMERGENCY',
+            level: 'active',
+            state: '保护触发',
+            reason: '紧急停机(E-STOP)已触发',
+            action: '已切断电机输出并强制上锁'
+        };
+    }
+
+    if (data.failsafeState === 3) {
+        return {
+            key: 'FS_RC_LOSS',
+            level: 'active',
+            state: '保护触发',
+            reason: `故障安全: ${failsafeCn}`,
+            action: '强制上锁并将推力置零'
+        };
+    }
+
+    if (data.failsafeState === 2) {
+        return {
+            key: 'FS_CRITICAL_BATTERY',
+            level: 'active',
+            state: '保护触发',
+            reason: `故障安全: ${failsafeCn}`,
+            action: '进入严重低电保护，建议立即降落'
+        };
+    }
+
+    if (data.failsafeState > 0) {
+        return {
+            key: `FS_${data.failsafeState}`,
+            level: 'warn',
+            state: '保护预警',
+            reason: `故障安全: ${failsafeCn}`,
+            action: '已进入保护状态，请尽快处置'
+        };
+    }
+
+    if (data.armingState === 3) {
+        return {
+            key: 'ARMING_STANDBY_ERROR',
+            level: 'warn',
+            state: '保护预警',
+            reason: '解锁状态异常(STANDBY_ERROR)',
+            action: '禁止解锁，需排除故障后复位'
+        };
+    }
+
+    if (data.isArmed && data.controlSource === 0) {
+        return {
+            key: 'NO_CONTROL_SOURCE',
+            level: 'warn',
+            state: '保护预警',
+            reason: '已解锁但无有效控制源',
+            action: '等待控制链路恢复，超时将触发看门狗保护'
+        };
+    }
+
+    return {
+        key: 'NORMAL',
+        level: 'normal',
+        state: '正常',
+        reason: '无',
+        action: '监控中'
+    };
+}
+
+function updateProtectionUI(protection) {
+    const stateEl = document.getElementById('protection-state-txt');
+    if (stateEl) {
+        stateEl.textContent = protection.state;
+        stateEl.className = `t-value protection-state ${protection.level}`;
+    }
+
+    setText('protection-reason-txt', protection.reason);
+    setText('protection-action-txt', protection.action);
+}
+
+function emitProtectionLog(protection) {
+    if (!protectionStateTracker.initialized) {
+        protectionStateTracker.initialized = true;
+        protectionStateTracker.key = protection.key;
+        return;
+    }
+
+    if (protection.key === protectionStateTracker.key) {
+        return;
+    }
+
+    const prevKey = protectionStateTracker.key;
+    protectionStateTracker.key = protection.key;
+
+    if (protection.key === 'NORMAL') {
+        log('失控保护解除：状态恢复正常（措施：恢复常规监控）', 'success');
+        return;
+    }
+
+    const levelToLogType = {
+        active: 'error',
+        warn: 'warn',
+        normal: 'info'
+    };
+    const logType = levelToLogType[protection.level] || 'warn';
+
+    const prefix = prevKey === 'NORMAL' ? '失控保护触发' : '失控保护切换';
+    log(`${prefix}：原因=${protection.reason}；措施=${protection.action}`, logType);
 }
 
 function setText(id, text) {

@@ -175,6 +175,55 @@ body {
     align-items: center;
 }
 
+.protection-panel {
+    margin-bottom: 8px;
+}
+
+.protection-state {
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+}
+
+.protection-state.normal {
+    color: var(--qgc-green);
+    background: rgba(39, 217, 101, 0.12);
+}
+
+.protection-state.warn {
+    color: var(--qgc-orange);
+    background: rgba(217, 153, 39, 0.12);
+}
+
+.protection-state.active {
+    color: var(--qgc-red);
+    background: rgba(217, 66, 39, 0.15);
+}
+
+.protection-detail {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.protection-line {
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.protection-line + .protection-line {
+    margin-top: 4px;
+}
+
+.protection-k {
+    color: var(--qgc-text-muted);
+}
+
+.protection-v {
+    color: var(--qgc-text-main);
+}
+
 .t-label {
     color: var(--qgc-text-muted);
     font-size: 0.8rem;

@@ -131,6 +131,7 @@ extern "C"
 #define STATUS_FLAG_RC_CONNECTED (1 << 3)
 #define STATUS_FLAG_GCS_CONNECTED (1 << 4)
 #define STATUS_FLAG_BATTERY_LOW (1 << 5)
+#define STATUS_FLAG_TUMBLED (1 << 6)
 
     // 控制指令结构（下行）
     typedef struct __attribute__((packed))

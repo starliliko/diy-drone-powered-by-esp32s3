@@ -464,17 +464,10 @@ static bool runArmingChecks(bool force)
     }
 
     // 2. 电池检查
-    if ((vehicleState.armingCheckFlags & ARM_CHECK_BATTERY) && !force)
-    {
-        float voltage = pmGetBatteryVoltage();
-        if (voltage < (BATTERY_LOW_THRESHOLD_MV / 1000.0f))
-        {
-            vehicleState.armFailReason = ARM_FAIL_BATTERY_LOW;
-            vehicleState.armingCheckResult |= ARM_CHECK_BATTERY;
-            vehicleState.isBatteryLow = true;
-            return false;
-        }
-    }
+    // 当前项目未接入可靠电量测量，避免因无效电压值误判导致无法解锁。
+    // 统一视为电池状态正常。
+    (void)force;
+    vehicleState.isBatteryLow = false;
 
     // 3. 油门归零检查（需要从commander获取当前油门）
     // 这里简化处理，实际应该检查遥控器油门位置
@@ -542,29 +535,14 @@ static void updateFlightPhase(void)
  */
 static void updateFailsafe(void)
 {
-    // 检查电池
-    float voltage = pmGetBatteryVoltage();
-    if (voltage < (BATTERY_CRITICAL_THRESHOLD_MV / 1000.0f))
+    // 当前项目未接入可靠电量测量：
+    // 1) 不根据电压触发 LOW/CRITICAL_BATTERY failsafe
+    // 2) BatteryLow 标志始终清零
+    vehicleState.isBatteryLow = false;
+    if (vehicleState.failsafeState == FAILSAFE_LOW_BATTERY ||
+        vehicleState.failsafeState == FAILSAFE_CRITICAL_BATTERY)
     {
-        vehicleState.failsafeState = FAILSAFE_CRITICAL_BATTERY;
-        vehicleState.isBatteryLow = true;
-    }
-    else if (voltage < (BATTERY_LOW_THRESHOLD_MV / 1000.0f))
-    {
-        if (vehicleState.failsafeState < FAILSAFE_LOW_BATTERY)
-        {
-            vehicleState.failsafeState = FAILSAFE_LOW_BATTERY;
-        }
-        vehicleState.isBatteryLow = true;
-    }
-    else
-    {
-        vehicleState.isBatteryLow = false;
-        if (vehicleState.failsafeState == FAILSAFE_LOW_BATTERY ||
-            vehicleState.failsafeState == FAILSAFE_CRITICAL_BATTERY)
-        {
-            vehicleState.failsafeState = FAILSAFE_NONE;
-        }
+        vehicleState.failsafeState = FAILSAFE_NONE;
     }
 
     // 检查遥控器信号 - 如果已启用SBUS且信号丢失
