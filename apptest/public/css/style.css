@@ -1252,3 +1252,227 @@ body {
 .pid-log-success { color: var(--qgc-green); }
 .pid-log-warn { color: var(--qgc-orange); }
 .pid-log-error { color: var(--qgc-red); }
+
+/* vofa+ 配置面板 */
+#vofa-panel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 320px;
+    background: var(--qgc-panel-bg);
+    border: 1px solid var(--qgc-border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 500;
+    display: none;
+    flex-direction: column;
+    max-height: 500px;
+    overflow: hidden;
+}
+
+.vofa-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--qgc-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(44, 158, 221, 0.05);
+}
+
+.vofa-header h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--qgc-blue);
+    margin: 0;
+}
+
+.vofa-close-btn {
+    background: none;
+    border: none;
+    color: var(--qgc-text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+}
+
+.vofa-close-btn:hover {
+    color: var(--qgc-text-main);
+}
+
+.vofa-content {
+    padding: 12px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.vofa-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vofa-label {
+    font-size: 0.8rem;
+    color: var(--qgc-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.vofa-enable-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vofa-hint {
+    font-size: 0.75rem;
+    color: var(--qgc-text-muted);
+    line-height: 1.4;
+    padding: 4px 0;
+}
+
+.vofa-hint b {
+    color: var(--qgc-orange);
+}
+
+.vofa-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--qgc-blue);
+}
+
+.vofa-status {
+    font-size: 0.8rem;
+    padding: 6px 8px;
+    background: rgba(39, 217, 101, 0.1);
+    border: 1px solid rgba(39, 217, 101, 0.3);
+    border-radius: 3px;
+    color: var(--qgc-green);
+    text-align: center;
+}
+
+.vofa-status.disabled {
+    background: rgba(217, 66, 39, 0.1);
+    border-color: rgba(217, 66, 39, 0.3);
+    color: var(--qgc-red);
+}
+
+.vofa-input-group {
+    display: flex;
+    gap: 4px;
+}
+
+.vofa-input {
+    flex: 1;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--qgc-border);
+    border-radius: 3px;
+    color: var(--qgc-text-main);
+    font-size: 0.85rem;
+    transition: border-color 0.2s;
+}
+
+.vofa-input:focus {
+    outline: none;
+    border-color: var(--qgc-blue);
+    background: rgba(44, 158, 221, 0.1);
+}
+
+.vofa-btn-add {
+    padding: 6px 12px;
+    background: rgba(39, 217, 101, 0.1);
+    border: 1px solid rgba(39, 217, 101, 0.3);
+    color: var(--qgc-green);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.vofa-btn-add:hover {
+    background: rgba(39, 217, 101, 0.2);
+    border-color: rgba(39, 217, 101, 0.6);
+}
+
+.vofa-client-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.vofa-client-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--qgc-border);
+    border-radius: 3px;
+    font-size: 0.8rem;
+}
+
+.vofa-client-item span {
+    font-family: 'Courier New', monospace;
+    color: var(--qgc-text-main);
+}
+
+.vofa-btn-remove {
+    padding: 2px 6px;
+    background: rgba(217, 66, 39, 0.1);
+    border: 1px solid rgba(217, 66, 39, 0.3);
+    color: var(--qgc-red);
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.vofa-btn-remove:hover {
+    background: rgba(217, 66, 39, 0.2);
+    border-color: rgba(217, 66, 39, 0.6);
+}
+
+/* PID 工具栏按钮 */
+#pid-page-toolbar {
+    padding: 0 8px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-left: 1px solid var(--qgc-border);
+}
+
+.pid-toolbar-btn {
+    padding: 4px 10px;
+    background: rgba(44, 158, 221, 0.1);
+    border: 1px solid rgba(44, 158, 221, 0.3);
+    color: var(--qgc-blue);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.pid-toolbar-btn:hover {
+    background: rgba(44, 158, 221, 0.2);
+    border-color: rgba(44, 158, 221, 0.6);
+}

@@ -42,7 +42,7 @@ class DroneServer {
         this.udpTelemetrySocket = null;
         this.vofaSocket = null;            // vofa+ UDP socket
         this.vofaEnabled = true;           // vofa+ 默认启用
-        this.vofaClients = new Set();      // vofa+ 客户端 IP 集合
+        this.vofaClients = new Map();      // vofa+ 客户端 Map<key, {ip, port}>
     }
 
     buildParamSetByNamePacket(group, name, type, value, valueSize) {
@@ -509,30 +509,36 @@ class DroneServer {
         });
 
         app.get('/api/vofa/status', (req, res) => {
+            const clients = [];
+            for (const [key, val] of this.vofaClients) {
+                clients.push(val);
+            }
             res.json({
                 enabled: this.vofaEnabled,
-                port: CONFIG.VOFA_UDP_PORT,
+                clients,
                 clientCount: this.vofaClients.size
             });
         });
 
         app.post('/api/vofa/add-client', (req, res) => {
-            const { ip } = req.body || {};
+            const { ip, port } = req.body || {};
             if (!ip || typeof ip !== 'string') {
                 return res.status(400).json({ error: 'Invalid IP' });
             }
-            this.vofaClients.add(ip);
-            console.log(`[API] Added vofa+ client: ${ip} (total: ${this.vofaClients.size})`);
+            const clientPort = parseInt(port) || 1347;
+            const key = `${ip}:${clientPort}`;
+            this.vofaClients.set(key, { ip, port: clientPort });
+            console.log(`[API] Added vofa+ client: ${key} (total: ${this.vofaClients.size})`);
             res.json({ success: true, clientCount: this.vofaClients.size });
         });
 
         app.post('/api/vofa/remove-client', (req, res) => {
-            const { ip } = req.body || {};
-            if (!ip || typeof ip !== 'string') {
-                return res.status(400).json({ error: 'Invalid IP' });
+            const { key } = req.body || {};
+            if (!key || typeof key !== 'string') {
+                return res.status(400).json({ error: 'Invalid key' });
             }
-            this.vofaClients.delete(ip);
-            console.log(`[API] Removed vofa+ client: ${ip} (remaining: ${this.vofaClients.size})`);
+            this.vofaClients.delete(key);
+            console.log(`[API] Removed vofa+ client: ${key} (remaining: ${this.vofaClients.size})`);
             res.json({ success: true, clientCount: this.vofaClients.size });
         });
 
@@ -781,10 +787,11 @@ class DroneServer {
         // FireWater 格式: 13 个浮点数，逗号分隔，最后加换行
         const payload = values.map(v => v.toFixed(2)).join(',') + '\n';
 
-        for (const clientIp of this.vofaClients) {
-            this.vofaSocket.send(Buffer.from(payload), CONFIG.VOFA_UDP_PORT, clientIp, (err) => {
+        const buf = Buffer.from(payload);
+        for (const [key, client] of this.vofaClients) {
+            this.vofaSocket.send(buf, 0, buf.length, client.port, client.ip, (err) => {
                 if (err && err.code !== 'ENETUNREACH') {
-                    console.error(`[vofa+] Send error to ${clientIp}:`, err.message);
+                    console.error(`[vofa+] Send error to ${key}:`, err.message);
                 }
             });
         }

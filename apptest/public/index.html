@@ -299,8 +299,40 @@
         </div>
     </div>
 
+    <!-- vofa+ Configuration Panel -->
+    <div id="vofa-panel" style="display:none;">
+        <div class="vofa-header">
+            <h3>🎯 vofa+ 实时转发</h3>
+            <button onclick="toggleVofaPanel()" class="vofa-close-btn">✕</button>
+        </div>
+        <div class="vofa-content">
+            <div class="vofa-section">
+                <div class="vofa-enable-wrapper">
+                    <input type="checkbox" id="vofa-enable" onchange="toggleVofa(this.checked)" class="vofa-checkbox" checked>
+                    <label class="vofa-label">启用 FireWater 转发</label>
+                </div>
+                <div class="vofa-status" id="vofa-status">✓ 就绪</div>
+            </div>
+            <div class="vofa-section">
+                <label class="vofa-label">添加 vofa+ 客户端</label>
+                <div class="vofa-hint">填写 vofa+ 软件中的 <b>本地端口</b>，服务器会发送数据到该端口</div>
+                <div class="vofa-input-group">
+                    <input type="text" id="vofa-client-ip" placeholder="IP 地址" value="127.0.0.1" class="vofa-input" style="flex:2">
+                    <input type="number" id="vofa-client-port" placeholder="端口" value="1347" class="vofa-input" style="flex:1; max-width: 70px;">
+                    <button onclick="addVofaClient()" class="vofa-btn-add">添加</button>
+                </div>
+                <div class="vofa-client-list" id="vofa-clients">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- PID Tuning Page -->
     <div class="page" id="page-pid">
+        <!-- 工具栏 -->
+        <div id="pid-page-toolbar" style="display: flex; justify-content: flex-end;">
+            <button onclick="toggleVofaPanel()" class="pid-toolbar-btn">🎯 vofa+ 配置</button>
+        </div>
         <div class="pid-page-layout">
             <!-- 左侧: 实时曲线 (主区域) -->
             <div class="pid-chart-panel">
@@ -374,6 +406,7 @@
 
     <script src="js/motorTest.js?v=8"></script>
     <script src="js/pidTuner.js?v=8"></script>
+    <script src="js/vofa-client.js?v=1"></script>
     <script type="module" src="js/app.js?v=8"></script>
 </body>
 

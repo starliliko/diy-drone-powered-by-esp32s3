@@ -147,10 +147,11 @@ menu "ESPDrone Config"
             config REMOTE_SERVER_TELEMETRY_INTERVAL
                 int "Telemetry upload interval (ms)"
                 depends on REMOTE_SERVER_ENABLE
-                range 20 1000
-                default 100
+                range 10 1000
+                default 20
                 help
                     Interval between telemetry data uploads to the server.
+                    Recommended: 20ms (50Hz) for PID tuning with vofa+
         endmenu
     endmenu
 
