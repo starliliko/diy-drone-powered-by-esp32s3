@@ -85,9 +85,9 @@ var PID_GROUPS = {
         axes: ['roll', 'pitch', 'yaw'],
         gains: ['kp', 'ki', 'kd'],
         defaults: {
-            roll_kp: 150.0, roll_ki: 0.0, roll_kd: 1.5,
-            pitch_kp: 150.0, pitch_ki: 0.0, pitch_kd: 1.5,
-            yaw_kp: 80.0, yaw_ki: 0.0, yaw_kd: 0.0
+            roll_kp: 130.0, roll_ki: 0.0, roll_kd: 5.0,
+            pitch_kp: 130.0, pitch_ki: 0.0, pitch_kd: 5.0,
+            yaw_kp: 100.0, yaw_ki: 0.0, yaw_kd: 3.0
         },
         ranges: {
             kp: { min: 0, max: 500, step: 1 },
