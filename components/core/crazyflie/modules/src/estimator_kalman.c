@@ -239,8 +239,8 @@ static uint32_t baroAccumulatorCount;
 // by the attitude update itself, giving ~64 samples/update at 25Hz (1600Hz ODR).
 static Axis3f accAttAccumulator;
 static uint32_t accAttAccumulatorCount;
-static float accelAttitudeStdDevBase = 0.45f; //重力
-static float accelAttitudeStdDevSlope = 12.0f;
+static float accelAttitudeStdDevBase = 0.15f; // 降低：更信任加速度计姿态校正（原0.45太弱，K≈0.001无法抵消陀螺仪漂移）
+static float accelAttitudeStdDevSlope = 5.0f;  // 降低：非1g时也保持较强校正（原12.0）
 bool quadIsFlying = false; // 非静态，供传感器模块访问
 static uint32_t lastFlightCmd;
 static uint32_t takeoffTime;

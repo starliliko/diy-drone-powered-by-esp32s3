@@ -144,6 +144,7 @@ var chartLatestTelemetry = null;
 var chartRafId = 0;
 var chartLastRenderTs = 0;
 var syncStatusQueued = false;
+var PID_STORAGE_VERSION = 2;
 
 // ========== 初始化 ==========
 function initPidTuner() {
@@ -638,7 +639,10 @@ function updateSyncStatus() {
 // ========== 持久化 ==========
 function saveToStorage() {
     try {
-        localStorage.setItem('espdrone_pid_params', JSON.stringify(currentParams));
+        localStorage.setItem('espdrone_pid_params', JSON.stringify({
+            version: PID_STORAGE_VERSION,
+            params: currentParams
+        }));
         pidLog('[OK] 已保存到本地', 'success');
     } catch (e) { pidLog('保存失败: ' + e.message, 'error'); }
 }
@@ -648,7 +652,11 @@ function loadFromStorage() {
         var saved = localStorage.getItem('espdrone_pid_params');
         if (saved) {
             var parsed = JSON.parse(saved);
-            for (var k in parsed) currentParams[k] = parsed[k];
+            if (parsed && parsed.version === PID_STORAGE_VERSION && parsed.params) {
+                for (var k in parsed.params) currentParams[k] = parsed.params[k];
+            } else {
+                localStorage.removeItem('espdrone_pid_params');
+            }
         }
     } catch (e) {}
 }

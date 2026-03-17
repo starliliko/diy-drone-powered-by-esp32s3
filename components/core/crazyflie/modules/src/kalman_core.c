@@ -160,9 +160,10 @@ static bool tofInitialized = false; // TOF高度初始化完成标志
 // This value controls how fast P[D0/D1] grows between accel corrections.
 // Too large → P grows fast → but K = P/(P+R) saturates at ~1, causing jitter
 // Too small → P stays tiny → accel correction too weak, slow convergence
-// 0.07 rad/s ≈ 4°/s: matches post-LPF gyro noise + integration drift.
-// Steady-state P ≈ 2e-7 at 1kHz×40ms, giving K ≈ 0.001 (smooth).
-static float measNoiseGyro_rollpitch = 0.07f;
+// 0.15 rad/s: 增大过程噪声让 P 增长更快，提高 Kalman 增益
+// 原0.07时 K≈0.001 太弱，无法抵消陀螺仪残余偏置导致的姿态漂移
+// 0.15时 K≈0.009，每1°误差可校正~0.22°/s，足以抵消典型BMI088漂移
+static float measNoiseGyro_rollpitch = 0.15f;
 static float measNoiseGyro_yaw = 0.1f; // 降低到0.1：减缓P[D2]增长，配合静止时yaw约束使用
 
 static float initialX = 0.0;
@@ -899,63 +900,45 @@ void kalmanCorePredict(kalmanCoreData_t *this, float cmdThrust, Axis3f *acc, Axi
   // Process noise is added after the return from the prediction step
 
   // ====== PREDICTION STEP ======
-  // The prediction depends on whether we're on the ground, or in flight.
-  // When flying, the accelerometer directly measures thrust (hence is useless to estimate body angle while flying)
+  // Always use full 3-axis accelerometer for position/velocity prediction.
+  //
+  // The original Crazyflie code had a "flying mode" (quadIsFlying=true) that
+  // dropped acc.x/acc.y from velocity prediction, assuming they were just noise
+  // from motor vibration. However, this causes a critical bug:
+  //
+  // When thrust is commanded but motors are physically off (bench testing),
+  // or when on a test stand, the model predicts zero X/Y body acceleration
+  // but gravity still has X/Y components when tilted:
+  //   PX += dt * (-g * R[2][0])  →  diverges at g*sin(tilt) m/s²!
+  //
+  // The diverging velocity states corrupt attitude through P matrix cross-
+  // correlations (A[PX][D1] = g*R22*dt), causing attitude to drift toward 0°.
+  //
+  // Using full-acc prediction: PX += dt*(acc.x - g*R[2][0]) ≈ 0 when stationary,
+  // and correctly estimates forward acceleration during actual flight.
 
   float dx, dy, dz;
   float tmpSPX, tmpSPY, tmpSPZ;
-  float zacc;
 
-  if (quadIsFlying) // only acceleration in z direction
-  {
-    // TODO: In the next lines, can either use cmdThrust/mass, or acc->z. Need to test which is more reliable.
-    // cmdThrust's error comes from poorly calibrated mass, and inexact cmdThrust -> thrust map
-    // acc->z's error comes from measurement noise and accelerometer scaling
-    // float zacc = cmdThrust;
-    zacc = acc->z;
+  // position updates in the body frame (will be rotated to inertial frame)
+  dx = this->S[KC_STATE_PX] * dt + acc->x * dt2 / 2.0f;
+  dy = this->S[KC_STATE_PY] * dt + acc->y * dt2 / 2.0f;
+  dz = this->S[KC_STATE_PZ] * dt + acc->z * dt2 / 2.0f;
 
-    // position updates in the body frame (will be rotated to inertial frame)
-    dx = this->S[KC_STATE_PX] * dt;
-    dy = this->S[KC_STATE_PY] * dt;
-    dz = this->S[KC_STATE_PZ] * dt + zacc * dt2 / 2.0f; // thrust can only be produced in the body's Z direction
+  // position update
+  this->S[KC_STATE_X] += this->R[0][0] * dx + this->R[0][1] * dy + this->R[0][2] * dz;
+  this->S[KC_STATE_Y] += this->R[1][0] * dx + this->R[1][1] * dy + this->R[1][2] * dz;
+  this->S[KC_STATE_Z] += this->R[2][0] * dx + this->R[2][1] * dy + this->R[2][2] * dz - GRAVITY_MAGNITUDE * dt2 / 2.0f;
 
-    // position update
-    this->S[KC_STATE_X] += this->R[0][0] * dx + this->R[0][1] * dy + this->R[0][2] * dz;
-    this->S[KC_STATE_Y] += this->R[1][0] * dx + this->R[1][1] * dy + this->R[1][2] * dz;
-    this->S[KC_STATE_Z] += this->R[2][0] * dx + this->R[2][1] * dy + this->R[2][2] * dz - GRAVITY_MAGNITUDE * dt2 / 2.0f;
+  // keep previous time step's state for the update
+  tmpSPX = this->S[KC_STATE_PX];
+  tmpSPY = this->S[KC_STATE_PY];
+  tmpSPZ = this->S[KC_STATE_PZ];
 
-    // keep previous time step's state for the update
-    tmpSPX = this->S[KC_STATE_PX];
-    tmpSPY = this->S[KC_STATE_PY];
-    tmpSPZ = this->S[KC_STATE_PZ];
-
-    // body-velocity update: accelerometers - gyros cross velocity - gravity in body frame
-    this->S[KC_STATE_PX] += dt * (gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][0]);
-    this->S[KC_STATE_PY] += dt * (-gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][1]);
-    this->S[KC_STATE_PZ] += dt * (zacc + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_MAGNITUDE * this->R[2][2]);
-  }
-  else // Acceleration can be in any direction, as measured by the accelerometer. This occurs, eg. in freefall or while being carried.
-  {
-    // position updates in the body frame (will be rotated to inertial frame)
-    dx = this->S[KC_STATE_PX] * dt + acc->x * dt2 / 2.0f;
-    dy = this->S[KC_STATE_PY] * dt + acc->y * dt2 / 2.0f;
-    dz = this->S[KC_STATE_PZ] * dt + acc->z * dt2 / 2.0f; // thrust can only be produced in the body's Z direction
-
-    // position update
-    this->S[KC_STATE_X] += this->R[0][0] * dx + this->R[0][1] * dy + this->R[0][2] * dz;
-    this->S[KC_STATE_Y] += this->R[1][0] * dx + this->R[1][1] * dy + this->R[1][2] * dz;
-    this->S[KC_STATE_Z] += this->R[2][0] * dx + this->R[2][1] * dy + this->R[2][2] * dz - GRAVITY_MAGNITUDE * dt2 / 2.0f;
-
-    // keep previous time step's state for the update
-    tmpSPX = this->S[KC_STATE_PX];
-    tmpSPY = this->S[KC_STATE_PY];
-    tmpSPZ = this->S[KC_STATE_PZ];
-
-    // body-velocity update: accelerometers - gyros cross velocity - gravity in body frame
-    this->S[KC_STATE_PX] += dt * (acc->x + gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][0]);
-    this->S[KC_STATE_PY] += dt * (acc->y - gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][1]);
-    this->S[KC_STATE_PZ] += dt * (acc->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_MAGNITUDE * this->R[2][2]);
-  }
+  // body-velocity update: accelerometers - gyros cross velocity - gravity in body frame
+  this->S[KC_STATE_PX] += dt * (acc->x + gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][0]);
+  this->S[KC_STATE_PY] += dt * (acc->y - gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_MAGNITUDE * this->R[2][1]);
+  this->S[KC_STATE_PZ] += dt * (acc->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_MAGNITUDE * this->R[2][2]);
 
   // attitude update (rotate by gyroscope), we do this in quaternions
   // this is the gyroscope angular velocity integrated over the sample period
