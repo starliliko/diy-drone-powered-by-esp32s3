@@ -6,6 +6,7 @@
 
 const net = require('net');
 const http = require('http');
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const WebSocket = require('ws');
@@ -27,6 +28,8 @@ const MISC_SETBYNAME = 0x00;
 const PARAM_UINT8 = 0x08;  // PARAM_1BYTE | PARAM_TYPE_INT | PARAM_UNSIGNED
 const PARAM_UINT16 = 0x09; // PARAM_2BYTES | PARAM_TYPE_INT | PARAM_UNSIGNED
 const PARAM_FLOAT = 0x06;  // PARAM_4BYTES | PARAM_TYPE_FLOAT
+const ALLOWED_PID_GROUPS = new Set(['pid_attitude', 'pid_rate', 'velCtlPid', 'posCtlPid']);
+const PID_PROFILE_VERSION = 1;
 
 class DroneServer {
     constructor() {
@@ -39,10 +42,14 @@ class DroneServer {
         this.discoverySocket = null;
         this.discoveryInterval = null;
         this.wsPingTimer = null;
+        this.pidProfile = new Map();       // key: "group.name", value: float
+        this.pidAutoApplyDelayMs = 800;
+        this.pidProfilePath = path.join(__dirname, '..', 'data', 'pid_profile.json');
         this.udpTelemetrySocket = null;
         this.vofaSocket = null;            // vofa+ UDP socket
         this.vofaEnabled = true;           // vofa+ 默认启用
         this.vofaClients = new Map();      // vofa+ 客户端 Map<key, {ip, port}>
+        this.loadPidProfile();
     }
 
     buildParamSetByNamePacket(group, name, type, value, valueSize) {
@@ -90,6 +97,113 @@ class DroneServer {
 
         return buf;
     }
+
+    normalizePidParam(group, name, value) {
+        if (!ALLOWED_PID_GROUPS.has(group)) {
+            return { ok: false, error: `Invalid param group: ${group}` };
+        }
+        if (!name || typeof name !== 'string') {
+            return { ok: false, error: 'Invalid param name' };
+        }
+
+        const floatValue = parseFloat(value);
+        if (!Number.isFinite(floatValue)) {
+            return { ok: false, error: `Invalid float value: ${value}` };
+        }
+
+        return { ok: true, group, name, value: floatValue };
+    }
+
+    getPidProfileObject() {
+        const out = {};
+        for (const [key, value] of this.pidProfile.entries()) {
+            out[key] = value;
+        }
+        return out;
+    }
+
+    getPidProfileEntries() {
+        const out = [];
+        for (const [key, value] of this.pidProfile.entries()) {
+            const dot = key.indexOf('.');
+            if (dot <= 0) continue;
+            out.push({ group: key.slice(0, dot), name: key.slice(dot + 1), value });
+        }
+        out.sort((a, b) => `${a.group}.${a.name}`.localeCompare(`${b.group}.${b.name}`));
+        return out;
+    }
+
+    loadPidProfile() {
+        try {
+            if (!fs.existsSync(this.pidProfilePath)) return;
+
+            const raw = fs.readFileSync(this.pidProfilePath, 'utf8');
+            const parsed = JSON.parse(raw);
+            const nextMap = new Map();
+
+            if (parsed && parsed.params && typeof parsed.params === 'object' && !Array.isArray(parsed.params)) {
+                for (const key of Object.keys(parsed.params)) {
+                    const dot = key.indexOf('.');
+                    if (dot <= 0) continue;
+                    const normalized = this.normalizePidParam(key.slice(0, dot), key.slice(dot + 1), parsed.params[key]);
+                    if (!normalized.ok) continue;
+                    nextMap.set(`${normalized.group}.${normalized.name}`, normalized.value);
+                }
+            }
+
+            this.pidProfile = nextMap;
+            console.log(`[PID] Loaded profile: ${this.pidProfile.size} params`);
+        } catch (err) {
+            console.error('[PID] Failed to load profile:', err.message);
+        }
+    }
+
+    savePidProfile() {
+        try {
+            const dir = path.dirname(this.pidProfilePath);
+            fs.mkdirSync(dir, { recursive: true });
+            const payload = {
+                version: PID_PROFILE_VERSION,
+                updatedAt: new Date().toISOString(),
+                params: this.getPidProfileObject()
+            };
+            fs.writeFileSync(this.pidProfilePath, JSON.stringify(payload, null, 2), 'utf8');
+        } catch (err) {
+            console.error('[PID] Failed to save profile:', err.message);
+        }
+    }
+
+    mergePidProfileEntries(entries) {
+        let merged = 0;
+        for (const item of entries) {
+            const normalized = this.normalizePidParam(item.group, item.name, item.value);
+            if (!normalized.ok) continue;
+            this.pidProfile.set(`${normalized.group}.${normalized.name}`, normalized.value);
+            merged++;
+        }
+        if (merged > 0) this.savePidProfile();
+        return merged;
+    }
+
+    applyPidProfileToClient(client) {
+        const entries = this.getPidProfileEntries();
+        if (!client || entries.length === 0) return 0;
+
+        let applied = 0;
+        for (const p of entries) {
+            try {
+                const pkt = this.buildParamSetByNamePacket(p.group, p.name, PARAM_FLOAT, p.value, 4);
+                client.sendCRTP(pkt);
+                applied++;
+            } catch (err) {
+                console.error(`[PID] Apply failed (${p.group}.${p.name}): ${err.message}`);
+            }
+        }
+
+        console.log(`[PID] Auto-applied ${applied}/${entries.length} params to ${client.remoteAddr}`);
+        return applied;
+    }
+
 
     start() {
         this.startTCPServer();
@@ -239,6 +353,12 @@ class DroneServer {
             this.clients.set(remoteAddr, client);
             // 同时按 IP 建立索引，供 UDP 包匹配
             this.clientsByIP.set(client.droneIP, client);
+
+            setTimeout(() => {
+                if (this.clients.has(remoteAddr)) {
+                    this.applyPidProfileToClient(client);
+                }
+            }, this.pidAutoApplyDelayMs);
         });
 
         this.tcpServer.listen(CONFIG.TCP_PORT, () => {
@@ -543,74 +663,126 @@ class DroneServer {
         });
 
         // 设置单个 PID 参数 (float)
-        app.post('/api/pid/set', (req, res) => {
-            const { group, name, value } = req.body;
-            console.log(`[API] /api/pid/set - ${group}.${name} = ${value}`);
-
-            if (this.clients.size === 0) {
-                return res.status(400).json({ error: 'No drone connected' });
-            }
-
-            // 校验参数组名
-            const allowedGroups = ['pid_attitude', 'pid_rate', 'velCtlPid', 'posCtlPid'];
-            if (!allowedGroups.includes(group)) {
-                return res.status(400).json({ error: `Invalid param group: ${group}` });
-            }
-
-            const floatValue = parseFloat(value);
-            if (isNaN(floatValue)) {
-                return res.status(400).json({ error: `Invalid float value: ${value}` });
-            }
-
-            try {
-                for (const client of this.clients.values()) {
-                    const pkt = this.buildParamSetByNamePacket(group, name, PARAM_FLOAT, floatValue, 4);
-                    client.sendCRTP(pkt);
-                }
-                res.json({ success: true, group, name, value: floatValue });
-            } catch (err) {
-                console.error('[PID] Set param error:', err.message);
-                res.status(500).json({ error: err.message });
-            }
+        app.get('/api/pid/profile', (req, res) => {
+            res.json({
+                success: true,
+                version: PID_PROFILE_VERSION,
+                count: this.pidProfile.size,
+                params: this.getPidProfileObject()
+            });
         });
 
-        // 批量设置 PID 参数
-        app.post('/api/pid/batch', (req, res) => {
-            const { params } = req.body;
-            console.log(`[API] /api/pid/batch - ${params ? params.length : 0} params`);
-
-            if (this.clients.size === 0) {
-                return res.status(400).json({ error: 'No drone connected' });
+        app.post('/api/pid/profile', (req, res) => {
+            const { params } = req.body || {};
+            if (!params || typeof params !== 'object' || Array.isArray(params)) {
+                return res.status(400).json({ error: 'Invalid params object' });
             }
+
+            const entries = [];
+            for (const key of Object.keys(params)) {
+                const dot = key.indexOf('.');
+                if (dot <= 0) continue;
+                entries.push({
+                    group: key.slice(0, dot),
+                    name: key.slice(dot + 1),
+                    value: params[key]
+                });
+            }
+
+            const accepted = this.mergePidProfileEntries(entries);
+            res.json({ success: true, saved: accepted, count: this.pidProfile.size });
+        });
+
+        app.post('/api/pid/set', (req, res) => {
+            const { group, name, value } = req.body || {};
+            console.log(`[API] /api/pid/set - ${group}.${name} = ${value}`);
+
+            const normalized = this.normalizePidParam(group, name, value);
+            if (!normalized.ok) {
+                return res.status(400).json({ error: normalized.error });
+            }
+
+            this.mergePidProfileEntries([normalized]);
+
+            let appliedClients = 0;
+            const results = [];
+            for (const client of this.clients.values()) {
+                try {
+                    const pkt = this.buildParamSetByNamePacket(
+                        normalized.group,
+                        normalized.name,
+                        PARAM_FLOAT,
+                        normalized.value,
+                        4
+                    );
+                    client.sendCRTP(pkt);
+                    appliedClients++;
+                    results.push({ client: client.remoteAddr, success: true });
+                } catch (err) {
+                    results.push({ client: client.remoteAddr, error: err.message });
+                }
+            }
+
+            res.json({
+                success: true,
+                group: normalized.group,
+                name: normalized.name,
+                value: normalized.value,
+                saved: true,
+                appliedClients,
+                queued: this.clients.size === 0,
+                results
+            });
+        });
+
+        app.post('/api/pid/batch', (req, res) => {
+            const { params } = req.body || {};
+            console.log(`[API] /api/pid/batch - ${params ? params.length : 0} params`);
 
             if (!Array.isArray(params) || params.length === 0) {
                 return res.status(400).json({ error: 'No params provided' });
             }
 
+            const normalizedParams = [];
             const results = [];
-            const allowedGroups = ['pid_attitude', 'pid_rate', 'velCtlPid', 'posCtlPid'];
 
             for (const p of params) {
-                if (!allowedGroups.includes(p.group)) {
-                    results.push({ ...p, error: 'Invalid group' });
+                const normalized = this.normalizePidParam(p.group, p.name, p.value);
+                if (!normalized.ok) {
+                    results.push({ group: p.group, name: p.name, value: p.value, error: normalized.error });
                     continue;
                 }
-                const floatValue = parseFloat(p.value);
-                if (isNaN(floatValue)) {
-                    results.push({ ...p, error: 'Invalid value' });
+                normalizedParams.push(normalized);
+            }
+
+            this.mergePidProfileEntries(normalizedParams);
+
+            for (const p of normalizedParams) {
+                if (this.clients.size === 0) {
+                    results.push({ group: p.group, name: p.name, value: p.value, success: true, queued: true });
                     continue;
                 }
-                try {
-                    for (const client of this.clients.values()) {
-                        const pkt = this.buildParamSetByNamePacket(p.group, p.name, PARAM_FLOAT, floatValue, 4);
+
+                let applyOk = true;
+                let applyErr = '';
+                for (const client of this.clients.values()) {
+                    try {
+                        const pkt = this.buildParamSetByNamePacket(p.group, p.name, PARAM_FLOAT, p.value, 4);
                         client.sendCRTP(pkt);
+                    } catch (err) {
+                        applyOk = false;
+                        applyErr = err.message;
                     }
-                    results.push({ group: p.group, name: p.name, value: floatValue, success: true });
-                } catch (err) {
-                    results.push({ ...p, error: err.message });
+                }
+
+                if (applyOk) {
+                    results.push({ group: p.group, name: p.name, value: p.value, success: true });
+                } else {
+                    results.push({ group: p.group, name: p.name, value: p.value, error: applyErr || 'Apply failed' });
                 }
             }
-            res.json({ success: true, results });
+
+            res.json({ success: true, savedCount: normalizedParams.length, results });
         });
     }
 

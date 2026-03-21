@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ESP-Drone PID 调参模块 v2
  * ==========================
  * 多通道实时曲线 + PID 参数调节 + 参数持久化
@@ -145,6 +145,8 @@ var chartRafId = 0;
 var chartLastRenderTs = 0;
 var syncStatusQueued = false;
 var PID_STORAGE_VERSION = 2;
+var PROFILE_AUTOSAVE_DELAY_MS = 800;
+var profileSaveTimer = null;
 
 // ========== 初始化 ==========
 function initPidTuner() {
@@ -154,15 +156,17 @@ function initPidTuner() {
             currentParams[gn + '.' + k] = g.defaults[k];
         }
     }
-    loadFromStorage();
+    var loadedLocal = loadFromStorage();
     buildPidUI();
     buildChartToggles();
     buildCharts();
     startChartRenderLoop();
+    updateSyncStatus();
 
     if (statusPollTimer) clearInterval(statusPollTimer);
     refreshConnection();
     statusPollTimer = setInterval(refreshConnection, 1500);
+    loadProfileFromServer(loadedLocal);
     console.log('[PID Tuner] v2 init done');
 }
 
@@ -538,6 +542,7 @@ function onParamInput(paramKey, rawValue) {
     var slider = document.getElementById('slider-' + paramKey);
     if (slider) slider.value = val;
     scheduleSyncStatusUpdate();
+    scheduleProfilePersist();
 }
 
 function onSliderInput(paramKey, rawValue) {
@@ -548,6 +553,7 @@ function onSliderInput(paramKey, rawValue) {
     var input = document.getElementById('input-' + paramKey);
     if (input) input.value = val;
     scheduleSyncStatusUpdate();
+    scheduleProfilePersist();
 }
 
 function scheduleSyncStatusUpdate() {
@@ -575,6 +581,7 @@ function copyAxisParams(groupName, srcAxis) {
         if (sld) sld.value = currentParams[srcKey];
     }
     updateSyncStatus();
+    scheduleProfilePersist();
     pidLog(AXIS_LABELS[srcAxis].name + ' -> ' + AXIS_LABELS[dstAxis].name, 'info');
 }
 
@@ -638,13 +645,87 @@ function updateSyncStatus() {
 
 // ========== 持久化 ==========
 function saveToStorage() {
+    if (profileSaveTimer) {
+        clearTimeout(profileSaveTimer);
+        profileSaveTimer = null;
+    }
+    saveToLocalStorage(true);
+    saveProfileToServer(true).then(function(ok) {
+        if (ok && isDroneConnected) {
+            syncAllParamsToFC(true);
+        }
+    });
+}
+
+function saveToLocalStorage(showLog) {
     try {
         localStorage.setItem('espdrone_pid_params', JSON.stringify({
             version: PID_STORAGE_VERSION,
             params: currentParams
         }));
-        pidLog('[OK] 已保存到本地', 'success');
-    } catch (e) { pidLog('保存失败: ' + e.message, 'error'); }
+        if (showLog) pidLog('[OK] 已保存到本地', 'success');
+    } catch (e) {
+        if (showLog) pidLog('保存失败: ' + e.message, 'error');
+    }
+}
+
+function scheduleProfilePersist() {
+    saveToLocalStorage(false);
+    if (profileSaveTimer) clearTimeout(profileSaveTimer);
+    profileSaveTimer = setTimeout(function() {
+        profileSaveTimer = null;
+        saveProfileToServer(false);
+    }, PROFILE_AUTOSAVE_DELAY_MS);
+}
+
+function saveProfileToServer(showLog) {
+    return fetch('/api/pid/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: currentParams })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || '保存失败');
+        }
+        if (showLog) pidLog('[OK] 已保存到服务器', 'success');
+        return true;
+    })
+    .catch(function(err) {
+        if (showLog) pidLog('[ERR] 服务器保存失败: ' + err.message, 'error');
+        return false;
+    });
+}
+
+function syncAllParamsToFC(showLog) {
+    var keys = Object.keys(currentParams).filter(function(key) {
+        return key.indexOf('.') > 0;
+    });
+    if (keys.length === 0) return Promise.resolve(false);
+
+    var params = keys.map(function(key) {
+        var parts = key.split('.');
+        return { group: parts[0], name: parts[1], value: currentParams[key] };
+    });
+
+    return fetch('/api/pid/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: params })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data || !data.success) {
+            throw new Error((data && data.error) || '同步失败');
+        }
+        if (showLog) pidLog('[OK] 已自动同步服务器参数到飞控', 'success');
+        return true;
+    })
+    .catch(function(err) {
+        if (showLog) pidLog('[ERR] 自动同步失败: ' + err.message, 'warn');
+        return false;
+    });
 }
 
 function loadFromStorage() {
@@ -654,11 +735,62 @@ function loadFromStorage() {
             var parsed = JSON.parse(saved);
             if (parsed && parsed.version === PID_STORAGE_VERSION && parsed.params) {
                 for (var k in parsed.params) currentParams[k] = parsed.params[k];
+                return true;
             } else {
                 localStorage.removeItem('espdrone_pid_params');
             }
         }
     } catch (e) {}
+    return false;
+}
+
+function loadProfileFromServer(bootstrapFromLocal) {
+    fetch('/api/pid/profile', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data || !data.success) {
+                throw new Error((data && data.error) || '加载失败');
+            }
+
+            var params = (data.params && typeof data.params === 'object') ? data.params : {};
+            var keys = Object.keys(params);
+
+            if (keys.length === 0) {
+                if (bootstrapFromLocal) {
+                    saveProfileToServer(false).then(function(ok) {
+                        if (ok) {
+                            pidLog('[OK] 已用本地 PID 参数初始化服务器配置', 'success');
+                            if (isDroneConnected) {
+                                syncAllParamsToFC(false);
+                            }
+                        }
+                    });
+                }
+                return;
+            }
+
+            var accepted = 0;
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                if (key.indexOf('.') <= 0) continue;
+                var v = parseFloat(params[key]);
+                if (!isFinite(v)) continue;
+                currentParams[key] = v;
+                accepted++;
+            }
+
+            pendingChanges = {};
+            renderParamCards();
+            updateSyncStatus();
+            saveToLocalStorage(false);
+            pidLog('[OK] 已加载服务器 PID 配置 (' + accepted + ' 项)', 'success');
+        })
+        .catch(function(err) {
+            if (bootstrapFromLocal) {
+                saveProfileToServer(false);
+            }
+            pidLog('[!] 使用本地/默认 PID 参数: ' + err.message, 'warn');
+        });
 }
 
 function resetToDefaults() {
@@ -673,6 +805,7 @@ function resetToDefaults() {
     }
     renderParamCards();
     updateSyncStatus();
+    scheduleProfilePersist();
     pidLog('[!] 已恢复默认值，请同步到飞控', 'info');
 }
 
@@ -703,6 +836,7 @@ function importParams() {
                     }
                     renderParamCards();
                     updateSyncStatus();
+                    scheduleProfilePersist();
                     pidLog('[OK] 导入 ' + Object.keys(data.params).length + ' 项', 'success');
                 }
             } catch (err) { pidLog('导入失败: ' + err.message, 'error'); }
@@ -731,6 +865,9 @@ function setPidConnected(connected) {
 
     if (prev !== connected) {
         resetChartData();
+        if (connected && Object.keys(pendingChanges).length === 0) {
+            loadProfileFromServer(false);
+        }
     }
 
     var dot = document.getElementById('pid-conn-dot');
@@ -755,6 +892,19 @@ window.switchPidGroup = switchPidGroup;
 window.onParamInput = onParamInput;
 window.onSliderInput = onSliderInput;
 window.copyAxisParams = copyAxisParams;
+
+window.addEventListener('beforeunload', function() {
+    saveToLocalStorage(false);
+    try {
+        if (navigator && navigator.sendBeacon) {
+            var payload = new Blob(
+                [JSON.stringify({ params: currentParams })],
+                { type: 'application/json' }
+            );
+            navigator.sendBeacon('/api/pid/profile', payload);
+        }
+    } catch (e) {}
+});
 
 // 初始化
 function tryInitPid() {
