@@ -187,6 +187,7 @@ function parseTelemetry(buffer) {
         telemetry.isGcsConnected = !!(telemetry.statusFlags & STATUS_FLAGS.GCS_CONNECTED);
         telemetry.isLowBattery = !!(telemetry.statusFlags & STATUS_FLAGS.BATTERY_LOW);
         telemetry.isTumbled = !!(telemetry.statusFlags & STATUS_FLAGS.TUMBLED);
+        telemetry.isArmThrottleBlocked = !!(telemetry.statusFlags & STATUS_FLAGS.ARM_THROTTLE_BLOCK);
 
         // 添加可读的状态名称
         telemetry.armingStateName = ArmingState[telemetry.armingState] || 'UNKNOWN';
@@ -227,6 +228,7 @@ function parseTelemetry(buffer) {
         telemetry.controlSourceName = 'NONE';
         telemetry.controlSourceNameCN = '未知';
         telemetry.isTumbled = false;
+        telemetry.isArmThrottleBlocked = false;
     }
 
     // 添加可读的目标模式名称

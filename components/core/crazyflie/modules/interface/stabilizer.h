@@ -64,4 +64,9 @@ void stabilizerResetEmergencyStop();
  */
 void stabilizerSetEmergencyStopTimeout(int timeout);
 
+/**
+ * @brief Returns true when post-arm throttle gate is blocking motor output.
+ */
+bool stabilizerIsArmThrottleBlocked(void);
+
 #endif /* STABILIZER_H_ */

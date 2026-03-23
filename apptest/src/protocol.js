@@ -162,7 +162,8 @@ const STATUS_FLAGS = {
     RC_CONNECTED: 0x08,
     GCS_CONNECTED: 0x10,
     BATTERY_LOW: 0x20,
-    TUMBLED: 0x40
+    TUMBLED: 0x40,
+    ARM_THROTTLE_BLOCK: 0x80
 };
 
 module.exports = {

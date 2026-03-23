@@ -176,6 +176,16 @@ function evaluateProtectionState(data) {
         };
     }
 
+    if (data.isArmThrottleBlocked) {
+        return {
+            key: 'ARM_THROTTLE_BLOCK',
+            level: 'warn',
+            state: '保护预警',
+            reason: '解锁后高油门保护拦截已激活',
+            action: '请先将油门拉到低位保持后，再缓慢拉高'
+        };
+    }
+
     if (data.failsafeState === 3) {
         return {
             key: 'FS_RC_LOSS',

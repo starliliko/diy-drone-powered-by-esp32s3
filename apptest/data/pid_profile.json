@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-03-21T16:59:18.511Z",
+  "updatedAt": "2026-03-23T14:00:24.383Z",
   "params": {
     "pid_rate.roll_kp": 130,
     "pid_rate.roll_ki": 0,
@@ -11,10 +11,10 @@
     "pid_rate.yaw_kp": 100,
     "pid_rate.yaw_ki": 0,
     "pid_rate.yaw_kd": 3,
-    "pid_attitude.roll_kp": 5,
+    "pid_attitude.roll_kp": 0,
     "pid_attitude.roll_ki": 0,
     "pid_attitude.roll_kd": 0,
-    "pid_attitude.pitch_kp": 5,
+    "pid_attitude.pitch_kp": 0,
     "pid_attitude.pitch_ki": 0,
     "pid_attitude.pitch_kd": 0,
     "pid_attitude.yaw_kp": 0,

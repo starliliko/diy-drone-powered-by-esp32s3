@@ -37,6 +37,7 @@
 #include "crtp_commander.h"
 #include "vehicle_state.h"
 #include "sitaw.h"
+#include "stabilizer.h"
 #include "stabilizer_types.h"
 #include "log.h"
 #include "param.h"
@@ -1238,6 +1239,8 @@ static void remoteServerTelemetryTask(void *param)
         if (sitAwTuDetected())
             telemetry.statusFlags |= STATUS_FLAG_TUMBLED;
 #endif
+        if (stabilizerIsArmThrottleBlocked())
+            telemetry.statusFlags |= STATUS_FLAG_ARM_THROTTLE_BLOCK;
 
         // 飞行时间
         telemetry.flightTime = vstate.flightTime;
