@@ -425,38 +425,64 @@ async function testAllMotors(thrustPercent = 10) {
 async function triggerEscFirstCalibration() {
     if (!isDroneConnected) {
         console.warn('[MotorTest] 未连接，无法触发 ESC 校准');
-        alert('无人机未连接，无法触发 ESC 首次校准');
+        alert('无人机未连接，无法触发 ESC 校准');
         return;
     }
 
-    const ok1 = confirm('确认执行 ESC 首次行程校准？\n\n该操作会让飞控重启，并输出“最大油门→最小油门”校准脉冲。');
+    const ok1 = confirm('确认进入 ESC 手动校准？\n\n步骤1会持续输出最大油门，请在这之后手动给电调上电。');
     if (!ok1) return;
 
-    const ok2 = confirm('请再次确认：\n1) 螺旋桨已拆除\n2) 机体已固定\n3) 周围无人\n\n确认后立即执行。');
+    const ok2 = confirm('请再次确认：\n1) 螺旋桨已拆除\n2) 机体已固定\n3) 周围无人\n\n确认后发送【步骤1：最大油门】。');
     if (!ok2) return;
 
     try {
-        // 先确保测试输出归零
         await stopAllMotors();
 
-        const response = await fetch('/api/esc/calibrate-first', {
+        const startResp = await fetch('/api/esc/calibrate-first', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage: 'start' })
         });
 
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success) {
-            const msg = result && result.error ? result.error : `HTTP ${response.status}`;
-            console.error('[MotorTest] ESC 首次校准触发失败:', msg);
-            alert(`ESC 首次校准触发失败: ${msg}`);
+        const startResult = await startResp.json().catch(() => ({}));
+        if (!startResp.ok || !startResult.success) {
+            const msg = startResult && startResult.error ? startResult.error : `HTTP ${startResp.status}`;
+            console.error('[MotorTest] ESC 校准步骤1失败:', msg);
+            alert(`ESC 校准步骤1失败: ${msg}`);
             return;
         }
 
-        console.log('[MotorTest] ESC 首次行程校准命令已发送，飞控将重启并自动执行校准');
-        alert('ESC 首次行程校准命令已发送。\n飞控将重启，并在 PWM 初始化后自动执行最大→最小校准。');
+        const okFinish = confirm('步骤1已生效：飞控正在输出最大油门。\n\n现在请手动给电调上电，听到校准提示音后点击“确定”执行步骤2（切到最小油门完成校准）。\n\n点击“取消”将中止并恢复最小油门。');
+
+        if (!okFinish) {
+            await fetch('/api/esc/calibrate-first', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stage: 'abort' })
+            });
+            alert('已取消 ESC 校准，并恢复最小油门。');
+            return;
+        }
+
+        const finishResp = await fetch('/api/esc/calibrate-first', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage: 'finish' })
+        });
+
+        const finishResult = await finishResp.json().catch(() => ({}));
+        if (!finishResp.ok || !finishResult.success) {
+            const msg = finishResult && finishResult.error ? finishResult.error : `HTTP ${finishResp.status}`;
+            console.error('[MotorTest] ESC 校准步骤2失败:', msg);
+            alert(`ESC 校准步骤2失败: ${msg}`);
+            return;
+        }
+
+        console.log('[MotorTest] ESC 手动校准完成');
+        alert('ESC 手动校准完成：已切到最小油门。');
     } catch (error) {
-        console.error('[MotorTest] ESC 首次校准触发异常:', error);
-        alert(`ESC 首次校准触发异常: ${error.message}`);
+        console.error('[MotorTest] ESC 校准异常:', error);
+        alert(`ESC 校准异常: ${error.message}`);
     }
 }
 

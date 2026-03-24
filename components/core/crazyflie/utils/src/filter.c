@@ -107,3 +107,76 @@ float lpf2pReset(lpf2pData* lpfData, float sample)
   lpfData->delay_element_2 = dval;
   return lpf2pApply(lpfData, sample);
 }
+
+void notchFilterInit(lpf2pData* filterData, float sample_freq, float center_freq, float bandwidth_hz)
+{
+  if (filterData == NULL) {
+    return;
+  }
+
+  notchFilterSet(filterData, sample_freq, center_freq, bandwidth_hz);
+}
+
+void notchFilterSet(lpf2pData* filterData, float sample_freq, float center_freq, float bandwidth_hz)
+{
+  if (filterData == NULL) {
+    return;
+  }
+
+  if (sample_freq <= 0.0f || center_freq <= 0.0f || bandwidth_hz <= 0.0f) {
+    filterData->b0 = 1.0f;
+    filterData->b1 = 0.0f;
+    filterData->b2 = 0.0f;
+    filterData->a1 = 0.0f;
+    filterData->a2 = 0.0f;
+    filterData->delay_element_1 = 0.0f;
+    filterData->delay_element_2 = 0.0f;
+    return;
+  }
+
+  const float nyquist = sample_freq * 0.5f;
+  if (center_freq >= nyquist) {
+    filterData->b0 = 1.0f;
+    filterData->b1 = 0.0f;
+    filterData->b2 = 0.0f;
+    filterData->a1 = 0.0f;
+    filterData->a2 = 0.0f;
+    filterData->delay_element_1 = 0.0f;
+    filterData->delay_element_2 = 0.0f;
+    return;
+  }
+
+  float q = center_freq / bandwidth_hz;
+  if (q < 0.1f) {
+    q = 0.1f;
+  }
+
+  const float w0 = 2.0f * M_PI_F * center_freq / sample_freq;
+  const float alpha = sinf(w0) / (2.0f * q);
+  const float cos_w0 = cosf(w0);
+
+  const float b0 = 1.0f;
+  const float b1 = -2.0f * cos_w0;
+  const float b2 = 1.0f;
+  const float a0 = 1.0f + alpha;
+  const float a1 = -2.0f * cos_w0;
+  const float a2 = 1.0f - alpha;
+
+  filterData->b0 = b0 / a0;
+  filterData->b1 = b1 / a0;
+  filterData->b2 = b2 / a0;
+  filterData->a1 = a1 / a0;
+  filterData->a2 = a2 / a0;
+  filterData->delay_element_1 = 0.0f;
+  filterData->delay_element_2 = 0.0f;
+}
+
+float notchFilterApply(lpf2pData* filterData, float sample)
+{
+  return lpf2pApply(filterData, sample);
+}
+
+float notchFilterReset(lpf2pData* filterData, float sample)
+{
+  return lpf2pReset(filterData, sample);
+}

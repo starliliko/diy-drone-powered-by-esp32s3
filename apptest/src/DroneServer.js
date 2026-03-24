@@ -609,11 +609,17 @@ class DroneServer {
             }
 
             try {
-                for (const client of this.clients.values()) {
-                    // 固件收到后会重启，并在 PWM 初始化后立即执行最大->最小校准序列
-                    client.sendCRTP(this.buildParamSetByNamePacket('escCalib', 'request', PARAM_UINT8, 1, 1));
+                const stage = (req.body && req.body.stage ? String(req.body.stage) : 'start').toLowerCase();
+                const cmdMap = { start: 1, finish: 2, abort: 3 };
+                const cmd = cmdMap[stage];
+                if (!cmd) {
+                    return res.status(400).json({ error: 'Invalid stage, use start|finish|abort' });
                 }
-                res.json({ success: true, action: 'esc_first_calibration_triggered' });
+
+                for (const client of this.clients.values()) {
+                    client.sendCRTP(this.buildParamSetByNamePacket('escCalib', 'request', PARAM_UINT8, cmd, 1));
+                }
+                res.json({ success: true, action: `esc_calibration_${stage}`, command: cmd });
             } catch (err) {
                 console.error('[ESC] Trigger first calibration error:', err.message);
                 res.status(500).json({ error: err.message });

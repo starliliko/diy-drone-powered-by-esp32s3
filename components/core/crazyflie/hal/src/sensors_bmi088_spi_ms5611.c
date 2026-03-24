@@ -67,8 +67,14 @@
 #define SENSORS_ACC_SCALE_SAMPLES 200 // 加速度计比例样本数量
 
 // 参数适合平稳飞行
-#define GYRO_LPF_CUTOFF_FREQ 30  // 陀螺仪低通滤波器截止频率 (降低: 80→30Hz 减少噪声带宽)
+#define GYRO_LPF_CUTOFF_FREQ 25  // Lower gyro software LPF a bit more to suppress motor-induced vibration noise
+#define GYRO_NOTCH_DEFAULT_ENABLE 1
+#define GYRO_NOTCH_DEFAULT_CENTER_FREQ 120.0f
+#define GYRO_NOTCH_DEFAULT_BANDWIDTH 70.0f
 #define ACCEL_LPF_CUTOFF_FREQ 20 // 加速度计低通滤波器截止频率
+#define ACCEL_NOTCH_DEFAULT_ENABLE 0
+#define ACCEL_NOTCH_DEFAULT_CENTER_FREQ 120.0f
+#define ACCEL_NOTCH_DEFAULT_BANDWIDTH 70.0f
 
 #define ESP_INTR_FLAG_DEFAULT 0 // 默认中断优先级
 
@@ -129,6 +135,22 @@ static uint32_t accScaleSumCount = 0; // 加速度计比例因子累加计数
 // 二阶低通滤波器
 static lpf2pData accLpf[3];  // 加速度计低通滤波器数据
 static lpf2pData gyroLpf[3]; // 陀螺仪低通滤波器数据
+static lpf2pData gyroNotch[3];
+static lpf2pData accNotch[3];
+
+static uint8_t gyroNotchEnabled = GYRO_NOTCH_DEFAULT_ENABLE;
+static float gyroNotchCenterFreq = GYRO_NOTCH_DEFAULT_CENTER_FREQ;
+static float gyroNotchBandwidth = GYRO_NOTCH_DEFAULT_BANDWIDTH;
+static uint8_t accNotchEnabled = ACCEL_NOTCH_DEFAULT_ENABLE;
+static float accNotchCenterFreq = ACCEL_NOTCH_DEFAULT_CENTER_FREQ;
+static float accNotchBandwidth = ACCEL_NOTCH_DEFAULT_BANDWIDTH;
+
+static uint8_t gyroNotchEnabledApplied = 0;
+static float gyroNotchCenterFreqApplied = 0.0f;
+static float gyroNotchBandwidthApplied = 0.0f;
+static uint8_t accNotchEnabledApplied = 0;
+static float accNotchCenterFreqApplied = 0.0f;
+static float accNotchBandwidthApplied = 0.0f;
 
 static bool isBarometerPresent = false;               // 气压计存在标志
 static uint8_t baroMeasDelayMin = SENSORS_DELAY_BARO; // 气压计最小测量延迟
@@ -164,6 +186,9 @@ static void sensorsAddBiasValue(BiasObj *bias, int16_t x, int16_t y, int16_t z);
 static bool sensorsFindBiasValue(BiasObj *bias);
 static void sensorsAccAlignToGravity(Axis3f *in, Axis3f *out);
 static void applyAxis3fLpf(lpf2pData *data, Axis3f *in);
+static void applyAxis3fGyroFilters(Axis3f *in);
+static void applyAxis3fAccelFilters(Axis3f *in);
+static void refreshImuFilterConfig(void);
 static void sensorsDeviceInit(void);
 static void sensorsInterruptInit(void);
 static void sensorsScaleBaro(baro_t *baroScaled);
@@ -222,6 +247,7 @@ static void sensorsTask(void *param)
     {
         if (pdTRUE == xSemaphoreTake(sensorsDataReady, M2T(1000))) // 1秒超时
         {
+            refreshImuFilterConfig();
             interruptCount++;
             sensorData.interruptTimestamp = imuIntTimestamp;
 
@@ -268,7 +294,7 @@ static void sensorsTask(void *param)
                 sensorData.gyro.x = -(gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG;
                 sensorData.gyro.y = (gyroRaw.x - gyroBias.x) * SENSORS_BMI088_DEG_PER_LSB_CFG;
                 sensorData.gyro.z = -(gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG;
-                applyAxis3fLpf((lpf2pData *)(&gyroLpf), &sensorData.gyro);
+                applyAxis3fGyroFilters(&sensorData.gyro);
             }
 
             // Process accel data (only when fresh sample available)
@@ -280,7 +306,7 @@ static void sensorsTask(void *param)
                 accScaled.y = accelRaw.x * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
                 accScaled.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
                 sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
-                applyAxis3fLpf((lpf2pData *)(&accLpf), &sensorData.acc);
+                applyAxis3fAccelFilters(&sensorData.acc);
             }
         }
 
@@ -366,9 +392,18 @@ static void sensorsDeviceInit(void)
     // 初始化低通滤波器
     for (uint8_t i = 0; i < 3; i++)
     {
-        lpf2pInit(&gyroLpf[i], 1000, GYRO_LPF_CUTOFF_FREQ);
-        lpf2pInit(&accLpf[i], 1000, ACCEL_LPF_CUTOFF_FREQ);
+        lpf2pInit(&gyroLpf[i], SENSORS_READ_RATE_HZ, GYRO_LPF_CUTOFF_FREQ);
+        lpf2pInit(&accLpf[i], SENSORS_READ_RATE_HZ, ACCEL_LPF_CUTOFF_FREQ);
+        notchFilterInit(&gyroNotch[i], SENSORS_READ_RATE_HZ, GYRO_NOTCH_DEFAULT_CENTER_FREQ, GYRO_NOTCH_DEFAULT_BANDWIDTH);
+        notchFilterInit(&accNotch[i], SENSORS_READ_RATE_HZ, ACCEL_NOTCH_DEFAULT_CENTER_FREQ, ACCEL_NOTCH_DEFAULT_BANDWIDTH);
     }
+
+    gyroNotchEnabledApplied = gyroNotchEnabled;
+    gyroNotchCenterFreqApplied = gyroNotchCenterFreq;
+    gyroNotchBandwidthApplied = gyroNotchBandwidth;
+    accNotchEnabledApplied = accNotchEnabled;
+    accNotchCenterFreqApplied = accNotchCenterFreq;
+    accNotchBandwidthApplied = accNotchBandwidth;
 
     // cosPitch = cosf(configblockGetCalibPitch() * (float)M_PI / 180);
     // sinPitch = sinf(configblockGetCalibPitch() * (float)M_PI / 180);
@@ -727,14 +762,14 @@ void sensorsBmi088SpiMs5611SetAccMode(accModes accMode)
     case ACC_MODE_PROPTEST:
         for (uint8_t i = 0; i < 3; i++)
         {
-            lpf2pInit(&accLpf[i], 1000, 500);
+            lpf2pInit(&accLpf[i], SENSORS_READ_RATE_HZ, 500);
         }
         break;
     case ACC_MODE_FLIGHT:
     default:
         for (uint8_t i = 0; i < 3; i++)
         {
-            lpf2pInit(&accLpf[i], 1000, ACCEL_LPF_CUTOFF_FREQ);
+            lpf2pInit(&accLpf[i], SENSORS_READ_RATE_HZ, ACCEL_LPF_CUTOFF_FREQ);
         }
         break;
     }
@@ -745,6 +780,69 @@ static void applyAxis3fLpf(lpf2pData *data, Axis3f *in)
     for (uint8_t i = 0; i < 3; i++)
     {
         in->axis[i] = lpf2pApply(&data[i], in->axis[i]);
+    }
+}
+
+static void applyAxis3fGyroFilters(Axis3f *in)
+{
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        if (gyroNotchEnabled)
+        {
+            in->axis[i] = notchFilterApply(&gyroNotch[i], in->axis[i]);
+        }
+        in->axis[i] = lpf2pApply(&gyroLpf[i], in->axis[i]);
+    }
+}
+
+static void applyAxis3fAccelFilters(Axis3f *in)
+{
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        if (accNotchEnabled)
+        {
+            in->axis[i] = notchFilterApply(&accNotch[i], in->axis[i]);
+        }
+        in->axis[i] = lpf2pApply(&accLpf[i], in->axis[i]);
+    }
+}
+
+static void refreshImuFilterConfig(void)
+{
+    const bool gyroChanged =
+        gyroNotchEnabledApplied != gyroNotchEnabled ||
+        fabsf(gyroNotchCenterFreqApplied - gyroNotchCenterFreq) > 0.01f ||
+        fabsf(gyroNotchBandwidthApplied - gyroNotchBandwidth) > 0.01f;
+
+    if (gyroChanged)
+    {
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            lpf2pInit(&gyroLpf[i], SENSORS_READ_RATE_HZ, GYRO_LPF_CUTOFF_FREQ);
+            notchFilterInit(&gyroNotch[i], SENSORS_READ_RATE_HZ, gyroNotchCenterFreq, gyroNotchBandwidth);
+        }
+
+        gyroNotchEnabledApplied = gyroNotchEnabled;
+        gyroNotchCenterFreqApplied = gyroNotchCenterFreq;
+        gyroNotchBandwidthApplied = gyroNotchBandwidth;
+    }
+
+    const bool accChanged =
+        accNotchEnabledApplied != accNotchEnabled ||
+        fabsf(accNotchCenterFreqApplied - accNotchCenterFreq) > 0.01f ||
+        fabsf(accNotchBandwidthApplied - accNotchBandwidth) > 0.01f;
+
+    if (accChanged)
+    {
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            lpf2pInit(&accLpf[i], SENSORS_READ_RATE_HZ, ACCEL_LPF_CUTOFF_FREQ);
+            notchFilterInit(&accNotch[i], SENSORS_READ_RATE_HZ, accNotchCenterFreq, accNotchBandwidth);
+        }
+
+        accNotchEnabledApplied = accNotchEnabled;
+        accNotchCenterFreqApplied = accNotchCenterFreq;
+        accNotchBandwidthApplied = accNotchBandwidth;
     }
 }
 
@@ -775,4 +873,10 @@ LOG_GROUP_STOP(gyro)
 PARAM_GROUP_START(imu_sensors)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, MS5611, &isBarometerPresent)
 PARAM_ADD(PARAM_UINT8, skipBaro, &skipBaroCheck)
+PARAM_ADD(PARAM_UINT8, gyroNotchEn, &gyroNotchEnabled)
+PARAM_ADD(PARAM_FLOAT, gyroNotchHz, &gyroNotchCenterFreq)
+PARAM_ADD(PARAM_FLOAT, gyroNotchBw, &gyroNotchBandwidth)
+PARAM_ADD(PARAM_UINT8, accNotchEn, &accNotchEnabled)
+PARAM_ADD(PARAM_FLOAT, accNotchHz, &accNotchCenterFreq)
+PARAM_ADD(PARAM_FLOAT, accNotchBw, &accNotchBandwidth)
 PARAM_GROUP_STOP(imu_sensors)

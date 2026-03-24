@@ -47,6 +47,11 @@ void lpf2pSetCutoffFreq(lpf2pData* lpfData, float sample_freq, float cutoff_freq
 float lpf2pApply(lpf2pData* lpfData, float sample);
 float lpf2pReset(lpf2pData* lpfData, float sample);
 
+void notchFilterInit(lpf2pData* filterData, float sample_freq, float center_freq, float bandwidth_hz);
+void notchFilterSet(lpf2pData* filterData, float sample_freq, float center_freq, float bandwidth_hz);
+float notchFilterApply(lpf2pData* filterData, float sample);
+float notchFilterReset(lpf2pData* filterData, float sample);
+
 /** Second order low pass filter structure.
  *
  * using biquad filter with bilinear z transform

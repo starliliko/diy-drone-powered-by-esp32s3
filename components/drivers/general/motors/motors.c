@@ -23,14 +23,12 @@
 
 #include <stdbool.h>
 
-// FreeRTOS includes
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "esp_attr.h"
 #include "esp_system.h"
 
-// ESP-IDF MCPWM driver
 #include "driver/mcpwm_prelude.h"
 
 #include "stm32_legacy.h"
@@ -42,40 +40,34 @@
 #include "debug_cf.h"
 
 /******** MCPWM ESC Configuration ********/
-// ESC标准PWM参数：400Hz，脉宽1000~2000us
-#define ESC_TIMEBASE_RESOLUTION_HZ 1000000 // 1MHz，每tick为1us
-#define ESC_TIMEBASE_PERIOD 2500           // 2500 ticks = 2.5ms（400Hz）
-#define ESC_PULSE_MIN_US 1000              // 最小脉宽1000us（0%油门）
-#define ESC_PULSE_MAX_US 2000              // 最大脉宽2000us（100%油门）
+#define ESC_TIMEBASE_RESOLUTION_HZ 1000000
+#define ESC_TIMEBASE_PERIOD 2500
+#define ESC_PULSE_MIN_US 1000
+#define ESC_PULSE_MAX_US 2000
 
-// 电机GPIO数组
 static const int motor_gpios[NBR_OF_MOTORS] = {
     MOTOR1_GPIO,
     MOTOR2_GPIO,
     MOTOR3_GPIO,
     MOTOR4_GPIO};
 
-// MCPWM句柄
 static mcpwm_timer_handle_t motor_timers[NBR_OF_MOTORS] = {NULL};
 static mcpwm_oper_handle_t motor_operators[NBR_OF_MOTORS] = {NULL};
 static mcpwm_cmpr_handle_t motor_comparators[NBR_OF_MOTORS] = {NULL};
 static mcpwm_gen_handle_t motor_generators[NBR_OF_MOTORS] = {NULL};
 
-#define ESC_CALIB_BOOT_MAGIC 0xEC51CA1Bu
-static RTC_NOINIT_ATTR uint32_t escCalibBootFlag;
 static uint8_t escCalibRequest = 0;
+static bool escCalibActive = false;
 
-// 电机当前脉宽（us），用于读取和日志
 static uint32_t motor_pulse_us[NBR_OF_MOTORS] = {ESC_PULSE_MIN_US, ESC_PULSE_MIN_US, ESC_PULSE_MIN_US, ESC_PULSE_MIN_US};
-
-// 电机推力比例（0~65535），用于日志
 uint32_t motor_ratios[NBR_OF_MOTORS] = {0, 0, 0, 0};
 
 void motorsBeep(int id, bool enable, uint16_t frequency, uint16_t ratio);
-static void motorsUnlockESC(void);
+static void motorsHandleEscCalibCommand(void);
 static uint16_t pulseWidthToThrust(uint32_t pulse_us);
 static inline void motorSetPulseWidthRaw(uint32_t id, uint32_t pulse_us);
-const MotorPerifDef **motorMap; /* Current map configuration */
+static inline void motorsSetAllPulseWidthRaw(uint32_t pulse_us);
+const MotorPerifDef **motorMap;
 
 const uint32_t MOTORS[] = {MOTOR_M1, MOTOR_M2, MOTOR_M3, MOTOR_M4};
 
@@ -91,20 +83,19 @@ static inline void motorSetPulseWidthRaw(uint32_t id, uint32_t pulse_us)
     motor_ratios[id] = pulseWidthToThrust(pulse_us);
 }
 
-/* Private functions */
+static inline void motorsSetAllPulseWidthRaw(uint32_t pulse_us)
+{
+    for (uint32_t i = 0; i < NBR_OF_MOTORS; i++)
+    {
+        motorSetPulseWidthRaw(i, pulse_us);
+    }
+}
 
-/**
- * 将0~65535的推力值转换为1000~2000us脉宽
- */
 static uint32_t thrustToPulseWidth(uint16_t thrust)
 {
-    // 线性映射：0 -> 1000us, 65535 -> 2000us
     return ESC_PULSE_MIN_US + ((uint32_t)thrust * (ESC_PULSE_MAX_US - ESC_PULSE_MIN_US)) / 65535;
 }
 
-/**
- * 将1000~2000us脉宽转换为0~65535的推力值
- */
 static uint16_t pulseWidthToThrust(uint32_t pulse_us)
 {
     if (pulse_us <= ESC_PULSE_MIN_US)
@@ -114,9 +105,6 @@ static uint16_t pulseWidthToThrust(uint32_t pulse_us)
     return (uint16_t)(((pulse_us - ESC_PULSE_MIN_US) * 65535) / (ESC_PULSE_MAX_US - ESC_PULSE_MIN_US));
 }
 
-/* Public functions */
-
-// Initialization. Will set all motors ratio to 0% (1000us pulse)
 void motorsInit(const MotorPerifDef **motorMapSelect)
 {
     if (isInit)
@@ -126,12 +114,10 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
 
     motorMap = motorMapSelect;
 
-    // 为每个电机创建独立的MCPWM资源
     for (int i = 0; i < NBR_OF_MOTORS; i++)
     {
-        // 创建定时器（使用两个MCPWM组，每组2个电机）
         mcpwm_timer_config_t timer_config = {
-            .group_id = i / 2, // 电机0,1用组0；电机2,3用组1
+            .group_id = i / 2,
             .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
             .resolution_hz = ESC_TIMEBASE_RESOLUTION_HZ,
             .period_ticks = ESC_TIMEBASE_PERIOD,
@@ -139,69 +125,51 @@ void motorsInit(const MotorPerifDef **motorMapSelect)
         };
         ESP_ERROR_CHECK(mcpwm_new_timer(&timer_config, &motor_timers[i]));
 
-        // 创建操作器
         mcpwm_operator_config_t operator_config = {
             .group_id = i / 2,
         };
         ESP_ERROR_CHECK(mcpwm_new_operator(&operator_config, &motor_operators[i]));
 
-        // 连接定时器和操作器
         ESP_ERROR_CHECK(mcpwm_operator_connect_timer(motor_operators[i], motor_timers[i]));
 
-        // 创建比较器
         mcpwm_comparator_config_t comparator_config = {
             .flags.update_cmp_on_tez = true,
         };
         ESP_ERROR_CHECK(mcpwm_new_comparator(motor_operators[i], &comparator_config, &motor_comparators[i]));
 
-        // 创建生成器
         mcpwm_generator_config_t generator_config = {
             .gen_gpio_num = motor_gpios[i],
         };
         ESP_ERROR_CHECK(mcpwm_new_generator(motor_operators[i], &generator_config, &motor_generators[i]));
 
-        // 安全起见：初始比较值设为最小油门（1000us）
-        // 电调上电时应收到最小油门信号，自动完成解锁流程
-        // 注意：切勿在启动时发送最大油门——会导致螺旋桨在上电瞬间全速旋转！
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(motor_comparators[i], ESC_PULSE_MIN_US));
 
-        // 设置生成器动作：计数器为空时输出高电平，达到比较值时输出低电平
-        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(motor_generators[i],
-                                                                  MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)));
-        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_compare_event(motor_generators[i],
-                                                                    MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, motor_comparators[i], MCPWM_GEN_ACTION_LOW)));
+        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(
+            motor_generators[i],
+            MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)));
+        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_compare_event(
+            motor_generators[i],
+            MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, motor_comparators[i], MCPWM_GEN_ACTION_LOW)));
 
-        // 启用并启动定时器
         ESP_ERROR_CHECK(mcpwm_timer_enable(motor_timers[i]));
         ESP_ERROR_CHECK(mcpwm_timer_start_stop(motor_timers[i], MCPWM_TIMER_START_NO_STOP));
 
-        motor_pulse_us[i] = ESC_PULSE_MIN_US; // 初始为最小油门（安全）
+        motor_pulse_us[i] = ESC_PULSE_MIN_US;
         motor_ratios[i] = 0;
     }
 
     DEBUG_PRINT("MCPWM ESC motors initialized (400Hz, 1000-2000us)\\n");
-
-    // 若收到“首次行程校准”请求（通过参数触发并重启），
-    // 在PWM初始化后立即执行校准，避免电调误判油门状态。
-    if (escCalibBootFlag == ESC_CALIB_BOOT_MAGIC)
-    {
-        escCalibBootFlag = 0;
-        DEBUG_PRINT("ESC first calibration requested, running now...\\n");
-        motorsUnlockESC();
-    }
-    else
-    {
-        DEBUG_PRINT("All motors set to MIN throttle (1000us), waiting for ESC arm...\\n");
-        // 安全启动：持续发送最小油门（1000us），等待电调自动解锁
-        vTaskDelay(pdMS_TO_TICKS(500)); // 等待 0.5s，电调完成解锁确认
-        DEBUG_PRINT("ESC arm complete.\\n");
-    }
+    DEBUG_PRINT("All motors set to MIN throttle (1000us), waiting for ESC arm...\\n");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    DEBUG_PRINT("ESC arm complete.\\n");
 
     isInit = true;
 }
 
 void motorsDeInit(const MotorPerifDef **motorMapSelect)
 {
+    (void)motorMapSelect;
+
     for (int i = 0; i < NBR_OF_MOTORS; i++)
     {
         if (motor_timers[i] != NULL)
@@ -216,6 +184,7 @@ void motorsDeInit(const MotorPerifDef **motorMapSelect)
         }
     }
     isInit = false;
+    escCalibActive = false;
 }
 
 bool motorsTest(void)
@@ -224,7 +193,6 @@ bool motorsTest(void)
 
     for (i = 0; i < sizeof(MOTORS) / sizeof(*MOTORS); i++)
     {
-        // 无刷电机测试：短暂给一点油门
         motorsSetRatio(MOTORS[i], MOTORS_TEST_RATIO);
         vTaskDelay(M2T(MOTORS_TEST_ON_TIME_MS));
         motorsSetRatio(MOTORS[i], 0);
@@ -234,84 +202,88 @@ bool motorsTest(void)
     return isInit;
 }
 
-// ithrust: 0~65535 映射到 1000~2000us 脉宽
 void motorsSetRatio(uint32_t id, uint16_t ithrust)
 {
     if (isInit)
     {
+        motorsHandleEscCalibCommand();
+
         ASSERT(id < NBR_OF_MOTORS);
 
-        // 转换推力值为脉宽
+        if (escCalibActive)
+        {
+            // Block normal outputs while ESC calibration is active.
+            return;
+        }
+
         uint32_t pulse_us = thrustToPulseWidth(ithrust);
 
-        // 设置比较值
         motorSetPulseWidthRaw(id, pulse_us);
         motor_ratios[id] = ithrust;
 
 #ifdef DEBUG_EP2
         DEBUG_PRINT_LOCAL("Motor %d: thrust=%d, pulse=%ldus\n", id, ithrust, pulse_us);
 #endif
-        // // 添加实时输出
-        // printf("M%d:%d ", id + 1, ithrust);
-        // if (id == 3)
-        //     printf("\n"); // 4个电机输出完换行
-
-        if (escCalibRequest)
-        {
-            escCalibRequest = 0;
-            escCalibBootFlag = ESC_CALIB_BOOT_MAGIC;
-            DEBUG_PRINT("ESC calibration command received. Rebooting to run calibration right after PWM init...\\n");
-            vTaskDelay(pdMS_TO_TICKS(20));
-            esp_restart();
-        }
     }
 }
 
 int motorsGetRatio(uint32_t id)
 {
     ASSERT(id < NBR_OF_MOTORS);
-    // 从保存的脉宽转换回推力值
     return pulseWidthToThrust(motor_pulse_us[id]);
 }
 
-// 电调油门行程校准（每次启动执行）
-// 根据电调说明书：上电时需要先检测到最大油门信号
-// 流程：最大油门(上电检测) → 等待"哔-哔-"两声 → 最小油门 → 校准完成
-static void motorsUnlockESC(void)
+// ESC calibration command handling (manual power-on workflow):
+// request=1: hold MAX throttle and wait for user to power on ESC
+// request=2: switch to MIN throttle and finish calibration
+// request=3: abort calibration and force MIN throttle
+static void motorsHandleEscCalibCommand(void)
 {
-    DEBUG_PRINT("ESC calibration started...\\n");
-    DEBUG_PRINT("Step 1: Max throttle (wait for ESC power-up detection)\\n");
+    if (escCalibRequest == 0)
+    {
+        return;
+    }
 
-    // 步骤1：立即发送最大油门
-    // 电调上电后会检测到高油门信号，进入校准模式
-    motorSetPulseWidthRaw(MOTOR_M1, ESC_PULSE_MAX_US);
-    motorSetPulseWidthRaw(MOTOR_M2, ESC_PULSE_MAX_US);
-    motorSetPulseWidthRaw(MOTOR_M3, ESC_PULSE_MAX_US);
-    motorSetPulseWidthRaw(MOTOR_M4, ESC_PULSE_MAX_US);
+    const uint8_t cmd = escCalibRequest;
+    escCalibRequest = 0;
 
-    // 等待足够长时间让电调完成初始化并识别最大油门
-    // 电调需要时间：上电自检 + 检测油门信号 + 发出确认音
-    vTaskDelay(pdMS_TO_TICKS(500)); // 0.5秒，确保听到"哔-哔-"声
+    if (cmd == 1)
+    {
+        escCalibActive = true;
+        motorsSetAllPulseWidthRaw(ESC_PULSE_MAX_US);
+        DEBUG_PRINT("ESC calibration STEP1: MAX throttle active. Power on ESC manually now.\\n");
+        return;
+    }
 
-    DEBUG_PRINT("Step 2: Min throttle (completing calibration)\\n");
+    if (cmd == 2)
+    {
+        if (!escCalibActive)
+        {
+            DEBUG_PRINT("ESC calibration STEP2 ignored: STEP1 not active.\\n");
+            return;
+        }
 
-    // 步骤2：发送最小油门，完成校准
-    motorSetPulseWidthRaw(MOTOR_M1, ESC_PULSE_MIN_US);
-    motorSetPulseWidthRaw(MOTOR_M2, ESC_PULSE_MIN_US);
-    motorSetPulseWidthRaw(MOTOR_M3, ESC_PULSE_MIN_US);
-    motorSetPulseWidthRaw(MOTOR_M4, ESC_PULSE_MIN_US);
+        motorsSetAllPulseWidthRaw(ESC_PULSE_MIN_US);
+        DEBUG_PRINT("ESC calibration STEP2: MIN throttle active, waiting ESC confirm tones...\\n");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        escCalibActive = false;
+        DEBUG_PRINT("ESC calibration complete.\\n");
+        return;
+    }
 
-    // 等待电调确认校准完成（通常会有确认音）
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    if (cmd == 3)
+    {
+        escCalibActive = false;
+        motorsSetAllPulseWidthRaw(ESC_PULSE_MIN_US);
+        DEBUG_PRINT("ESC calibration aborted, forced MIN throttle.\\n");
+        return;
+    }
 
-    DEBUG_PRINT("ESC calibration complete!\\n");
+    DEBUG_PRINT("ESC calibration unknown cmd=%d (use 1=start,2=finish,3=abort)\\n", cmd);
 }
 
-// 无刷电机+ESC不支持蜂鸣功能，保留空函数
 void motorsBeep(int id, bool enable, uint16_t frequency, uint16_t ratio)
 {
-    // 无刷电调不支持通过PWM频率变化发声
-    // 如需蜂鸣功能，请使用支持蜂鸣的ESC或外置蜂鸣器
     (void)id;
     (void)enable;
     (void)frequency;

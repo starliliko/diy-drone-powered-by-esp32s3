@@ -56,7 +56,7 @@
 #define MOTOR_TEST_TASK_PRI (tskIDLE_PRIORITY + 1)
 #define MOTOR_TEST_TASK_NAME "MOTOR_TEST"
 
-#define SEQUENTIAL_TEST_THRUST (uint16_t)(0.20 * 65535) // 顺序测试推力：20%（需高于电机启动死区~15%）
+#define SEQUENTIAL_TEST_THRUST (uint16_t)(0.15 * 65535) // 顺序测试推力：15%，降低测试转速同时保留可起转余量
 #define SEQUENTIAL_TEST_DURATION_MS 1000                // 每个电机运行时长
 #define SEQUENTIAL_TEST_INTERVAL_MS 500                 // 电机间隔时长
 
