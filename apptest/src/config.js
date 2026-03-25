@@ -10,6 +10,9 @@ module.exports = {
     DISCOVERY_PORT: 8081,        // UDP 广播发现端口
     UDP_TELEMETRY_PORT: 8082,    // UDP 遥测端口（高频姿态/电机/陀螺仪数据）
     VOFA_UDP_PORT: 8083,         // UDP vofa+ FireWater 协议转发端口
+    WEB_TELEMETRY_INTERVAL: 10,  // 网页端遥测限速到 10ms（100Hz），VOFA 保持全速
+    DEBUG_TELEMETRY_PARSER: false,
+    DEBUG_TELEMETRY_MOTORS: false,
     DISCOVERY_INTERVAL: 2000,    // 广播间隔(ms)
     HEARTBEAT_TIMEOUT: 10000,    // 心跳超时时间(ms)
     HEARTBEAT_CHECK_INTERVAL: 3000,

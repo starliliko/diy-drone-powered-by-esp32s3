@@ -69,8 +69,8 @@
 // 参数适合平稳飞行
 #define GYRO_LPF_CUTOFF_FREQ 25  // Lower gyro software LPF a bit more to suppress motor-induced vibration noise
 #define GYRO_NOTCH_DEFAULT_ENABLE 1
-#define GYRO_NOTCH_DEFAULT_CENTER_FREQ 120.0f
-#define GYRO_NOTCH_DEFAULT_BANDWIDTH 70.0f
+#define GYRO_NOTCH_DEFAULT_CENTER_FREQ 105.0f
+#define GYRO_NOTCH_DEFAULT_BANDWIDTH 15.0f
 #define ACCEL_LPF_CUTOFF_FREQ 20 // 加速度计低通滤波器截止频率
 #define ACCEL_NOTCH_DEFAULT_ENABLE 0
 #define ACCEL_NOTCH_DEFAULT_CENTER_FREQ 120.0f

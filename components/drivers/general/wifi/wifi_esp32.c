@@ -357,6 +357,7 @@ void wifiInit(void)
 
     // 启动 Wi-Fi
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     // 配置 AP 的静态 IP
     esp_netif_ip_info_t ip_info = {
@@ -433,6 +434,7 @@ void wifiInit(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     esp_netif_ip_info_t ip_info = {
         .ip.addr = ipaddr_addr("192.168.43.42"),
         .netmask.addr = ipaddr_addr("255.255.255.0"),
