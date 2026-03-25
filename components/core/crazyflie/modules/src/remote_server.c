@@ -1194,6 +1194,7 @@ static void remoteServerTelemetryTask(void *param)
                         estZId, estVxId, estVyId, estVzId, baroHeightId, tofDistanceId);
             DEBUG_PRINT("  bodyVx=%d, bodyVy=%d (valid: %d, %d)\n",
                         bodyVxId, bodyVyId, LOG_VARID_IS_VALID(bodyVxId), LOG_VARID_IS_VALID(bodyVyId));
+            DEBUG_PRINT("WARNING: telemetry.gyroY uses pitch sign compensation to match telemetry.pitch\n");
         }
 
         // 填充遥测数据
@@ -1204,7 +1205,8 @@ static void remoteServerTelemetryTask(void *param)
 
         // 角速度（从陀螺仪获取，单位：deg/s�?
         telemetry.gyroX = (int16_t)(logGetFloat(gyroXId) * 10);
-        telemetry.gyroY = (int16_t)(logGetFloat(gyroYId) * 10);
+        // Export pitch rate in the same sign convention as telemetry.pitch and PID pitch control.
+        telemetry.gyroY = (int16_t)(-logGetFloat(gyroYId) * 10);
         telemetry.gyroZ = (int16_t)(logGetFloat(gyroZId) * 10);
 
         // 加速度（单位：g，转换为 mg�?

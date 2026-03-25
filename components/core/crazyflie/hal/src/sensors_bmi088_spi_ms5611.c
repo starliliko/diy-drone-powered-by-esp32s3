@@ -1,4 +1,4 @@
-#define DEBUG_MODULE "IMU" // IMU模块
+#define DEBUG_MODULE "IMU" // IMU妯″潡
 
 #include <math.h>
 
@@ -26,70 +26,73 @@
 #include "bmi088_spi.h"
 #include "bmi088_config.h"
 #include "bmi088.h"
-#include "estimator_kalman.h" // 用于获取quadIsFlying状态
+#include "estimator_kalman.h" // 鐢ㄤ簬鑾峰彇quadIsFlying鐘舵€?
 
-#define GYRO_ADD_RAW_AND_VARIANCE_LOG_VALUES // 启用陀螺仪原始值和方差日志记录
-#define GYRO_DYNAMIC_CALIBRATION_ENABLED 1   // 启用陀螺仪动态校准
+#define GYRO_ADD_RAW_AND_VARIANCE_LOG_VALUES // 鍚敤闄€铻轰华鍘熷鍊煎拰鏂瑰樊鏃ュ織璁板綍
+#define GYRO_DYNAMIC_CALIBRATION_ENABLED 1   // 鍚敤闄€铻轰华鍔ㄦ€佹牎鍑?
 
-#define SENSORS_READ_RATE_HZ 1000 // 传感器读取频率 (1kHz控制循环)
+#define SENSORS_READ_RATE_HZ 1000 // 浼犳劅鍣ㄨ鍙栭鐜?(1kHz鎺у埗寰幆)
 /*
-通过硬件中断同步，已经实现IMU数据对齐与时间同步
+閫氳繃纭欢涓柇鍚屾锛屽凡缁忓疄鐜癐MU鏁版嵁瀵归綈涓庢椂闂村悓姝?
 */
 
-#define SENSORS_STARTUP_TIME_MS 2000                                     // 传感器启动时间
-#define SENSORS_READ_BARO_HZ 50                                          // 气压计读取频率
-#define SENSORS_DELAY_BARO (SENSORS_READ_RATE_HZ / SENSORS_READ_BARO_HZ) // 气压计读取延迟
+#define SENSORS_STARTUP_TIME_MS 2000                                     // 浼犳劅鍣ㄥ惎鍔ㄦ椂闂?
+#define SENSORS_READ_BARO_HZ 50                                          // 姘斿帇璁¤鍙栭鐜?
+#define SENSORS_DELAY_BARO (SENSORS_READ_RATE_HZ / SENSORS_READ_BARO_HZ) // 姘斿帇璁¤鍙栧欢杩?
 
 #define SENSORS_BMI088_GYRO_FS_CFG BMI088_CONFIG_GYRO_RANGE
-#define SENSORS_BMI088_GYRO_RANGE_DPS 2000.0f                                              // 陀螺仪量程（度每秒）
-#define SENSORS_BMI088_DEG_PER_LSB_CFG ((2.0f * SENSORS_BMI088_GYRO_RANGE_DPS) / 65536.0f) // 每LSB对应的度数
+#define SENSORS_BMI088_GYRO_RANGE_DPS 2000.0f                                              // 闄€铻轰华閲忕▼锛堝害姣忕锛?
+#define SENSORS_BMI088_DEG_PER_LSB_CFG ((2.0f * SENSORS_BMI088_GYRO_RANGE_DPS) / 65536.0f) // 姣廘SB瀵瑰簲鐨勫害鏁?
 
-#define SENSORS_BMI088_ACCEL_FS_CFG BMI088_CONFIG_ACC_RANGE // 加速度计量程配置
+#define SENSORS_BMI088_ACCEL_FS_CFG BMI088_CONFIG_ACC_RANGE // 鍔犻€熷害璁￠噺绋嬮厤缃?
 #define SENSORS_BMI088_ACCEL_G 6.0f
-#define SENSORS_BMI088_G_PER_LSB_CFG ((2.0f * SENSORS_BMI088_ACCEL_G) / 65536.0f) // 每LSB对应的重力加速度
-#define SENSORS_BMI088_1G_IN_LSB (65536.0f / (2.0f * SENSORS_BMI088_ACCEL_G))     // 1G对应的LSB值
+#define SENSORS_BMI088_G_PER_LSB_CFG ((2.0f * SENSORS_BMI088_ACCEL_G) / 65536.0f) // 姣廘SB瀵瑰簲鐨勯噸鍔涘姞閫熷害
+#define SENSORS_BMI088_1G_IN_LSB (65536.0f / (2.0f * SENSORS_BMI088_ACCEL_G))     // 1G瀵瑰簲鐨凩SB鍊?
 
-#define GYRO_NBR_OF_AXES 3                        // 陀螺仪轴数
-#define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000)    // 陀螺仪最小偏置超时时间
-#define GYRO_DYNAMIC_CALIB_DELAY_MS M2T(2 * 1000) // 动态校准延迟时间（着陆后2秒开始）
-#define GYRO_DYNAMIC_CALIB_ALPHA 0.002f           // 动态校准低通滤波系数（time constant ~1s）
-#define SENSORS_NBR_OF_BIAS_SAMPLES 1024          // 偏置样本数量
+#define GYRO_NBR_OF_AXES 3                        // 闄€铻轰华杞存暟
+#define GYRO_MIN_BIAS_TIMEOUT_MS M2T(2 * 1000)    // 闄€铻轰华鏈€灏忓亸缃秴鏃舵椂闂?
+#define GYRO_DYNAMIC_CALIB_DELAY_MS M2T(2 * 1000) // 鍔ㄦ€佹牎鍑嗗欢杩熸椂闂达紙鐫€闄嗗悗2绉掑紑濮嬶級
+#define GYRO_DYNAMIC_CALIB_ALPHA 0.002f           // 鍔ㄦ€佹牎鍑嗕綆閫氭护娉㈢郴鏁帮紙time constant ~1s锛?
+#define SENSORS_NBR_OF_BIAS_SAMPLES 1024          // 鍋忕疆鏍锋湰鏁伴噺
 
-// BMI088噪声差异：
-//   - BMI088噪声密度: 0.014 °/s/√Hz, 带宽116Hz, 灵敏度32.8 LSB/°/s → ~5 LSB RMS
-//   - MPU6050噪声密度: 0.005 °/s/√Hz, 带宽42Hz,  灵敏度16.4 LSB/°/s → ~0.5 LSB RMS
-// 实测静止时方差: X~50, Y~70, Z~50 (已归一化)
-#define GYRO_VARIANCE_BASE 3000                        // 方差阈值（适配BMI088噪声特性）
-#define GYRO_VARIANCE_THRESHOLD_X (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值X
-#define GYRO_VARIANCE_THRESHOLD_Y (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Y
-#define GYRO_VARIANCE_THRESHOLD_Z (GYRO_VARIANCE_BASE) // 陀螺仪方差阈值Z
+// BMI088鍣０宸紓锛?
+//   - BMI088鍣０瀵嗗害: 0.014 掳/s/鈭欻z, 甯﹀116Hz, 鐏垫晱搴?2.8 LSB/掳/s 鈫?~5 LSB RMS
+//   - MPU6050鍣０瀵嗗害: 0.005 掳/s/鈭欻z, 甯﹀42Hz,  鐏垫晱搴?6.4 LSB/掳/s 鈫?~0.5 LSB RMS
+// 瀹炴祴闈欐鏃舵柟宸? X~50, Y~70, Z~50 (宸插綊涓€鍖?
+#define GYRO_VARIANCE_BASE 3000                        // 鏂瑰樊闃堝€硷紙閫傞厤BMI088鍣０鐗规€э級
+#define GYRO_VARIANCE_THRESHOLD_X (GYRO_VARIANCE_BASE) // 闄€铻轰华鏂瑰樊闃堝€糥
+#define GYRO_VARIANCE_THRESHOLD_Y (GYRO_VARIANCE_BASE) // 闄€铻轰华鏂瑰樊闃堝€糦
+#define GYRO_VARIANCE_THRESHOLD_Z (GYRO_VARIANCE_BASE) // 闄€铻轰华鏂瑰樊闃堝€糧
 
-#define SENSORS_ACC_SCALE_SAMPLES 200 // 加速度计比例样本数量
+#define SENSORS_ACC_SCALE_SAMPLES 200 // 鍔犻€熷害璁℃瘮渚嬫牱鏈暟閲?
 
-// 参数适合平稳飞行
+// 鍙傛暟閫傚悎骞崇ǔ椋炶
 #define GYRO_LPF_CUTOFF_FREQ 25  // Lower gyro software LPF a bit more to suppress motor-induced vibration noise
 #define GYRO_NOTCH_DEFAULT_ENABLE 1
 #define GYRO_NOTCH_DEFAULT_CENTER_FREQ 105.0f
 #define GYRO_NOTCH_DEFAULT_BANDWIDTH 15.0f
-#define ACCEL_LPF_CUTOFF_FREQ 20 // 加速度计低通滤波器截止频率
+#define GYRO_NOTCH2_DEFAULT_ENABLE 0
+#define GYRO_NOTCH2_DEFAULT_CENTER_FREQ 124.0f
+#define GYRO_NOTCH2_DEFAULT_BANDWIDTH 16.0f
+#define ACCEL_LPF_CUTOFF_FREQ 20 // 鍔犻€熷害璁′綆閫氭护娉㈠櫒鎴棰戠巼
 #define ACCEL_NOTCH_DEFAULT_ENABLE 0
 #define ACCEL_NOTCH_DEFAULT_CENTER_FREQ 120.0f
 #define ACCEL_NOTCH_DEFAULT_BANDWIDTH 70.0f
 
-#define ESP_INTR_FLAG_DEFAULT 0 // 默认中断优先级
+#define ESP_INTR_FLAG_DEFAULT 0 // 榛樿涓柇浼樺厛绾?
 
 typedef struct
 {
-    Axis3f bias;                                  // 偏置值
-    Axis3f variance;                              // 方差值
-    Axis3f mean;                                  // 均值
-    bool isBiasValueFound;                        // 是否找到零飘值
-    bool isBufferFilled;                          // 缓冲区是否已填满
-    Axis3i16 *bufHead;                            // 缓冲区头指针
-    Axis3i16 buffer[SENSORS_NBR_OF_BIAS_SAMPLES]; // 数据缓冲区
+    Axis3f bias;                                  // 鍋忕疆鍊?
+    Axis3f variance;                              // 鏂瑰樊鍊?
+    Axis3f mean;                                  // 鍧囧€?
+    bool isBiasValueFound;                        // 鏄惁鎵惧埌闆堕鍊?
+    bool isBufferFilled;                          // 缂撳啿鍖烘槸鍚﹀凡濉弧
+    Axis3i16 *bufHead;                            // 缂撳啿鍖哄ご鎸囬拡
+    Axis3i16 buffer[SENSORS_NBR_OF_BIAS_SAMPLES]; // 鏁版嵁缂撳啿鍖?
 } BiasObj;
 
-// 静态内存分配队列
+// 闈欐€佸唴瀛樺垎閰嶉槦鍒?
 static QueueHandle_t accelerometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(accelerometerDataQueue, 1, sizeof(Axis3f));
 static QueueHandle_t gyroDataQueue;
@@ -99,48 +102,52 @@ STATIC_MEM_QUEUE_ALLOC(magnetometerDataQueue, 1, sizeof(Axis3f));
 static QueueHandle_t barometerDataQueue;
 STATIC_MEM_QUEUE_ALLOC(barometerDataQueue, 1, sizeof(baro_t));
 
-// 静态内存分配信号量
-static SemaphoreHandle_t sensorsDataReady;       // 传感器数据就绪
-static StaticSemaphore_t sensorsDataReadyBuffer; // 分配缓冲区
-static SemaphoreHandle_t dataReady;              // 数据处理就绪
-static StaticSemaphore_t dataReadyBuffer;        // 分配缓冲区
+// 闈欐€佸唴瀛樺垎閰嶄俊鍙烽噺
+static SemaphoreHandle_t sensorsDataReady;       // 浼犳劅鍣ㄦ暟鎹氨缁?
+static StaticSemaphore_t sensorsDataReadyBuffer; // 鍒嗛厤缂撳啿鍖?
+static SemaphoreHandle_t dataReady;              // 鏁版嵁澶勭悊灏辩华
+static StaticSemaphore_t dataReadyBuffer;        // 鍒嗛厤缂撳啿鍖?
 
-static bool isInit = false; // 初始化标志
+static bool isInit = false; // 鍒濆鍖栨爣蹇?
 /*
-    传感器数据结构体，包含陀螺仪、加速度计、磁力计和气压计的数据
+    浼犳劅鍣ㄦ暟鎹粨鏋勪綋锛屽寘鍚檧铻轰华銆佸姞閫熷害璁°€佺鍔涜鍜屾皵鍘嬭鐨勬暟鎹?
 */
 static sensorData_t sensorData;
 
-static volatile uint64_t imuIntTimestamp; // IMU中断时间戳
+static volatile uint64_t imuIntTimestamp; // IMU涓柇鏃堕棿鎴?
 
-static Axis3i16 gyroRaw;  // 原始陀螺仪数据
-static Axis3i16 accelRaw; // 原始加速度计数据
+static Axis3i16 gyroRaw;  // 鍘熷闄€铻轰华鏁版嵁
+static Axis3i16 accelRaw; // 鍘熷鍔犻€熷害璁℃暟鎹?
 
-NO_DMA_CCM_SAFE_ZERO_INIT static BiasObj gyroBiasRunning; // 陀螺仪零漂校准对象 //不会被DMA访问
-static Axis3f gyroBias;                                   // 陀螺仪零偏值
-static bool gyroBiasFound = false;                        // 完成陀螺仪零偏校准
+NO_DMA_CCM_SAFE_ZERO_INIT static BiasObj gyroBiasRunning; // 闄€铻轰华闆舵紓鏍″噯瀵硅薄 //涓嶄細琚獶MA璁块棶
+static Axis3f gyroBias;                                   // 闄€铻轰华闆跺亸鍊?
+static bool gyroBiasFound = false;                        // 瀹屾垚闄€铻轰华闆跺亸鏍″噯
 
 #ifdef GYRO_DYNAMIC_CALIBRATION_ENABLED
-static uint32_t landedTime = 0;                                // 着陆时间戳
-static bool isLanded = false;                                  // 着陆状态标志
-static float gyroDynamicCalibAlpha = GYRO_DYNAMIC_CALIB_ALPHA; // 动态校准滤波系数（可调参数）
-static uint8_t gyroDynamicCalibEnabled = 1;                    // 动态校准使能开关
+static uint32_t landedTime = 0;                                // 鐫€闄嗘椂闂存埑
+static bool isLanded = false;                                  // 鐫€闄嗙姸鎬佹爣蹇?
+static float gyroDynamicCalibAlpha = GYRO_DYNAMIC_CALIB_ALPHA; // 鍔ㄦ€佹牎鍑嗘护娉㈢郴鏁帮紙鍙皟鍙傛暟锛?
+static uint8_t gyroDynamicCalibEnabled = 1;                    // 鍔ㄦ€佹牎鍑嗕娇鑳藉紑鍏?
 #endif
 
-static float accScaleSum = 0;         // 加速度计模长累加和
-static float accScale = 1;            // 加速度计比例因子（缩放系数） //按实际调整
-static bool accScaleFound = false;    // 是否找到加速度计比例因子
-static uint32_t accScaleSumCount = 0; // 加速度计比例因子累加计数
+static float accScaleSum = 0;         // 鍔犻€熷害璁℃ā闀跨疮鍔犲拰
+static float accScale = 1;            // 鍔犻€熷害璁℃瘮渚嬪洜瀛愶紙缂╂斁绯绘暟锛?//鎸夊疄闄呰皟鏁?
+static bool accScaleFound = false;    // 鏄惁鎵惧埌鍔犻€熷害璁℃瘮渚嬪洜瀛?
+static uint32_t accScaleSumCount = 0; // 鍔犻€熷害璁℃瘮渚嬪洜瀛愮疮鍔犺鏁?
 
-// 二阶低通滤波器
-static lpf2pData accLpf[3];  // 加速度计低通滤波器数据
-static lpf2pData gyroLpf[3]; // 陀螺仪低通滤波器数据
+// 浜岄樁浣庨€氭护娉㈠櫒
+static lpf2pData accLpf[3];  // 鍔犻€熷害璁′綆閫氭护娉㈠櫒鏁版嵁
+static lpf2pData gyroLpf[3]; // 闄€铻轰华浣庨€氭护娉㈠櫒鏁版嵁
 static lpf2pData gyroNotch[3];
+static lpf2pData gyroNotch2[3];
 static lpf2pData accNotch[3];
 
 static uint8_t gyroNotchEnabled = GYRO_NOTCH_DEFAULT_ENABLE;
 static float gyroNotchCenterFreq = GYRO_NOTCH_DEFAULT_CENTER_FREQ;
 static float gyroNotchBandwidth = GYRO_NOTCH_DEFAULT_BANDWIDTH;
+static uint8_t gyroNotch2Enabled = GYRO_NOTCH2_DEFAULT_ENABLE;
+static float gyroNotch2CenterFreq = GYRO_NOTCH2_DEFAULT_CENTER_FREQ;
+static float gyroNotch2Bandwidth = GYRO_NOTCH2_DEFAULT_BANDWIDTH;
 static uint8_t accNotchEnabled = ACCEL_NOTCH_DEFAULT_ENABLE;
 static float accNotchCenterFreq = ACCEL_NOTCH_DEFAULT_CENTER_FREQ;
 static float accNotchBandwidth = ACCEL_NOTCH_DEFAULT_BANDWIDTH;
@@ -148,32 +155,35 @@ static float accNotchBandwidth = ACCEL_NOTCH_DEFAULT_BANDWIDTH;
 static uint8_t gyroNotchEnabledApplied = 0;
 static float gyroNotchCenterFreqApplied = 0.0f;
 static float gyroNotchBandwidthApplied = 0.0f;
+static uint8_t gyroNotch2EnabledApplied = 0;
+static float gyroNotch2CenterFreqApplied = 0.0f;
+static float gyroNotch2BandwidthApplied = 0.0f;
 static uint8_t accNotchEnabledApplied = 0;
 static float accNotchCenterFreqApplied = 0.0f;
 static float accNotchBandwidthApplied = 0.0f;
 
-static bool isBarometerPresent = false;               // 气压计存在标志
-static uint8_t baroMeasDelayMin = SENSORS_DELAY_BARO; // 气压计最小测量延迟
+static bool isBarometerPresent = false;               // 姘斿帇璁″瓨鍦ㄦ爣蹇?
+static uint8_t baroMeasDelayMin = SENSORS_DELAY_BARO; // 姘斿帇璁℃渶灏忔祴閲忓欢杩?
 
-// 数据就绪标志
+// 鏁版嵁灏辩华鏍囧織
 static volatile bool bmi088AccDataReady = false;
 static volatile bool bmi088GyroDataReady = false;
 
-// 中断计数器（用于调试）
+// 涓柇璁℃暟鍣紙鐢ㄤ簬璋冭瘯锛?
 static volatile uint32_t accIntCount = 0;
 static volatile uint32_t gyroIntCount = 0;
 
-// IMU安装角度
+// IMU瀹夎瑙掑害
 static float cosPitch;
 static float sinPitch;
 static float cosRoll;
 static float sinRoll;
-#define PITCH_CALIB (CONFIG_PITCH_CALIB * 1.0 / 100) // 俯仰校准角度 单位1度
+#define PITCH_CALIB (CONFIG_PITCH_CALIB * 1.0 / 100) // 淇话鏍″噯瑙掑害 鍗曚綅1搴?
 #define ROLL_CALIB (CONFIG_ROLL_CALIB * 1.0 / 100)
 
-// 气压计跳过开关：设为1则跳过气压计检查（可通过地面站修改）
+// 姘斿帇璁¤烦杩囧紑鍏筹細璁句负1鍒欒烦杩囨皵鍘嬭妫€鏌ワ紙鍙€氳繃鍦伴潰绔欎慨鏀癸級
 static uint8_t skipBaroCheck = 0;
-// CONFIG_PITCH_CALIB  单位0.01度
+// CONFIG_PITCH_CALIB  鍗曚綅0.01搴?
 
 static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBiasOut);
 static bool processAccScale(int16_t ax, int16_t ay, int16_t az);
@@ -193,7 +203,7 @@ static void sensorsDeviceInit(void);
 static void sensorsInterruptInit(void);
 static void sensorsScaleBaro(baro_t *baroScaled);
 
-STATIC_MEM_TASK_ALLOC(sensorsTask, SENSORS_TASK_STACKSIZE); // 静态内存分配任务
+STATIC_MEM_TASK_ALLOC(sensorsTask, SENSORS_TASK_STACKSIZE); // 闈欐€佸唴瀛樺垎閰嶄换鍔?
 
 bool sensorsBmi088SpiMs5611ReadGyro(Axis3f *gyro)
 {
@@ -214,10 +224,10 @@ bool sensorsBmi088SpiMs5611ReadBaro(baro_t *baro)
 {
     return (pdTRUE == xQueueReceive(barometerDataQueue, baro, 0));
 }
-/* 传感器数据获取函数
-   从各个传感器读取数据并存储到传感器数据结构体中
+/* 浼犳劅鍣ㄦ暟鎹幏鍙栧嚱鏁?
+   浠庡悇涓紶鎰熷櫒璇诲彇鏁版嵁骞跺瓨鍌ㄥ埌浼犳劅鍣ㄦ暟鎹粨鏋勪綋涓?
 */
-// 底层仍然是调用xQueueReceive
+// 搴曞眰浠嶇劧鏄皟鐢▁QueueReceive
 void sensorsBmi088SpiMs5611Acquire(sensorData_t *sensors, const uint32_t tick)
 {
     sensorsReadGyro(&sensors->gyro);
@@ -227,7 +237,7 @@ void sensorsBmi088SpiMs5611Acquire(sensorData_t *sensors, const uint32_t tick)
     sensors->interruptTimestamp = sensorData.interruptTimestamp;
 }
 
-bool sensorsBmi088SpiMs5611AreCalibrated(void) // 传感器校准状态检查函数
+bool sensorsBmi088SpiMs5611AreCalibrated(void) // 浼犳劅鍣ㄦ牎鍑嗙姸鎬佹鏌ュ嚱鏁?
 {
     return gyroBiasFound;
 }
@@ -236,16 +246,16 @@ static void sensorsTask(void *param)
 {
     systemWaitStart();
 
-    vTaskDelay(M2T(200)); // 200ms等待系统稳定
+    vTaskDelay(M2T(200)); // 200ms绛夊緟绯荤粺绋冲畾
 
-    // sensorsDeviceInit(); // 传感器设备初始化
+    // sensorsDeviceInit(); // 浼犳劅鍣ㄨ澶囧垵濮嬪寲
 
     Axis3f accScaled;
 
     uint32_t interruptCount = 0;
     while (1)
     {
-        if (pdTRUE == xSemaphoreTake(sensorsDataReady, M2T(1000))) // 1秒超时
+        if (pdTRUE == xSemaphoreTake(sensorsDataReady, M2T(1000))) // 1s timeout
         {
             refreshImuFilterConfig();
             interruptCount++;
@@ -258,7 +268,7 @@ static void sensorsTask(void *param)
             // Without flag check, EVERY wakeup reads+processes BOTH sensors,
             // causing the gyro LPF to process each raw sample TWICE.
             // This distorts the biquad filter state, effectively doubling
-            // the noise bandwidth (80Hz designed → ~160Hz actual).
+            // the noise bandwidth (80Hz designed 鈫?~160Hz actual).
             bool newGyro = bmi088GyroDataReady;
             bool newAccel = bmi088AccDataReady;
 
@@ -310,7 +320,7 @@ static void sensorsTask(void *param)
             }
         }
 
-        // 读取气压计数据
+        // 璇诲彇姘斿帇璁℃暟鎹?
         if (isBarometerPresent)
         {
             static uint8_t baroMeasDelay = SENSORS_DELAY_BARO;
@@ -319,7 +329,7 @@ static void sensorsTask(void *param)
                 sensorsScaleBaro(&sensorData.baro);
                 baroMeasDelay = baroMeasDelayMin;
 
-                // 输出气压计数据（每秒一次，50Hz读取 = 每20次输出一次）
+                // 杈撳嚭姘斿帇璁℃暟鎹紙姣忕涓€娆★紝50Hz璇诲彇 = 姣?0娆¤緭鍑轰竴娆★級
                 // static uint8_t baroLogCount = 0;
                 // if (++baroLogCount >= 50)
                 // {
@@ -351,13 +361,13 @@ static void sensorsDeviceInit(void)
     if (isInit)
         return;
 
-    spiDrvInit(SPI_DRV_HOST_DEFAULT); // 初始化SPI
-    i2cdevInit(I2C0_DEV);             // 初始化I2C
+    spiDrvInit(SPI_DRV_HOST_DEFAULT); // 鍒濆鍖朣PI
+    i2cdevInit(I2C0_DEV);             // 鍒濆鍖朓2C
 
-    // 等待传感器启动
-    vTaskDelay(M2T(SENSORS_STARTUP_TIME_MS)); // 2秒
+    // 绛夊緟浼犳劅鍣ㄥ惎鍔?
+    vTaskDelay(M2T(SENSORS_STARTUP_TIME_MS)); // 2绉?
 
-    // 初始化BMI088 (SPI)
+    // 鍒濆鍖朆MI088 (SPI)
     if (!bmi088_init())
     {
         DEBUG_PRINTI("BMI088 SPI init [FAIL]\n");
@@ -369,7 +379,7 @@ static void sensorsDeviceInit(void)
         DEBUG_PRINTI("BMI088 SPI init [OK]\n");
     }
 
-    // 初始化MS5611 (I2C) - 可通过 skipBaroCheck 参数跳过检查
+    // 鍒濆鍖朚S5611 (I2C) - 鍙€氳繃 skipBaroCheck 鍙傛暟璺宠繃妫€鏌?
     if (ms5611Init(I2C0_DEV))
     {
         isBarometerPresent = true;
@@ -389,18 +399,22 @@ static void sensorsDeviceInit(void)
         DEBUG_PRINTI("skipBaroCheck=1, continuing without barometer\n");
     }
 
-    // 初始化低通滤波器
+    // 鍒濆鍖栦綆閫氭护娉㈠櫒
     for (uint8_t i = 0; i < 3; i++)
     {
         lpf2pInit(&gyroLpf[i], SENSORS_READ_RATE_HZ, GYRO_LPF_CUTOFF_FREQ);
         lpf2pInit(&accLpf[i], SENSORS_READ_RATE_HZ, ACCEL_LPF_CUTOFF_FREQ);
         notchFilterInit(&gyroNotch[i], SENSORS_READ_RATE_HZ, GYRO_NOTCH_DEFAULT_CENTER_FREQ, GYRO_NOTCH_DEFAULT_BANDWIDTH);
+        notchFilterInit(&gyroNotch2[i], SENSORS_READ_RATE_HZ, GYRO_NOTCH2_DEFAULT_CENTER_FREQ, GYRO_NOTCH2_DEFAULT_BANDWIDTH);
         notchFilterInit(&accNotch[i], SENSORS_READ_RATE_HZ, ACCEL_NOTCH_DEFAULT_CENTER_FREQ, ACCEL_NOTCH_DEFAULT_BANDWIDTH);
     }
 
     gyroNotchEnabledApplied = gyroNotchEnabled;
     gyroNotchCenterFreqApplied = gyroNotchCenterFreq;
     gyroNotchBandwidthApplied = gyroNotchBandwidth;
+    gyroNotch2EnabledApplied = gyroNotch2Enabled;
+    gyroNotch2CenterFreqApplied = gyroNotch2CenterFreq;
+    gyroNotch2BandwidthApplied = gyroNotch2Bandwidth;
     accNotchEnabledApplied = accNotchEnabled;
     accNotchCenterFreqApplied = accNotchCenterFreq;
     accNotchBandwidthApplied = accNotchBandwidth;
@@ -437,22 +451,22 @@ void sensorsBmi088SpiMs5611Init(void)
 
     sensorsBiasObjInit(&gyroBiasRunning);
     sensorsDeviceInit();
-    sensorsInterruptInit(); // 添加中断初始化
+    sensorsInterruptInit(); // 娣诲姞涓柇鍒濆鍖?
     sensorsTaskInit();
 
     isInit = true;
 }
 
-// 加速度计中断处理
+// 鍔犻€熷害璁′腑鏂鐞?
 static void IRAM_ATTR bmi088_acc_int_handler(void *arg)
 {
     accIntCount++;
-    // 电平触发需要先禁用中断,防止一直触发
+    // 鐢靛钩瑙﹀彂闇€瑕佸厛绂佺敤涓柇,闃叉涓€鐩磋Е鍙?
     gpio_intr_disable(BMI088_INT1_PIN);
 
     bmi088AccDataReady = true;
 
-    // 每个传感器独立触发信号量
+    // 姣忎釜浼犳劅鍣ㄧ嫭绔嬭Е鍙戜俊鍙烽噺
     portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
     imuIntTimestamp = usecTimestamp();
     xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
@@ -463,16 +477,16 @@ static void IRAM_ATTR bmi088_acc_int_handler(void *arg)
     }
 }
 
-// 陀螺仪中断处理
+// 闄€铻轰华涓柇澶勭悊
 static void IRAM_ATTR bmi088_gyro_int_handler(void *arg)
 {
     gyroIntCount++;
-    // 电平触发需要先禁用中断,防止一直触发
+    // 鐢靛钩瑙﹀彂闇€瑕佸厛绂佺敤涓柇,闃叉涓€鐩磋Е鍙?
     gpio_intr_disable(BMI088_INT3_PIN);
 
     bmi088GyroDataReady = true;
 
-    // 每个传感器独立触发信号量
+    // 姣忎釜浼犳劅鍣ㄧ嫭绔嬭Е鍙戜俊鍙烽噺
     portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
     imuIntTimestamp = usecTimestamp();
     xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
@@ -487,44 +501,44 @@ static void sensorsInterruptInit(void)
 {
     DEBUG_PRINT("BMI088 interrupt init\n");
 
-    // 配置加速度计中断引脚(INT1) - 低电平触发
+    // 閰嶇疆鍔犻€熷害璁′腑鏂紩鑴?INT1) - 浣庣數骞宠Е鍙?
     gpio_config_t acc_int_conf = {
 #if ESP_IDF_VERSION_MAJOR > 4
-        .intr_type = GPIO_INTR_LOW_LEVEL, // 低电平触发(数据就绪时拉低)
+        .intr_type = GPIO_INTR_LOW_LEVEL, // 浣庣數骞宠Е鍙?鏁版嵁灏辩华鏃舵媺浣?
 #else
         .intr_type = GPIO_PIN_INTR_LOLEVEL,
 #endif
         .pin_bit_mask = (1ULL << BMI088_INT1_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .pull_up_en = GPIO_PULLUP_ENABLE, // 使能上拉,保证空闲时维持高电平
+        .pull_up_en = GPIO_PULLUP_ENABLE, // 浣胯兘涓婃媺,淇濊瘉绌洪棽鏃剁淮鎸侀珮鐢靛钩
     };
     gpio_config(&acc_int_conf);
 
-    // 配置陀螺仪中断引脚(INT3) - 高电平触发
+    // 閰嶇疆闄€铻轰华涓柇寮曡剼(INT3) - 楂樼數骞宠Е鍙?
     gpio_config_t gyro_int_conf = {
 #if ESP_IDF_VERSION_MAJOR > 4
-        .intr_type = GPIO_INTR_HIGH_LEVEL, // 高电平触发(数据就绪时保持高电平)
+        .intr_type = GPIO_INTR_HIGH_LEVEL, // 楂樼數骞宠Е鍙?鏁版嵁灏辩华鏃朵繚鎸侀珮鐢靛钩)
 #else
         .intr_type = GPIO_PIN_INTR_HILEVEL,
 #endif
         .pin_bit_mask = (1ULL << BMI088_INT3_PIN),
         .mode = GPIO_MODE_INPUT,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE, // 使能下拉,保证空闲时为低电平
+        .pull_down_en = GPIO_PULLDOWN_ENABLE, // 浣胯兘涓嬫媺,淇濊瘉绌洪棽鏃朵负浣庣數骞?
         .pull_up_en = GPIO_PULLUP_DISABLE,
     };
     gpio_config(&gyro_int_conf);
 
-    // 创建二值信号量
+    // 鍒涘缓浜屽€间俊鍙烽噺
     sensorsDataReady = xSemaphoreCreateBinaryStatic(&sensorsDataReadyBuffer);
     dataReady = xSemaphoreCreateBinaryStatic(&dataReadyBuffer);
 
-    // 注册GPIO中断服务
+    // 娉ㄥ唽GPIO涓柇鏈嶅姟
     gpio_set_intr_type(BMI088_INT1_PIN, GPIO_INTR_LOW_LEVEL);
     gpio_set_intr_type(BMI088_INT3_PIN, GPIO_INTR_HIGH_LEVEL);
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
 
-    // 绑定中断处理函数
+    // 缁戝畾涓柇澶勭悊鍑芥暟
     gpio_isr_handler_add(BMI088_INT1_PIN, bmi088_acc_int_handler, NULL);
     gpio_isr_handler_add(BMI088_INT3_PIN, bmi088_gyro_int_handler, NULL);
 }
@@ -539,7 +553,7 @@ bool sensorsBmi088SpiMs5611Test(void)
         return false;
     }
 
-    // 测试BMI088
+    // 娴嬭瘯BMI088
     if (!bmi088_test())
     {
         DEBUG_PRINT("BMI088 test [FAIL]\n");
@@ -550,7 +564,7 @@ bool sensorsBmi088SpiMs5611Test(void)
         DEBUG_PRINT("BMI088 test [OK]\n");
     }
 
-    // 测试MS5611
+    // 娴嬭瘯MS5611
     if (isBarometerPresent && !ms5611SelfTest())
     {
         DEBUG_PRINT("MS5611 test [FAIL]\n");
@@ -586,56 +600,56 @@ static bool processAccScale(int16_t ax, int16_t ay, int16_t az)
 
 #ifdef GYRO_DYNAMIC_CALIBRATION_ENABLED
 /**
- * 陀螺仪动态校准更新函数
- * 使用低通滤波器在静止时持续更新零点偏差，适应温漂变化
- * 改进：基于陀螺仪实际数据检测静止状态，而不仅依赖飞行标志
+ * 闄€铻轰华鍔ㄦ€佹牎鍑嗘洿鏂板嚱鏁?
+ * 浣跨敤浣庨€氭护娉㈠櫒鍦ㄩ潤姝㈡椂鎸佺画鏇存柊闆剁偣鍋忓樊锛岄€傚簲娓╂紓鍙樺寲
+ * 鏀硅繘锛氬熀浜庨檧铻轰华瀹為檯鏁版嵁妫€娴嬮潤姝㈢姸鎬侊紝鑰屼笉浠呬緷璧栭琛屾爣蹇?
  *
- * @param gx, gy, gz 陀螺仪原始读数（LSB）
- * @param quadIsFlying 飞行状态标志
+ * @param gx, gy, gz 闄€铻轰华鍘熷璇绘暟锛圠SB锛?
+ * @param quadIsFlying 椋炶鐘舵€佹爣蹇?
  */
 static void gyroDynamicCalibUpdate(int16_t gx, int16_t gy, int16_t gz, bool quadIsFlying)
 {
     if (!gyroDynamicCalibEnabled)
     {
-        return; // 动态校准未使能
+        return; // 鍔ㄦ€佹牎鍑嗘湭浣胯兘
     }
 
-    // 基于陀螺仪数据判断是否静止
-    // 计算陀螺仪读数与当前偏置的偏差
+    // 鍩轰簬闄€铻轰华鏁版嵁鍒ゆ柇鏄惁闈欐
+    // 璁＄畻闄€铻轰华璇绘暟涓庡綋鍓嶅亸缃殑鍋忓樊
     float dx = (float)(gx)-gyroBias.x;
     float dy = (float)(gy)-gyroBias.y;
     float dz = (float)(gz)-gyroBias.z;
 
-    // 角速度幅值（LSB单位），静止时应接近0
+    // 瑙掗€熷害骞呭€硷紙LSB鍗曚綅锛夛紝闈欐鏃跺簲鎺ヨ繎0
     float gyroMagnitude = sqrtf(dx * dx + dy * dy + dz * dz);
 
-    // 静止阈值：约 5°/s 对应的 LSB 值（保守设置避免误判）
-    // 2000DPS量程下：1 LSB = 2000/32768 ≈ 0.061°/s
-    // 5°/s ≈ 82 LSB
-    const float STATIC_THRESHOLD_LSB = 80.0f; // 约 5°/s
+    // 闈欐闃堝€硷細绾?5掳/s 瀵瑰簲鐨?LSB 鍊硷紙淇濆畧璁剧疆閬垮厤璇垽锛?
+    // 2000DPS閲忕▼涓嬶細1 LSB = 2000/32768 鈮?0.061掳/s
+    // 5掳/s 鈮?82 LSB
+    const float STATIC_THRESHOLD_LSB = 80.0f; // 绾?5掳/s
 
     static uint32_t staticCount = 0;
-    const uint32_t STATIC_CONFIRM_COUNT = 800; // 约 0.8秒 @ 1kHz（充分确认静止）
+    const uint32_t STATIC_CONFIRM_COUNT = 800; // 绾?0.8绉?@ 1kHz锛堝厖鍒嗙‘璁ら潤姝級
 
     if (gyroMagnitude < STATIC_THRESHOLD_LSB)
     {
         staticCount++;
         if (staticCount > STATIC_CONFIRM_COUNT)
         {
-            // 确认静止，进行偏置更新
-            // 使用更大的 alpha 加速收敛（静止时可以更激进）
+            // 纭闈欐锛岃繘琛屽亸缃洿鏂?
+            // 浣跨敤鏇村ぇ鐨?alpha 鍔犻€熸敹鏁涳紙闈欐鏃跺彲浠ユ洿婵€杩涳級
             float alpha = gyroDynamicCalibAlpha * 2.0f;
             gyroBias.x += alpha * dx;
             gyroBias.y += alpha * dy;
             gyroBias.z += alpha * dz;
 
-            // 防止计数器溢出
+            // 闃叉璁℃暟鍣ㄦ孩鍑?
             staticCount = STATIC_CONFIRM_COUNT + 1;
         }
     }
     else
     {
-        // 运动中，重置静止计数
+        // 杩愬姩涓紝閲嶇疆闈欐璁℃暟
         staticCount = 0;
     }
 }
@@ -684,8 +698,8 @@ static void sensorsCalculateVarianceAndMean(BiasObj *bias, Axis3f *varOut, Axis3
         sumSq[2] += bias->buffer[i].z * bias->buffer[i].z;
     }
 
-    // 方差公式: Var = [Σx² - (Σx)²/N] / N
-    // 注意：必须用浮点运算，避免整数除法截断导致负方差
+    // 鏂瑰樊鍏紡: Var = [危x虏 - (危x)虏/N] / N
+    // 娉ㄦ剰锛氬繀椤荤敤娴偣杩愮畻锛岄伩鍏嶆暣鏁伴櫎娉曟埅鏂鑷磋礋鏂瑰樊
     varOut->x = ((float)sumSq[0] - ((float)sum[0] * (float)sum[0]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
     varOut->y = ((float)sumSq[1] - ((float)sum[1] * (float)sum[1]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
     varOut->z = ((float)sumSq[2] - ((float)sum[2] * (float)sum[2]) / SENSORS_NBR_OF_BIAS_SAMPLES) / SENSORS_NBR_OF_BIAS_SAMPLES;
@@ -791,6 +805,10 @@ static void applyAxis3fGyroFilters(Axis3f *in)
         {
             in->axis[i] = notchFilterApply(&gyroNotch[i], in->axis[i]);
         }
+        if (gyroNotch2Enabled)
+        {
+            in->axis[i] = notchFilterApply(&gyroNotch2[i], in->axis[i]);
+        }
         in->axis[i] = lpf2pApply(&gyroLpf[i], in->axis[i]);
     }
 }
@@ -812,7 +830,10 @@ static void refreshImuFilterConfig(void)
     const bool gyroChanged =
         gyroNotchEnabledApplied != gyroNotchEnabled ||
         fabsf(gyroNotchCenterFreqApplied - gyroNotchCenterFreq) > 0.01f ||
-        fabsf(gyroNotchBandwidthApplied - gyroNotchBandwidth) > 0.01f;
+        fabsf(gyroNotchBandwidthApplied - gyroNotchBandwidth) > 0.01f ||
+        gyroNotch2EnabledApplied != gyroNotch2Enabled ||
+        fabsf(gyroNotch2CenterFreqApplied - gyroNotch2CenterFreq) > 0.01f ||
+        fabsf(gyroNotch2BandwidthApplied - gyroNotch2Bandwidth) > 0.01f;
 
     if (gyroChanged)
     {
@@ -820,11 +841,15 @@ static void refreshImuFilterConfig(void)
         {
             lpf2pInit(&gyroLpf[i], SENSORS_READ_RATE_HZ, GYRO_LPF_CUTOFF_FREQ);
             notchFilterInit(&gyroNotch[i], SENSORS_READ_RATE_HZ, gyroNotchCenterFreq, gyroNotchBandwidth);
+            notchFilterInit(&gyroNotch2[i], SENSORS_READ_RATE_HZ, gyroNotch2CenterFreq, gyroNotch2Bandwidth);
         }
 
         gyroNotchEnabledApplied = gyroNotchEnabled;
         gyroNotchCenterFreqApplied = gyroNotchCenterFreq;
         gyroNotchBandwidthApplied = gyroNotchBandwidth;
+        gyroNotch2EnabledApplied = gyroNotch2Enabled;
+        gyroNotch2CenterFreqApplied = gyroNotch2CenterFreq;
+        gyroNotch2BandwidthApplied = gyroNotch2Bandwidth;
     }
 
     const bool accChanged =
@@ -846,14 +871,14 @@ static void refreshImuFilterConfig(void)
     }
 }
 
-static void sensorsScaleBaro(baro_t *baroScaled) // 气压计读取
+static void sensorsScaleBaro(baro_t *baroScaled) // 姘斿帇璁¤鍙?
 {
     float pressure, temperature, asl;
     ms5611GetData(&pressure, &temperature, &asl);
-    // ms5611GetData 返回的单位：
-    // pressure: mbar (即 hPa)
-    // temperature: 摄氏度
-    // asl: 米
+    // ms5611GetData 杩斿洖鐨勫崟浣嶏細
+    // pressure: mbar (鍗?hPa)
+    // temperature: 鎽勬皬搴?
+    // asl: 绫?
     baroScaled->pressure = pressure;
     baroScaled->temperature = temperature;
     baroScaled->asl = asl;
@@ -876,6 +901,9 @@ PARAM_ADD(PARAM_UINT8, skipBaro, &skipBaroCheck)
 PARAM_ADD(PARAM_UINT8, gyroNotchEn, &gyroNotchEnabled)
 PARAM_ADD(PARAM_FLOAT, gyroNotchHz, &gyroNotchCenterFreq)
 PARAM_ADD(PARAM_FLOAT, gyroNotchBw, &gyroNotchBandwidth)
+PARAM_ADD(PARAM_UINT8, gyroNotch2En, &gyroNotch2Enabled)
+PARAM_ADD(PARAM_FLOAT, gyroNotch2Hz, &gyroNotch2CenterFreq)
+PARAM_ADD(PARAM_FLOAT, gyroNotch2Bw, &gyroNotch2Bandwidth)
 PARAM_ADD(PARAM_UINT8, accNotchEn, &accNotchEnabled)
 PARAM_ADD(PARAM_FLOAT, accNotchHz, &accNotchCenterFreq)
 PARAM_ADD(PARAM_FLOAT, accNotchBw, &accNotchBandwidth)

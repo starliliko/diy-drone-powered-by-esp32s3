@@ -138,7 +138,7 @@ void controllerINDIInit(void)
 	// Re-initialize filters
 	indi_init_filters();
 
-	attitudeControllerInit(ATTITUDE_UPDATE_DT);
+	attitudeControllerInit(ATTITUDE_UPDATE_DT, ATTITUDE_UPDATE_DT);
 	positionControllerInit();
 	positionControllerINDIInit();
 }
