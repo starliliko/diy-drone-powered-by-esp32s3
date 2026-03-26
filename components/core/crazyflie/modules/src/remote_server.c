@@ -105,6 +105,11 @@
 #define REMOTE_TELEM_TASK_PRI 2
 #define REMOTE_TELEM_TASK_STACK 3072
 
+// Keep GCS/manual roll command direction aligned with SBUS/CRTP manual control
+// conventions. Without this, a positive GCS roll command tilts opposite to the
+// physical roll direction used elsewhere in the project.
+#define REMOTE_SIGN_ROLL (-1.0f)
+
 /*===========================================================================
  * 状态变�?
  *===========================================================================*/
@@ -124,6 +129,7 @@ static bool serverDiscovered = false;
 static uint16_t udpTelemetryPort = 0; // 从发现响应读取，0=不可�?
 static int      udpSock          = -1;
 static uint8_t  udpTxSeq         = 0;
+static bool remoteRollSignWarned = false;
 
 #define EVT_CONNECTED (1 << 0)
 #define EVT_DISCONNECTED (1 << 1)
@@ -955,7 +961,13 @@ static void handleControlPacket(const uint8_t *data, uint16_t size)
         setpoint.mode.pitch = modeAbs;
         setpoint.mode.yaw = modeVelocity;
         // 钳位到安全范�?
-        setpoint.attitude.roll = ((float)CLAMP(cmd->roll, -REMOTE_MAX_ROLL_RAW, REMOTE_MAX_ROLL_RAW)) / 100.0f;
+        if (!remoteRollSignWarned)
+        {
+            DEBUG_PRINT("WARNING: remote roll command uses sign compensation to match SBUS/CRTP manual roll convention\n");
+            remoteRollSignWarned = true;
+        }
+        setpoint.attitude.roll = REMOTE_SIGN_ROLL *
+                                 (((float)CLAMP(cmd->roll, -REMOTE_MAX_ROLL_RAW, REMOTE_MAX_ROLL_RAW)) / 100.0f);
         setpoint.attitude.pitch = ((float)CLAMP(cmd->pitch, -REMOTE_MAX_PITCH_RAW, REMOTE_MAX_PITCH_RAW)) / 100.0f;
         setpoint.attitudeRate.yaw = ((float)CLAMP(cmd->yaw, -REMOTE_MAX_YAW_RATE_RAW, REMOTE_MAX_YAW_RATE_RAW)) / 10.0f;
         setpoint.thrust = CLAMP(cmd->thrust, REMOTE_MIN_THRUST, REMOTE_MAX_THRUST);

@@ -34,6 +34,7 @@ static float r_pitch;
 static float r_yaw;
 static float accelz;
 static bool pitchRateSignWarned = false;
+static bool yawMixerSignWarned = false;
 
 void controllerPidInit(void)
 {
@@ -45,8 +46,26 @@ void controllerPidInit(void)
   // convention by inverting gyro.y locally in the PID controller path.
   if (!pitchRateSignWarned)
   {
-    DEBUG_PRINT("WARNING: PID pitch-rate sign compensation enabled to match attitude pitch convention\n");
+   //DEBUG_PRINT("WARNING: PID pitch-rate sign compensation enabled to match attitude pitch convention");
     pitchRateSignWarned = true;
+  }
+
+  // The current airframe/motor wiring has been verified on bench: when the
+  // craft yaws left, M1/M3 increase and M2/M4 decrease. This matches the X
+  // mixer directly and must not be inverted again in the PID controller path.
+  if (!yawMixerSignWarned)
+  {
+    DEBUG_PRINT("WARNING: PID yaw output now feeds the X mixer without extra sign inversion; verified against bench motor response\n");
+    yawMixerSignWarned = true;
+  }
+
+  // The current airframe/motor wiring has been verified on bench: when the
+  // craft yaws left, M1/M3 increase and M2/M4 decrease. This matches the X
+  // mixer directly and must not be inverted again in the PID controller path.
+  if (!yawMixerSignWarned)
+  {
+    DEBUG_PRINT("WARNING: PID yaw output now feeds the X mixer without extra sign inversion; verified against bench motor response\n");
+    yawMixerSignWarned = true;
   }
 }
 
@@ -154,9 +173,6 @@ void controllerPid(control_t *control, setpoint_t *setpoint,
                                       &control->pitch,
                                       &control->yaw);
 
-  // The X mixer layout uses the opposite yaw sign compared to the original
-  // Crazyflie "+" reference frame.
-  control->yaw = -control->yaw;
 
   {
     float thr = actuatorThrust;
@@ -279,3 +295,4 @@ LOG_GROUP_STOP(controller)
 PARAM_GROUP_START(controller)
 PARAM_ADD(PARAM_UINT8, tiltComp, &tiltCompensationEnabled)
 PARAM_GROUP_STOP(controller)
+

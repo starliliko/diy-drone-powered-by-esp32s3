@@ -62,8 +62,10 @@
 #define EXTRX_CH_ARM CONFIG_SBUS_CH_ARM
 #define EXTRX_CH_MODE CONFIG_SBUS_CH_MODE
 
-/* Control direction signs (adjust if controls are reversed) */
-#define EXTRX_SIGN_ROLL (-1)
+/* Control direction signs (adjust if controls are reversed).
+ * Roll is set to +1 to match the current airframe/SBUS stick convention:
+ * moving the roll stick right should command a positive roll setpoint. */
+#define EXTRX_SIGN_ROLL (1)
 #define EXTRX_SIGN_PITCH (-1)
 #define EXTRX_SIGN_YAW (-1)
 
