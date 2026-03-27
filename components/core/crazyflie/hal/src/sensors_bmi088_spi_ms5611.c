@@ -361,8 +361,8 @@ static void sensorsDeviceInit(void)
     if (isInit)
         return;
 
-    spiDrvInit(SPI_DRV_HOST_DEFAULT); // 鍒濆鍖朣PI
-    i2cdevInit(I2C0_DEV);             // 鍒濆鍖朓2C
+    spiDrvInit(SPI_DRV_HOST_DEFAULT); // 初始化SPI驱动
+    i2cdevInit(BAROMETER_I2C_DEV);    // 初始化I2C驱动，MS5611
 
     // 绛夊緟浼犳劅鍣ㄥ惎鍔?
     vTaskDelay(M2T(SENSORS_STARTUP_TIME_MS)); // 2绉?
@@ -380,7 +380,7 @@ static void sensorsDeviceInit(void)
     }
 
     // 鍒濆鍖朚S5611 (I2C) - 鍙€氳繃 skipBaroCheck 鍙傛暟璺宠繃妫€鏌?
-    if (ms5611Init(I2C0_DEV))
+    if (ms5611Init(BAROMETER_I2C_DEV))
     {
         isBarometerPresent = true;
         DEBUG_PRINTI("MS5611 I2C init [OK]\n");

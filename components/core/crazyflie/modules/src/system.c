@@ -141,7 +141,7 @@ void systemInit(void)
               *((int*)(MCU_ID_ADDRESS+8)), *((int*)(MCU_ID_ADDRESS+4)),
               *((int*)(MCU_ID_ADDRESS+0)), *((short*)(MCU_FLASH_SIZE_ADDRESS)));*/
 
-  configblockInit(); // 从Flash或 eeprom获得初始化
+  // configblockInit(); // 从Flash或 eeprom获得初始化
   // storageInit(); //持久化存储初始化
   workerInit(); // 工作队列初始化
   adcInit();    // ADC初始化

@@ -52,7 +52,7 @@
 static bool isinit_i2cPort[2] = {0, 0};
 
 // Cost definitions of busses
-static const I2cDef sensorBusDef = {
+static const I2cDef barometerBusDef = {
     .i2cPort = I2C_NUM_0,
     .i2cClockSpeed = I2C_DEFAULT_SENSORS_CLOCK_SPEED,
     .gpioSCLPin = CONFIG_I2C0_PIN_SCL,
@@ -60,11 +60,11 @@ static const I2cDef sensorBusDef = {
     .gpioPullup = GPIO_PULLUP_DISABLE,
 };
 
-I2cDrv sensorsBus = {
-    .def = &sensorBusDef,
+I2cDrv barometerBus = {
+    .def = &barometerBusDef,
 };
 
-static const I2cDef deckBusDef = {
+static const I2cDef magnetometerBusDef = {
     .i2cPort = I2C_NUM_1,
     .i2cClockSpeed = I2C_DEFAULT_DECK_CLOCK_SPEED,
     .gpioSCLPin = CONFIG_I2C1_PIN_SCL,
@@ -72,8 +72,8 @@ static const I2cDef deckBusDef = {
     .gpioPullup = GPIO_PULLUP_ENABLE,
 };
 
-I2cDrv deckBus = {
-    .def = &deckBusDef,
+I2cDrv magnetometerBus = {
+    .def = &magnetometerBusDef,
 };
 
 /*
