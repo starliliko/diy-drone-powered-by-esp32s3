@@ -35,6 +35,8 @@
 #include "bmi088.h"
 #include "spi_drv.h"
 #include "sbus.h"
+#include "i2cdev.h"
+#include "qmc5883p.h"
 #define DEBUG_MODULE "APP_MAIN"
 #include "debug_cf.h"
 
@@ -161,5 +163,50 @@ void app_main()
     }
 
     /* 启动系统任务 */
+    /* Standalone QMC5883P probe; keep it outside the BMI088/MS5611 chain for now. */
+    ESP_LOGI("APP_MAIN", "=== QMC5883P Hardware Test ===");
+
+    i2cdevInit(MAGNETOMETER_I2C_DEV);
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    qmc5883p_dev_t qmc5883p = {0};
+    if (qmc5883pInit(&qmc5883p, MAGNETOMETER_I2C_DEV))
+    {
+        uint8_t chipId = 0;
+        qmc5883pReadId(&qmc5883p, &chipId);
+        ESP_LOGI("APP_MAIN", "QMC5883P init SUCCESS, chip_id=0x%02X", chipId);
+
+        for (int i = 0; i < 10; i++)
+        {
+            qmc5883p_raw_data_t raw = {0};
+            uint8_t status = 0;
+            const bool hasStatus = qmc5883pReadStatus(&qmc5883p, &status);
+            const bool dataReady = qmc5883pDataReady(&qmc5883p);
+
+            if (qmc5883pReadRaw(&qmc5883p, &raw))
+            {
+                ESP_LOGI("APP_MAIN",
+                         "[QMC Test %d] status=%s0x%02X drdy=%d raw: X=%d Y=%d Z=%d",
+                         i + 1,
+                         hasStatus ? "" : "read-failed/",
+                         status,
+                         dataReady ? 1 : 0,
+                         raw.x, raw.y, raw.z);
+            }
+            else
+            {
+                ESP_LOGW("APP_MAIN", "[QMC Test %d] Failed to read raw magnetometer data", i + 1);
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        ESP_LOGI("APP_MAIN", "=== QMC5883P Test Complete ===");
+    }
+    else
+    {
+        ESP_LOGE("APP_MAIN", "QMC5883P init FAILED! Check bus/address/power.");
+    }
+
     systemLaunch();
 }
