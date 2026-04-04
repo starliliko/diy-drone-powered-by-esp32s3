@@ -242,18 +242,30 @@ bool crtpInjectPacket(const CRTPPacket *pIn)
   CRTPPacket p;
   memcpy(&p, pIn, sizeof(CRTPPacket));
 
-  if (p.port >= CRTP_NBR_OF_PORTS || !queues[p.port])
+  if (p.port >= CRTP_NBR_OF_PORTS)
   {
-    DEBUG_PRINT("Inject failed: port=%d queue=%p\n", p.port, queues[p.port]);
+    DEBUG_PRINT("Inject failed: port=%d out of range\n", p.port);
     return false;
   }
 
-  if (xQueueSend(queues[p.port], &p, 0) != pdTRUE)
+  // 端口至少需要注册了 queue 或 callback 之一
+  if (!queues[p.port] && !callbacks[p.port])
   {
-    DEBUG_PRINT("Inject queue full: port=%d\n", p.port);
+    DEBUG_PRINT("Inject failed: port=%d no handler\n", p.port);
     return false;
   }
 
+  // 如果有 queue 就入队（queue-only 端口靠轮询消费）
+  if (queues[p.port])
+  {
+    if (xQueueSend(queues[p.port], &p, 0) != pdTRUE)
+    {
+      DEBUG_PRINT("Inject queue full: port=%d\n", p.port);
+      return false;
+    }
+  }
+
+  // 如果有 callback 就触发（callback-only 端口（如 SETPOINT）靠这条路径完成处理）
   if (callbacks[p.port])
   {
     callbacks[p.port](&p);

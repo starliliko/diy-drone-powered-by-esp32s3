@@ -14,15 +14,18 @@
 #include "task.h"
 #include "semphr.h"
 
-#include "system.h"
+#include <math.h>
 #include "sensors.h"
 #include "stabilizer.h"
 #include "commander.h"
-#include "crtp_commander.h"
 #include "pm_esplane.h"
-#include "estimator_kalman.h"
 #include "log.h"
 #include "param.h"
+
+/* 估计器高度 / 速度日志变量 ID（用于 flightPhase 物理确认） */
+static logVarId_t estZId;
+static logVarId_t estVzId;
+static bool estLogIdsReady = false;
 
 #define DEBUG_MODULE "VEHICLE"
 #include "debug_cf.h"
@@ -42,9 +45,18 @@
 #define LANDED_VELOCITY_THRESHOLD 0.1f                                  // 降落速度阈值 (m/s)
 #define LANDED_TIME_THRESHOLD_MS 1000                                   // 降落确认时间
 
+// 估计器物理确认阈值
+#define EST_AIRBORNE_HEIGHT_M     0.10f   // 估计高度 > 此值确认离地
+#define EST_LANDED_HEIGHT_M       0.08f   // 估计高度 < 此值认为落地
+#define EST_LANDED_VELOCITY_M_S   0.15f   // |垂直速度| < 此值认为静止
+
 /*===========================================================================
  * 状态变量
  *===========================================================================*/
+
+#define TAKEOFF_VELOCITY_THRESHOLD 0.15f                                // Vertical takeoff command threshold (m/s)
+#define TAKEOFF_ALTITUDE_THRESHOLD 0.15f                                // Absolute-height takeoff threshold (m)
+#define LANDING_THRUST_THRESHOLD 2000                                   // Manual landing low-thrust threshold
 
 static VehicleState vehicleState = {
     .armingState = ARMING_STATE_INIT,
@@ -84,7 +96,10 @@ static uint8_t logIsFlying = 0;
 static bool runArmingChecks(bool force);
 static void updateFlightPhase(void);
 static void updateFailsafe(void);
-static void syncWithLegacySystem(void);
+static bool getCurrentSetpoint(setpoint_t *setpoint);
+static bool isTakeoffCommandActive(const setpoint_t *setpoint);
+static bool isLandingCommandActive(const setpoint_t *setpoint);
+static void getEstimatorHeightVelocity(float *height, float *vz);
 
 /*===========================================================================
  * 状态名称字符串
@@ -231,9 +246,6 @@ bool vehicleArm(bool force)
     vehicleState.lastStateChange = vehicleState.armTime;
     vehicleState.armFailReason = ARM_FAIL_NONE;
 
-    // 同步到旧系统
-    systemSetArmed(true);
-
     // 气压计已在启动时自动校准，不再需要手动校准
 
     xSemaphoreGive(stateMutex);
@@ -273,8 +285,6 @@ bool vehicleDisarm(bool force)
     }
     vehicleState.armTime = 0;
 
-    // 同步到旧系统
-    systemSetArmed(false);
 
     xSemaphoreGive(stateMutex);
 
@@ -308,26 +318,6 @@ bool vehicleSetFlightMode(VehicleFlightMode mode)
     vehicleState.flightMode = mode;
     vehicleState.lastStateChange = xTaskGetTickCount();
 
-    // 同步到旧的 FlightMode 系统
-    switch (mode)
-    {
-    case FLIGHT_MODE_MANUAL:
-    case FLIGHT_MODE_STABILIZE:
-        setCommandermode(STABILIZE_MODE);
-        break;
-    case FLIGHT_MODE_ALTITUDE:
-        setCommandermode(ALTHOLD_MODE);
-        break;
-    case FLIGHT_MODE_POSITION:
-    case FLIGHT_MODE_OFFBOARD:
-        setCommandermode(POSHOLD_MODE);
-        break;
-    default:
-        // 其他模式暂时映射到自稳
-        setCommandermode(STABILIZE_MODE);
-        break;
-    }
-
     xSemaphoreGive(stateMutex);
 
     if (oldMode != mode)
@@ -351,7 +341,6 @@ void vehicleEmergencyStop(void)
 
     // 触发旧系统的紧急停止
     stabilizerSetEmergencyStop();
-    systemSetArmed(false);
 
     xSemaphoreGive(stateMutex);
 
@@ -378,6 +367,10 @@ void vehicleStateUpdate(void)
     if (!isInit)
         return;
 
+    bool becameReady = false;
+
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+
     // 检查传感器状态，更新初始化完成
     if (vehicleState.armingState == ARMING_STATE_INIT)
     {
@@ -385,7 +378,7 @@ void vehicleStateUpdate(void)
         {
             vehicleState.armingState = ARMING_STATE_STANDBY;
             vehicleState.isSensorHealthy = true;
-            DEBUG_PRINT("Vehicle ready: STANDBY\n");
+            becameReady = true;
         }
     }
 
@@ -402,16 +395,39 @@ void vehicleStateUpdate(void)
     logFailsafe = (uint8_t)vehicleState.failsafeState;
     logIsArmed = vehicleState.isArmed ? 1 : 0;
     logIsFlying = vehicleState.isFlying ? 1 : 0;
+
+    xSemaphoreGive(stateMutex);
+
+    if (becameReady)
+    {
+        DEBUG_PRINT("Vehicle ready: STANDBY\n");
+    }
 }
 
 void vehicleSetRcConnected(bool connected)
 {
-    vehicleState.isRcConnected = connected;
+    if (stateMutex && xSemaphoreTake(stateMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+    {
+        vehicleState.isRcConnected = connected;
+        xSemaphoreGive(stateMutex);
+    }
+    else
+    {
+        vehicleState.isRcConnected = connected;
+    }
 }
 
 void vehicleSetGcsConnected(bool connected)
 {
-    vehicleState.isGcsConnected = connected;
+    if (stateMutex && xSemaphoreTake(stateMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+    {
+        vehicleState.isGcsConnected = connected;
+        xSemaphoreGive(stateMutex);
+    }
+    else
+    {
+        vehicleState.isGcsConnected = connected;
+    }
 }
 
 const char *vehicleGetArmingStateName(ArmingState state)
@@ -448,8 +464,97 @@ const char *vehicleGetFlightPhaseName(FlightPhase phase)
 /**
  * @brief 运行解锁前检查
  */
+static bool getCurrentSetpoint(setpoint_t *setpoint)
+{
+    if (setpoint == NULL)
+    {
+        return false;
+    }
+
+    commanderGetCurrentSetpoint(setpoint);
+    return true;
+}
+
+static bool isTakeoffCommandActive(const setpoint_t *setpoint)
+{
+    if (setpoint == NULL)
+    {
+        return false;
+    }
+
+    if (setpoint->mode.z == modeVelocity)
+    {
+        return setpoint->velocity.z > TAKEOFF_VELOCITY_THRESHOLD;
+    }
+
+    if (setpoint->mode.z == modeAbs)
+    {
+        return setpoint->position.z > TAKEOFF_ALTITUDE_THRESHOLD;
+    }
+
+    return setpoint->thrust > TAKEOFF_THRUST_THRESHOLD;
+}
+
+static bool isLandingCommandActive(const setpoint_t *setpoint)
+{
+    if (setpoint == NULL)
+    {
+        return false;
+    }
+
+    if (vehicleState.flightMode == FLIGHT_MODE_LAND)
+    {
+        return true;
+    }
+
+    if (setpoint->mode.z == modeVelocity)
+    {
+        return setpoint->velocity.z < -TAKEOFF_VELOCITY_THRESHOLD;
+    }
+
+    if (setpoint->mode.z == modeAbs)
+    {
+        return setpoint->position.z <= TAKEOFF_ALTITUDE_THRESHOLD;
+    }
+
+    return setpoint->thrust < LANDING_THRUST_THRESHOLD;
+}
+
+/**
+ * @brief 从估计器读取当前高度和垂直速度（通过 LOG 系统）
+ *
+ * 延迟初始化 log 变量 ID，第一次调用时查找 stateEstimate.z / .vz。
+ * 若 log 系统尚未就绪（ID 无效），返回 0.0f 回退到纯意图模式。
+ */
+static void getEstimatorHeightVelocity(float *height, float *vz)
+{
+    if (height == NULL || vz == NULL)
+    {
+        return;
+    }
+
+    *height = 0.0f;
+    *vz = 0.0f;
+
+    if (!estLogIdsReady || !LOG_VARID_IS_VALID(estZId) || !LOG_VARID_IS_VALID(estVzId))
+    {
+        estZId  = logGetVarId("stateEstimate", "z");
+        estVzId = logGetVarId("stateEstimate", "vz");
+        estLogIdsReady = LOG_VARID_IS_VALID(estZId) && LOG_VARID_IS_VALID(estVzId);
+    }
+
+    if (!LOG_VARID_IS_VALID(estZId) || !LOG_VARID_IS_VALID(estVzId))
+    {
+        return;
+    }
+
+    *height = logGetFloat(estZId);
+    *vz     = logGetFloat(estVzId);
+}
+
 static bool runArmingChecks(bool force)
 {
+    setpoint_t currentSetpoint = {0};
     vehicleState.armingCheckResult = 0;
 
     // 1. 传感器检查
@@ -469,60 +574,147 @@ static bool runArmingChecks(bool force)
     (void)force;
     vehicleState.isBatteryLow = false;
 
-    // 3. 油门归零检查（需要从commander获取当前油门）
-    // 这里简化处理，实际应该检查遥控器油门位置
-    // if ((vehicleState.armingCheckFlags & ARM_CHECK_THROTTLE_ZERO) && !force) {
-    //     // TODO: 检查油门是否归零
-    // }
+    // 3. 油门归零检查
+    if ((vehicleState.armingCheckFlags & ARM_CHECK_THROTTLE_ZERO) && !force)
+    {
+        getCurrentSetpoint(&currentSetpoint);
+        if (isTakeoffCommandActive(&currentSetpoint))
+        {
+            vehicleState.armFailReason = ARM_FAIL_THROTTLE_NOT_ZERO;
+            vehicleState.armingCheckResult |= ARM_CHECK_THROTTLE_ZERO;
+            return false;
+        }
+    }
 
     return true;
 }
 
 /**
- * @brief 更新飞行阶段（基于传感器数据）
+ * @brief 更新飞行阶段（控制意图 + 估计器物理确认）
+ *
+ * 状态转换逻辑：
+ *   ON_GROUND → TAKEOFF : setpoint 表达起飞意图
+ *   TAKEOFF   → IN_AIR  : 估计器确认高度 > EST_AIRBORNE_HEIGHT_M
+ *                          （若连续 2 秒无确认则强制转入，兜底 STABILIZE 模式等无高度估计场景）
+ *   IN_AIR    → LANDING : setpoint 表达降落意图
+ *   LANDING   → ON_GROUND : 时间阈值 + 估计器确认高度 & 速度均近零
  */
 static void updateFlightPhase(void)
 {
-    static uint32_t landedStartTime = 0;
+    static uint32_t landingStartTime = 0;
+    static uint32_t takeoffStartTime = 0;
+    setpoint_t currentSetpoint = {0};
+    const uint32_t now = xTaskGetTickCount();
 
     if (!vehicleState.isArmed)
     {
         vehicleState.flightPhase = FLIGHT_PHASE_ON_GROUND;
         vehicleState.isFlying = false;
+        landingStartTime = 0;
+        takeoffStartTime = 0;
         return;
     }
 
-    // 简化的飞行阶段检测
-    // 实际应该基于加速度、速度、高度等综合判断
+    // 读取控制意图
+    getCurrentSetpoint(&currentSetpoint);
+    const bool takeoffCommandActive = isTakeoffCommandActive(&currentSetpoint);
+    const bool landingCommandActive = isLandingCommandActive(&currentSetpoint);
+
+    // 读取估计器物理状态
+    float estHeight = 0.0f, estVz = 0.0f;
+    getEstimatorHeightVelocity(&estHeight, &estVz);
+
     switch (vehicleState.flightPhase)
     {
     case FLIGHT_PHASE_ON_GROUND:
-        // 检测起飞：油门超过阈值
-        // TODO: 使用实际的油门/高度判断
         vehicleState.isFlying = false;
+        landingStartTime = 0;
+        takeoffStartTime = 0;
+        if (takeoffCommandActive)
+        {
+            vehicleState.flightPhase = FLIGHT_PHASE_TAKEOFF;
+            takeoffStartTime = now;
+            DEBUG_PRINT("Flight phase: ON_GROUND -> TAKEOFF\n");
+        }
         break;
 
     case FLIGHT_PHASE_TAKEOFF:
-        // 检测是否完成起飞
+    {
         vehicleState.isFlying = true;
-        vehicleState.flightPhase = FLIGHT_PHASE_IN_AIR;
+        landingStartTime = 0;
+
+        // 用估计器确认离地；2 秒无确认则强制转入（兜底）
+        bool heightConfirmed = (estHeight > EST_AIRBORNE_HEIGHT_M);
+        bool timeout = (takeoffStartTime > 0) &&
+                       ((now - takeoffStartTime) >= pdMS_TO_TICKS(2000));
+
+        if (heightConfirmed || timeout)
+        {
+            vehicleState.flightPhase = FLIGHT_PHASE_IN_AIR;
+            takeoffStartTime = 0;
+            DEBUG_PRINT("Flight phase: TAKEOFF -> IN_AIR (h=%.2f %s)\n",
+                        (double)estHeight, heightConfirmed ? "confirmed" : "timeout");
+        }
         break;
+    }
 
     case FLIGHT_PHASE_IN_AIR:
         vehicleState.isFlying = true;
-        // 检测是否开始降落
-        if (vehicleState.flightMode == FLIGHT_MODE_LAND)
+        takeoffStartTime = 0;
+        if (landingCommandActive)
         {
             vehicleState.flightPhase = FLIGHT_PHASE_LANDING;
+            landingStartTime = now;
+            DEBUG_PRINT("Flight phase: IN_AIR -> LANDING\n");
         }
         break;
 
     case FLIGHT_PHASE_LANDING:
-        // 检测是否已降落（速度接近零且持续一段时间）
+        vehicleState.isFlying = true;
+        takeoffStartTime = 0;
+        if (takeoffCommandActive)
+        {
+            vehicleState.flightPhase = FLIGHT_PHASE_IN_AIR;
+            landingStartTime = 0;
+            DEBUG_PRINT("Flight phase: LANDING -> IN_AIR\n");
+        }
+        else
+        {
+            if (landingStartTime == 0)
+            {
+                landingStartTime = now;
+            }
+
+            // 时间阈值 + 估计器物理确认（高度近零 & 速度近零）
+            bool timeElapsed = (now - landingStartTime) >= pdMS_TO_TICKS(LANDED_TIME_THRESHOLD_MS);
+            bool physicallyLanded = (estHeight < EST_LANDED_HEIGHT_M) &&
+                                   (fabsf(estVz) < EST_LANDED_VELOCITY_M_S);
+
+            if (timeElapsed && physicallyLanded)
+            {
+                vehicleState.flightPhase = FLIGHT_PHASE_ON_GROUND;
+                vehicleState.isFlying = false;
+                landingStartTime = 0;
+                DEBUG_PRINT("Flight phase: LANDING -> ON_GROUND (h=%.2f vz=%.2f)\n",
+                            (double)estHeight, (double)estVz);
+            }
+            // 兜底：超过 3 倍时间阈值仍未物理确认，强制落地
+            else if ((now - landingStartTime) >= pdMS_TO_TICKS(LANDED_TIME_THRESHOLD_MS * 3))
+            {
+                vehicleState.flightPhase = FLIGHT_PHASE_ON_GROUND;
+                vehicleState.isFlying = false;
+                landingStartTime = 0;
+                DEBUG_PRINT("Flight phase: LANDING -> ON_GROUND (timeout, h=%.2f vz=%.2f)\n",
+                            (double)estHeight, (double)estVz);
+            }
+        }
         break;
 
     case FLIGHT_PHASE_LANDED:
         vehicleState.isFlying = false;
+        vehicleState.flightPhase = FLIGHT_PHASE_ON_GROUND;
+        landingStartTime = 0;
+        takeoffStartTime = 0;
         break;
 
     default:
@@ -581,5 +773,5 @@ LOG_GROUP_STOP(vehicle)
 
 PARAM_GROUP_START(vehicle)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, armState, &logArmingState)
-PARAM_ADD(PARAM_UINT8, flightMode, &logFlightMode)
+PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, flightMode, &logFlightMode)
 PARAM_GROUP_STOP(vehicle)

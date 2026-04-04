@@ -8,6 +8,9 @@ const CONFIG = require('./config');
 const { PacketType, HEADER_SIZE } = require('./protocol');
 const { parseHeader, createHeader, parseTelemetry, createControlCommand } = require('./parser');
 
+const RX_BUFFER_MAX_BYTES = Math.max(HEADER_SIZE * 2, Number(CONFIG.RX_BUFFER_MAX_BYTES) || (256 * 1024));
+const MAX_PACKET_SIZE = Math.max(HEADER_SIZE, Number(CONFIG.MAX_PACKET_SIZE) || (8 * 1024));
+
 class DroneClient {
     constructor(socket, remoteAddr, server) {
         this.socket = socket;
@@ -60,7 +63,18 @@ class DroneClient {
     handleData(data) {
         // 任意收到数据都视为链路活跃
         this.lastPacketAt = Date.now();
-        this.rxBuffer = Buffer.concat([this.rxBuffer, data]);
+        const nextLength = this.rxBuffer.length + data.length;
+        if (nextLength > RX_BUFFER_MAX_BYTES) {
+            this.setDisconnectReason(
+                'rx_buffer_overflow',
+                `Buffered ${nextLength} bytes (limit ${RX_BUFFER_MAX_BYTES})`
+            );
+            console.warn(`[${this.remoteAddr}] RX buffer overflow: ${nextLength} bytes`);
+            this.close('rx_buffer_overflow');
+            return;
+        }
+
+        this.rxBuffer = Buffer.concat([this.rxBuffer, data], nextLength);
         this.processBuffer();
     }
 
@@ -71,6 +85,16 @@ class DroneClient {
             if (!header) {
                 this.rxBuffer = this.rxBuffer.slice(1);
                 continue;
+            }
+
+            if (header.length > MAX_PACKET_SIZE) {
+                this.setDisconnectReason(
+                    'packet_too_large',
+                    `Packet payload ${header.length} exceeds limit ${MAX_PACKET_SIZE}`
+                );
+                console.warn(`[${this.remoteAddr}] Oversized packet: ${header.length} bytes`);
+                this.close('packet_too_large');
+                return;
             }
 
             const totalLen = HEADER_SIZE + header.length;

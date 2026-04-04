@@ -34,7 +34,6 @@
 #include "config.h"
 #include "system.h"
 #include "commander.h"
-#include "crtp_commander.h"
 #include "vehicle_state.h"
 #include "static_mem.h"
 #include "sdkconfig.h"
@@ -87,9 +86,9 @@
 static setpoint_t extrxSetpoint;
 static uint16_t ch[EXTRX_NR_CHANNELS];
 static bool isInit = false;
-static bool isArmed = false;
-static FlightMode currentMode = STABILIZE_MODE; // 当前飞行模式
-static FlightMode lastMode = STABILIZE_MODE;    // 上次飞行模式，用于检测变化
+static uint8_t armedLog = 0;
+static VehicleFlightMode currentMode = FLIGHT_MODE_STABILIZE; // 当前飞行模式
+static VehicleFlightMode lastMode = FLIGHT_MODE_STABILIZE;    // 上次飞行模式，用于检测变化
 
 /* Private function declarations */
 static void extRxTask(void *param);
@@ -153,7 +152,7 @@ bool extRxIsAvailable(void)
  */
 bool extRxIsArmed(void)
 {
-  return isArmed;
+  return vehicleIsArmed();
 }
 
 /**
@@ -194,7 +193,7 @@ static void extRxTask(void *param)
     // if (loopCount % 1000 == 0)
     // {
     //   printf("[EXTRX] Active: loops=%lu, armed=%d, thr=%d\n",
-    //          loopCount, isArmed, extrxSetpoint.thrust);
+    //          loopCount, vehicleIsArmed(), extrxSetpoint.thrust);
     // }
 
     /* Read SBUS frame (blocking with timeout) */
@@ -260,10 +259,9 @@ static void extRxTask(void *param)
             signalLostDetected = true;
             printf("[EXTRX] RC SIGNAL LOST (invalid=%lu/%lu frames)\n",
                    invalidFrameCount, totalFrames);
-            if (isArmed)
+            if (vehicleIsArmed())
             {
               vehicleDisarm(true);
-              isArmed = false;
               printf("[EXTRX] DISARMED due to signal loss\n");
             }
             vehicleSetRcConnected(false);
@@ -360,6 +358,8 @@ static void extRxTask(void *param)
 
       /* Check arm switch and update vehicle state */
       bool armSwitchOn = (frame.channels[EXTRX_CH_ARM] > EXTRX_ARM_THRESHOLD);
+      bool currentArmed = vehicleIsArmed();
+      armedLog = currentArmed ? 1 : 0;
 
       /* Debug: Print arm switch status periodically (every 5 seconds) */
       static uint32_t lastArmDebug = 0;
@@ -367,7 +367,7 @@ static void extRxTask(void *param)
       {
         printf("[EXTRX] ARM:sw=%d ch6=%d>%d | MODE:ch5=%d mode=%d | armed=%d | FS=%d FL=%d | inv=%lu sigLost=%d\n",
                armSwitchOn, frame.channels[EXTRX_CH_ARM], EXTRX_ARM_THRESHOLD,
-               frame.channels[EXTRX_CH_MODE], currentMode, isArmed,
+               frame.channels[EXTRX_CH_MODE], currentMode, currentArmed,
                frame.failsafe, frame.frameLost, invalidFrameCount, signalLostDetected);
         lastArmDebug = loopCount;
       }
@@ -375,12 +375,11 @@ static void extRxTask(void *param)
       /* Handle arming state transition */
       static bool armFailLogged = false; /* 移到外部以便多处使用 */
 
-      if (armSwitchOn && !isArmed)
+      if (armSwitchOn && !currentArmed)
       {
         /* Arm switch turned ON - attempt to arm */
         if (vehicleArm(false))
         {
-          isArmed = true;
           printf("[EXTRX] RC ARM SUCCESS\n");
           armFailLogged = false; /* 成功后重置 */
         }
@@ -394,19 +393,23 @@ static void extRxTask(void *param)
           }
         }
       }
-      else if (!armSwitchOn && isArmed)
+      else if (!armSwitchOn && currentArmed)
       {
         /* Arm switch turned OFF - disarm */
-        vehicleDisarm(false);
-        isArmed = false;
+        if (vehicleDisarm(false))
+        {
         printf("[EXTRX] RC DISARM\n");
         armFailLogged = false; /* 解锁开关关闭时重置 */
+      }
       }
       else if (!armSwitchOn)
       {
         /* Reset arm failure flag when switch is off */
         armFailLogged = false;
       }
+
+      /* Mirror the unified armed truth for telemetry logging */
+      armedLog = vehicleIsArmed() ? 1 : 0;
 
       /* Update RC connection status */
       vehicleSetRcConnected(true);
@@ -439,12 +442,12 @@ static void extRxTask(void *param)
         wasConnected = false;
       }
 
-      if (isArmed)
+      if (vehicleIsArmed())
       {
         vehicleDisarm(true); // Force disarm on signal loss
-        isArmed = false;
         DEBUG_PRINT("RC SIGNAL LOST - DISARMED\n");
       }
+      armedLog = vehicleIsArmed() ? 1 : 0;
       vehicleSetRcConnected(false);
 
       /* Send zero setpoint to commander so it knows SBUS is inactive */
@@ -481,9 +484,9 @@ static void extRxTask(void *param)
  * @brief Update flight mode based on mode switch channel
  *
  * 根据遥控器模式开关位置切换飞行模式:
- * - 低位 (Low):  STABILIZE_MODE - 自稳模式，仅姿态控制
- * - 中位 (Mid):  ALTHOLD_MODE   - 定高模式，自动保持高度
- * - 高位 (High): POSHOLD_MODE   - 定点模式，自动保持位置（需要光流/GPS）
+ * - 低位 (Low):  FLIGHT_MODE_STABILIZE - 自稳模式，仅姿态控制
+ * - 中位 (Mid):  FLIGHT_MODE_ALTITUDE  - 定高模式，自动保持高度
+ * - 高位 (High): FLIGHT_MODE_POSITION  - 定点模式，自动保持位置（需要光流/GPS）
  *
  * @param modeChannel Mode switch channel value (0-2047)
  */
@@ -498,21 +501,20 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
   /* 根据当前模式调整阈值 */
   switch (currentMode)
   {
-  case STABILIZE_MODE:
-    /* 当前是STABILIZE，需要超过 LOW+HYSTERESIS 才切换到 ALTHOLD */
+  case FLIGHT_MODE_STABILIZE:
+    /* 当前是STABILIZE，需要超过 LOW+HYSTERESIS 才切换到 ALTITUDE */
     lowThreshold = EXTRX_MODE_LOW_THRESHOLD + EXTRX_MODE_HYSTERESIS;
     highThreshold = EXTRX_MODE_HIGH_THRESHOLD;
     break;
-  case ALTHOLD_MODE:
-    /* 当前是ALTHOLD，需要低于 LOW-HYSTERESIS 才切换到 STABILIZE */
-    /* 需要高于 HIGH+HYSTERESIS 才切换到 POSHOLD */
+  case FLIGHT_MODE_ALTITUDE:
+    /* 当前是ALTITUDE，需要低于 LOW-HYSTERESIS 才切换到 STABILIZE */
+    /* 需要高于 HIGH+HYSTERESIS 才切换到 POSITION */
     lowThreshold = EXTRX_MODE_LOW_THRESHOLD - EXTRX_MODE_HYSTERESIS;
     highThreshold = EXTRX_MODE_HIGH_THRESHOLD + EXTRX_MODE_HYSTERESIS;
     break;
-  case POSHOLD_MODE:
-  case POSSET_MODE:
+  case FLIGHT_MODE_POSITION:
   default:
-    /* 当前是POSHOLD，需要低于 HIGH-HYSTERESIS 才切换到 ALTHOLD */
+    /* 当前是POSITION，需要低于 HIGH-HYSTERESIS 才切换到 ALTITUDE */
     lowThreshold = EXTRX_MODE_LOW_THRESHOLD;
     highThreshold = EXTRX_MODE_HIGH_THRESHOLD - EXTRX_MODE_HYSTERESIS;
     break;
@@ -522,19 +524,19 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
   if (modeChannel < lowThreshold)
   {
     /* Low position: Stabilize mode */
-    currentMode = STABILIZE_MODE;
+    currentMode = FLIGHT_MODE_STABILIZE;
     newMode = FLIGHT_MODE_STABILIZE;
   }
   else if (modeChannel >= highThreshold)
   {
     /* High position: Position hold mode */
-    currentMode = POSHOLD_MODE;
+    currentMode = FLIGHT_MODE_POSITION;
     newMode = FLIGHT_MODE_POSITION;
   }
   else
   {
     /* Mid position: Altitude hold mode */
-    currentMode = ALTHOLD_MODE;
+    currentMode = FLIGHT_MODE_ALTITUDE;
     newMode = FLIGHT_MODE_ALTITUDE;
   }
 
@@ -556,6 +558,15 @@ static void extRxUpdateFlightMode(uint16_t modeChannel)
 static void extRxDecodeChannels(void)
 {
 #ifdef CONFIG_ENABLE_SBUS
+  /* 每个周期重置 mode 字段——commanderApplyFlightMode 会根据飞行模式覆写 */
+  extrxSetpoint.mode.roll = modeAbs;
+  extrxSetpoint.mode.pitch = modeAbs;
+  extrxSetpoint.mode.yaw = modeVelocity;
+  extrxSetpoint.mode.x = modeDisable;
+  extrxSetpoint.mode.y = modeDisable;
+  extrxSetpoint.mode.z = modeDisable;
+  extrxSetpoint.velocity_body = false;
+
   /* Convert SBUS values to setpoint */
   /* Thrust: apply dead zone on RAW SBUS value before conversion.
    * Actual stick minimum is ~290, SBUS_CHANNEL_MIN=240, difference=50.
@@ -582,12 +593,12 @@ static void extRxDecodeChannels(void)
   extrxSetpoint.attitude.yaw = EXTRX_SIGN_YAW *
                                sbusConvertToRange(ch[EXTRX_CH_YAW], -EXTRX_SCALE_YAW, EXTRX_SCALE_YAW);
 
-  /* If not armed, zero thrust for safety but still send to commander */
-  /* This allows commander to track SBUS as active control source */
-  if (!isArmed)
-  {
-    extrxSetpoint.thrust = 0.0f;
-  }
+  /* Keep the real stick position even while disarmed so arm checks can
+   * validate throttle and vertical intent correctly. Motor output is still
+   * gated later by vehicle_state and stabilizer safety logic. */
+
+  /* 根据飞行模式转换 setpoint 语义（定高→Z速度，定点→XY速度） */
+  commanderApplyFlightMode(&extrxSetpoint);
 
   /* Send setpoint to commander (always, to maintain control source status) */
   commanderSetSetpoint(&extrxSetpoint, COMMANDER_PRIORITY_EXTRX);
@@ -611,7 +622,7 @@ LOG_ADD(LOG_UINT16, thrust, &extrxSetpoint.thrust)
 LOG_ADD(LOG_FLOAT, roll, &extrxSetpoint.attitude.roll)
 LOG_ADD(LOG_FLOAT, pitch, &extrxSetpoint.attitude.pitch)
 LOG_ADD(LOG_FLOAT, yaw, &extrxSetpoint.attitude.yaw)
-LOG_ADD(LOG_UINT8, armed, &isArmed)
+LOG_ADD(LOG_UINT8, armed, &armedLog)
 LOG_ADD(LOG_UINT8, mode, &currentMode)
 LOG_GROUP_STOP(extrx)
 #endif

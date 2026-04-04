@@ -39,6 +39,7 @@
 #include "log.h"
 #include "stm32_legacy.h"
 #include "static_mem.h"
+#include "vehicle_state.h"
 
 #define DEBUG_MODULE "CMD"
 #include "debug_cf.h"
@@ -49,17 +50,24 @@
 
 static bool isInit;
 const static setpoint_t nullSetpoint;
-static setpoint_t tempSetpoint;
 static state_t lastState;
-const static int priorityDisable = COMMANDER_PRIORITY_DISABLE;
+
+typedef struct
+{
+  setpoint_t setpoint;
+  int priority;
+} CommanderState;
+
+const static CommanderState nullCommanderState = {
+    .setpoint = {0},
+    .priority = COMMANDER_PRIORITY_DISABLE,
+};
 
 static uint32_t lastUpdate;
 static bool enableHighLevel = false;
 
-static QueueHandle_t setpointQueue;
-STATIC_MEM_QUEUE_ALLOC(setpointQueue, 1, sizeof(setpoint_t));
-static QueueHandle_t priorityQueue;
-STATIC_MEM_QUEUE_ALLOC(priorityQueue, 1, sizeof(int));
+static QueueHandle_t commanderStateQueue;
+STATIC_MEM_QUEUE_ALLOC(commanderStateQueue, 1, sizeof(CommanderState));
 
 // 优先级锁定机制（防止抖动）
 static bool priorityLocked = false;
@@ -85,6 +93,18 @@ static uint8_t logActivePriority = 0;
 static uint32_t logAcceptedTotal = 0;
 static uint32_t logRejectedTotal = 0;
 static uint32_t logInvalidTotal = 0;
+
+static void commanderStatePeek(CommanderState *state)
+{
+  const BaseType_t peekResult = xQueuePeek(commanderStateQueue, state, 0);
+  ASSERT(peekResult == pdTRUE);
+}
+
+static void commanderStateOverwrite(const CommanderState *state)
+{
+  const BaseType_t overwriteResult = xQueueOverwrite(commanderStateQueue, state);
+  ASSERT(overwriteResult == pdPASS);
+}
 
 /*===========================================================================
  * 辅助宏
@@ -182,8 +202,12 @@ static bool performSourceFailover(int currentPriority, uint32_t currentTime)
 
   if (newPriority != currentPriority)
   {
+    CommanderState commanderState;
+
     DEBUG_PRINT("Failover: %d -> %d\n", currentPriority, newPriority);
-    xQueueOverwrite(priorityQueue, &newPriority);
+    commanderStatePeek(&commanderState);
+    commanderState.priority = newPriority;
+    commanderStateOverwrite(&commanderState);
     logActivePriority = newPriority;
     return true;
   }
@@ -194,13 +218,9 @@ static bool performSourceFailover(int currentPriority, uint32_t currentTime)
 /* Public functions */
 void commanderInit(void)
 {
-  setpointQueue = STATIC_MEM_QUEUE_CREATE(setpointQueue);
-  ASSERT(setpointQueue);
-  xQueueSend(setpointQueue, &nullSetpoint, 0);
-
-  priorityQueue = STATIC_MEM_QUEUE_CREATE(priorityQueue);
-  ASSERT(priorityQueue);
-  xQueueSend(priorityQueue, &priorityDisable, 0);
+  commanderStateQueue = STATIC_MEM_QUEUE_CREATE(commanderStateQueue);
+  ASSERT(commanderStateQueue);
+  xQueueSend(commanderStateQueue, &nullCommanderState, 0);
 
   // 初始化路径统计
   memset(pathStats, 0, sizeof(pathStats));
@@ -308,6 +328,68 @@ void commanderClampSetpoint(setpoint_t *setpoint)
 }
 
 /*===========================================================================
+ * 飞行模式 → Setpoint 语义转换（统一入口）
+ *===========================================================================*/
+
+/**
+ * 将原始 RPYT setpoint 按当前飞行模式重映射。
+ * 调用前: setpoint 已填好 roll/pitch (deg), yaw (deg/s), thrust (0-65535)。
+ * 调用后: mode.z / mode.x / mode.y 等字段被正确设置为 positionController 需要的格式。
+ *
+ * 映射规则：
+ *   STABILIZE/MANUAL  → 直接推力 + 姿态角（mode.z/x/y = modeDisable）
+ *   ALTITUDE           → thrust 映射到 z velocity (-1~+1), mode.z = modeVelocity
+ *   POSITION/OFFBOARD  → 额外: pitch→vx, roll→vy (body frame), mode.x/y = modeVelocity
+ */
+void commanderApplyFlightMode(setpoint_t *setpoint)
+{
+  VehicleFlightMode flightMode = vehicleGetFlightMode();
+
+  bool isAltHold = (flightMode == FLIGHT_MODE_ALTITUDE ||
+                    flightMode == FLIGHT_MODE_POSITION ||
+                    flightMode == FLIGHT_MODE_OFFBOARD);
+  bool isPosHold = (flightMode == FLIGHT_MODE_POSITION ||
+                    flightMode == FLIGHT_MODE_OFFBOARD);
+
+  if (isAltHold)
+  {
+    // 将油门 (0-65535) 映射为 Z 轴速度 (-1 ~ +1)
+    // 中点 32767 = 悬停(速度=0), 下半段=下降, 上半段=上升
+    float rawThrust = setpoint->thrust;
+    setpoint->thrust = 0;
+    setpoint->mode.z = modeVelocity;
+    setpoint->velocity.z = (rawThrust - 32767.f) / 32767.f;
+  }
+  else
+  {
+    setpoint->mode.z = modeDisable;
+  }
+
+  if (isPosHold)
+  {
+    // 将姿态角映射为 body-frame XY 速度
+    // pitch → 前进速度, roll → 横向速度
+    // 符号约定: 正 pitch = 低头 → 前进 (负X), 正 roll = 右倾 → 右移 (负Y)
+    setpoint->mode.x = modeVelocity;
+    setpoint->mode.y = modeVelocity;
+    setpoint->velocity_body = true;
+    setpoint->velocity.x = -setpoint->attitude.pitch / 30.0f;
+    setpoint->velocity.y = -setpoint->attitude.roll / 30.0f;
+
+    // 禁用直接姿态控制（由位置控制器输出姿态）
+    setpoint->mode.roll = modeDisable;
+    setpoint->mode.pitch = modeDisable;
+    setpoint->attitude.roll = 0;
+    setpoint->attitude.pitch = 0;
+  }
+  else
+  {
+    setpoint->mode.x = modeDisable;
+    setpoint->mode.y = modeDisable;
+  }
+}
+
+/*===========================================================================
  * 优先级锁定机制
  *===========================================================================*/
 
@@ -346,8 +428,9 @@ static void updatePriorityLock(int newPriority, int currentPriority, uint32_t cu
 
 void commanderSetSetpoint(setpoint_t *setpoint, int priority)
 {
-  int currentPriority;
   uint32_t currentTime = xTaskGetTickCount();
+  CommanderState currentState;
+  int previousPriority;
 
   // 范围检查优先级
   int statsIndex = (priority >= 0 && priority < NUM_PRIORITY_LEVELS) ? priority : 0;
@@ -359,8 +442,7 @@ void commanderSetSetpoint(setpoint_t *setpoint, int priority)
   // === 更新控制源健康状态 ===
   updateSourceHealth(priority, currentTime);
 
-  const BaseType_t peekResult = xQueuePeek(priorityQueue, &currentPriority, 0);
-  ASSERT(peekResult == pdTRUE);
+  commanderStatePeek(&currentState);
 
   // 检查优先级锁定
   if (!checkPriorityLock(priority, currentTime))
@@ -370,18 +452,20 @@ void commanderSetSetpoint(setpoint_t *setpoint, int priority)
     return;
   }
 
-  if (priority >= currentPriority)
+  previousPriority = currentState.priority;
+
+  if (priority >= previousPriority)
   {
     // 钳位到安全范围（保守策略：即使无效也尝试修正）
     commanderClampSetpoint(setpoint);
 
     setpoint->timestamp = currentTime;
-    // This is a potential race but without effect on functionality
-    xQueueOverwrite(setpointQueue, setpoint);
-    xQueueOverwrite(priorityQueue, &priority);
+    currentState.setpoint = *setpoint;
+    currentState.priority = priority;
+    commanderStateOverwrite(&currentState);
 
     // 更新优先级锁定
-    updatePriorityLock(priority, currentPriority, currentTime);
+    updatePriorityLock(priority, previousPriority, currentTime);
 
     // Send the high-level planner to idle so it will forget its current state
     // and start over if we switch from low-level to high-level in the future.
@@ -432,23 +516,27 @@ bool commanderSetSetpointSafe(setpoint_t *setpoint, int priority)
 void commanderNotifySetpointsStop(int remainValidMillisecs)
 {
   uint32_t currentTime = xTaskGetTickCount();
+  CommanderState commanderState;
   int timeSetback = MIN(
       COMMANDER_WDT_TIMEOUT_SHUTDOWN - M2T(remainValidMillisecs),
       currentTime);
-  xQueuePeek(setpointQueue, &tempSetpoint, 0);
-  tempSetpoint.timestamp = currentTime - timeSetback;
-  xQueueOverwrite(setpointQueue, &tempSetpoint);
+  commanderStatePeek(&commanderState);
+  commanderState.setpoint.timestamp = currentTime - timeSetback;
+  commanderStateOverwrite(&commanderState);
   crtpCommanderHighLevelTellState(&lastState);
 }
 
 void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
 {
-  xQueuePeek(setpointQueue, setpoint, 0);
+  CommanderState commanderState;
+
+  commanderStatePeek(&commanderState);
+  *setpoint = commanderState.setpoint;
   lastUpdate = setpoint->timestamp;
   uint32_t currentTime = xTaskGetTickCount();
 
   // === 自动故障转移检查 ===
-  int currentPriority = commanderGetActivePriority();
+  int currentPriority = commanderState.priority;
 
   // Debug: 周期性输出控制源状态
   static uint32_t lastDebugTime = 0;
@@ -491,14 +579,22 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
     int bestSource = findBestAvailableSource(currentTime);
     if (bestSource != COMMANDER_PRIORITY_DISABLE)
     {
+      CommanderState failoverState;
+
       DEBUG_PRINT("Watchdog failover: %d -> %d\n", currentPriority, bestSource);
-      xQueueOverwrite(priorityQueue, &bestSource);
+      commanderStatePeek(&failoverState);
+      failoverState.priority = bestSource;
+      commanderStateOverwrite(&failoverState);
       logActivePriority = bestSource;
     }
     else
     {
+      CommanderState disabledState;
+
       // 所有控制源都失联，进入安全模式
-      xQueueOverwrite(priorityQueue, &priorityDisable);
+      commanderStatePeek(&disabledState);
+      disabledState.priority = COMMANDER_PRIORITY_DISABLE;
+      commanderStateOverwrite(&disabledState);
       logActivePriority = COMMANDER_PRIORITY_DISABLE;
     }
 
@@ -519,6 +615,19 @@ void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state)
   lastState = *state;
 }
 
+void commanderGetCurrentSetpoint(setpoint_t *setpoint)
+{
+  CommanderState commanderState;
+
+  if (setpoint == NULL)
+  {
+    return;
+  }
+
+  commanderStatePeek(&commanderState);
+  *setpoint = commanderState.setpoint;
+}
+
 bool commanderTest(void)
 {
   return isInit;
@@ -531,12 +640,17 @@ uint32_t commanderGetInactivityTime(void)
 
 int commanderGetActivePriority(void)
 {
-  int priority;
+  CommanderState commanderState;
 
-  const BaseType_t peekResult = xQueuePeek(priorityQueue, &priority, 0);
-  ASSERT(peekResult == pdTRUE);
+  commanderStatePeek(&commanderState);
+  return commanderState.priority;
+}
 
-  return priority;
+float commanderGetCurrentThrust(void)
+{
+  setpoint_t sp;
+  commanderGetCurrentSetpoint(&sp);
+  return sp.thrust;
 }
 
 /*===========================================================================

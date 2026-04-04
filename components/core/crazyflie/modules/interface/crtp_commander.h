@@ -30,19 +30,8 @@
 #include "stabilizer_types.h"
 #include "crtp.h"
 
-typedef enum
-{
-    STABILIZE_MODE = 0x00,
-    ALTHOLD_MODE = 0x01,
-    POSHOLD_MODE = 0x02,
-    POSSET_MODE = 0x03,
-} FlightMode;
-
 void crtpCommanderInit(void);
 void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk);
 void crtpCommanderGenericDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk);
-void setCommandermode(FlightMode mode);
-FlightMode getFlightMode(void);
-const char *getFlightModeName(void);
 
 #endif /* CRTP_COMMANDER_H_ */

@@ -73,17 +73,9 @@
 #include "remote_server.h"
 #endif
 
-#ifndef START_DISARMED
-#define ARM_INIT true
-#else
-#define ARM_INIT false
-#endif
-
 /* Private variable */
 static bool selftestPassed;
 static bool canFly;
-static bool armed = ARM_INIT;
-static bool forceArm;
 static bool isInit;
 
 STATIC_MEM_TASK_ALLOC(systemTask, SYSTEM_TASK_STACKSIZE);
@@ -366,15 +358,10 @@ bool systemCanFly(void)
   return canFly;
 }
 
-void systemSetArmed(bool val)
-{
-  armed = val;
-}
-
 bool systemIsArmed()
 {
-
-  return armed || forceArm;
+  // 统一以 vehicle_state 为唯一真值源
+  return vehicleIsArmed();
 }
 // void vApplicationIdleHook( void )
 // {
@@ -405,11 +392,9 @@ PARAM_GROUP_STOP(cpu)*/
 
 PARAM_GROUP_START(system)
 PARAM_ADD(PARAM_INT8 | PARAM_RONLY, selftestPassed, &selftestPassed)
-PARAM_ADD(PARAM_INT8, forceArm, &forceArm)
 PARAM_GROUP_STOP(sytem)
 
 /* Loggable variables */
 LOG_GROUP_START(sys)
 LOG_ADD(LOG_INT8, canfly, &canFly)
-LOG_ADD(LOG_INT8, armed, &armed)
 LOG_GROUP_STOP(sys)

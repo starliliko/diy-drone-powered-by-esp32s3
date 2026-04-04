@@ -29,7 +29,6 @@
 
 #include "crtp_commander.h"
 #include "commander.h"
-#include "estimator.h"
 #include "crtp.h"
 #include "param.h"
 #include "FreeRTOS.h"
@@ -79,97 +78,6 @@ static YawModeType yawMode = DEFAULT_YAW_MODE; // Yaw mode configuration
 static bool carefreeResetFront;                // Reset what is front in carefree mode
 
 static bool thrustLocked = true;
-static bool altHoldMode = false;
-static bool posHoldMode = false;
-static bool posSetMode = false;
-
-/**
- * Set flight mode deponds on the present sensors
- *
- * @param mode flight mode num
- */
-void setCommandermode(FlightMode mode)
-{
-#ifdef CONFIG_ENABLE_COMMAND_MODE_SET
-  switch (mode)
-  {
-  case ALTHOLD_MODE:
-    altHoldMode = true;
-    posHoldMode = false;
-    posSetMode = false;
-    registerRequiredEstimator(complementaryEstimator);
-    break;
-  case POSHOLD_MODE:
-    altHoldMode = true;
-    posHoldMode = true;
-    posSetMode = false;
-    registerRequiredEstimator(kalmanEstimator);
-    break;
-  case POSSET_MODE:
-    altHoldMode = false;
-    posHoldMode = false;
-    posSetMode = true;
-    registerRequiredEstimator(kalmanEstimator);
-    break;
-  default:
-    altHoldMode = false;
-    posHoldMode = false;
-    posSetMode = false;
-    registerRequiredEstimator(complementaryEstimator);
-    break;
-  }
-  DEBUG_PRINTI("FlightMode = %d", mode);
-#else
-  DEBUG_PRINTI("set FlightMode disable");
-#endif
-}
-
-/**
- * Get current flight mode
- *
- * @return Current flight mode
- */
-FlightMode getFlightMode(void)
-{
-  if (posSetMode)
-  {
-    return POSSET_MODE;
-  }
-  else if (posHoldMode)
-  {
-    return POSHOLD_MODE;
-  }
-  else if (altHoldMode)
-  {
-    return ALTHOLD_MODE;
-  }
-  else
-  {
-    return STABILIZE_MODE;
-  }
-}
-
-/**
- * Get current flight mode name as string
- *
- * @return Flight mode name string
- */
-const char *getFlightModeName(void)
-{
-  switch (getFlightMode())
-  {
-  case STABILIZE_MODE:
-    return "STABILIZE";
-  case ALTHOLD_MODE:
-    return "ALTHOLD";
-  case POSHOLD_MODE:
-    return "POSHOLD";
-  case POSSET_MODE:
-    return "POSSET";
-  default:
-    return "UNKNOWN";
-  }
-}
 
 /**
  * Rotate Yaw so that the Crazyflie will change what is considered front.
@@ -233,109 +141,54 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
     setpoint->thrust = fminf(rawThrust, MAX_THRUST);
   }
 
-  if (altHoldMode)
+  // Roll/Pitch (CRTP 支持 RATE/ANGLE 切换)
+  if (stabilizationModeRoll == RATE)
   {
-    setpoint->thrust = 0;
-    setpoint->mode.z = modeVelocity;
-
-    setpoint->velocity.z = ((float)rawThrust - 32767.f) / 32767.f;
+    setpoint->mode.roll = modeVelocity;
+    setpoint->attitudeRate.roll = values->roll;
+    setpoint->attitude.roll = 0;
   }
   else
   {
-    setpoint->mode.z = modeDisable;
+    setpoint->mode.roll = modeAbs;
+    setpoint->attitudeRate.roll = 0;
+    setpoint->attitude.roll = values->roll;
   }
 
-  // roll/pitch
-  if (posHoldMode)
+  if (stabilizationModePitch == RATE)
   {
-    setpoint->mode.x = modeVelocity;
-    setpoint->mode.y = modeVelocity;
-    setpoint->mode.roll = modeDisable;
-    setpoint->mode.pitch = modeDisable;
-    setpoint->velocity_body = true;
-
-    setpoint->velocity.x = -values->pitch / 30.0f;
-    setpoint->velocity.y = -values->roll / 30.0f;
-    setpoint->attitude.roll = 0;
+    setpoint->mode.pitch = modeVelocity;
+    setpoint->attitudeRate.pitch = values->pitch;
     setpoint->attitude.pitch = 0;
-  }
-  else if (posSetMode && values->thrust != 0)
-  {
-    setpoint->mode.x = modeAbs;
-    setpoint->mode.y = modeAbs;
-    setpoint->mode.z = modeAbs;
-    setpoint->mode.roll = modeDisable;
-    setpoint->mode.pitch = modeDisable;
-    setpoint->mode.yaw = modeAbs;
-
-    setpoint->position.x = -values->pitch;
-    setpoint->position.y = values->roll;
-    setpoint->position.z = values->thrust / 1000.0f;
-
-    setpoint->attitude.roll = 0;
-    setpoint->attitude.pitch = 0;
-    setpoint->attitude.yaw = values->yaw;
-    setpoint->thrust = 0;
   }
   else
   {
-    setpoint->mode.x = modeDisable;
-    setpoint->mode.y = modeDisable;
-
-    if (stabilizationModeRoll == RATE)
-    {
-      setpoint->mode.roll = modeVelocity;
-      setpoint->attitudeRate.roll = values->roll;
-      setpoint->attitude.roll = 0;
-    }
-    else
-    {
-      setpoint->mode.roll = modeAbs;
-      setpoint->attitudeRate.roll = 0;
-      setpoint->attitude.roll = values->roll;
-    }
-
-    if (stabilizationModePitch == RATE)
-    {
-      setpoint->mode.pitch = modeVelocity;
-      setpoint->attitudeRate.pitch = values->pitch;
-      setpoint->attitude.pitch = 0;
-    }
-    else
-    {
-      setpoint->mode.pitch = modeAbs;
-      setpoint->attitudeRate.pitch = 0;
-      setpoint->attitude.pitch = values->pitch;
-    }
-
-    setpoint->velocity.x = 0;
-    setpoint->velocity.y = 0;
+    setpoint->mode.pitch = modeAbs;
+    setpoint->attitudeRate.pitch = 0;
+    setpoint->attitude.pitch = values->pitch;
   }
 
   // Yaw
-  if (!posSetMode)
+  if (stabilizationModeYaw == RATE)
   {
-    if (stabilizationModeYaw == RATE)
-    {
-      // legacy rate input is inverted
-      setpoint->attitudeRate.yaw = -values->yaw;
-      yawModeUpdate(setpoint);
-      setpoint->mode.yaw = modeVelocity;
-    }
-    else
-    {
-      setpoint->mode.yaw = modeAbs;
-      setpoint->attitudeRate.yaw = 0;
-      setpoint->attitude.yaw = values->yaw;
-    }
+    // legacy rate input is inverted
+    setpoint->attitudeRate.yaw = -values->yaw;
+    yawModeUpdate(setpoint);
+    setpoint->mode.yaw = modeVelocity;
   }
+  else
+  {
+    setpoint->mode.yaw = modeAbs;
+    setpoint->attitudeRate.yaw = 0;
+    setpoint->attitude.yaw = values->yaw;
+  }
+
+  // 统一飞行模式 → setpoint 语义（定高/定点模式会覆写 z/x/y mode）
+  commanderApplyFlightMode(setpoint);
 }
 
-// Params for flight modes
+// Params for stabilization modes (flight mode now managed by vehicle_state)
 PARAM_GROUP_START(flightmode)
-PARAM_ADD(PARAM_UINT8, althold, &altHoldMode)
-PARAM_ADD(PARAM_UINT8, poshold, &posHoldMode)
-PARAM_ADD(PARAM_UINT8, posSet, &posSetMode)
 PARAM_ADD(PARAM_UINT8, yawMode, &yawMode)
 PARAM_ADD(PARAM_UINT8, yawRst, &carefreeResetFront)
 PARAM_ADD(PARAM_UINT8, stabModeRoll, &stabilizationModeRoll)

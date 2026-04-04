@@ -100,6 +100,20 @@ bool commanderValidateSetpoint(const setpoint_t *setpoint);
 void commanderClampSetpoint(setpoint_t *setpoint);
 
 /**
+ * @brief 根据当前飞行模式重写 setpoint 的控制语义
+ *
+ * 将"原始RPYT"(姿态角+油门) setpoint 按飞行模式转换为控制器需要的格式:
+ * - STABILIZE: 保持原样 (roll/pitch=角度, yaw=角速度, thrust=直接推力)
+ * - ALTITUDE:  thrust → z 速度 (-1~+1), mode.z=modeVelocity
+ * - POSITION:  额外将 roll/pitch → xy 速度, mode.x/y=modeVelocity
+ *
+ * 所有输入路径 (CRTP / SBUS / Remote) 在发送 RPYT 类 setpoint 前都应调用此函数。
+ *
+ * @param setpoint 已填充好 roll/pitch/yaw/thrust 的 setpoint（就地修改）
+ */
+void commanderApplyFlightMode(setpoint_t *setpoint);
+
+/**
  * @brief 获取指定路径的统计信息
  * @param priority 优先级/路径ID
  * @return 统计结构体指针（只读）
@@ -119,5 +133,12 @@ void commanderResetStats(void);
 void commanderNotifySetpointsStop(int remainValidMillisecs);
 
 void commanderGetSetpoint(setpoint_t *setpoint, const state_t *state);
+void commanderGetCurrentSetpoint(setpoint_t *setpoint);
+
+/**
+ * @brief 获取当前 setpoint 中的推力值（不触发超时/故障转移逻辑）
+ * 用于解锁前油门归零检查。
+ */
+float commanderGetCurrentThrust(void);
 
 #endif /* COMMANDER_H_ */

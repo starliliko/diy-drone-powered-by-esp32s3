@@ -214,13 +214,15 @@ void positionController(float* thrust, attitude_t *attitude, setpoint_t *setpoin
 }
 
 void velocityController(float* thrust, attitude_t *attitude, setpoint_t *setpoint,
-                                                             const state_t *state)
+                                                              const state_t *state)
 {
+  const float maxThrustDeltaUp = (UINT16_MAX - this.thrustBase) / thrustScale;
+  const float maxThrustDeltaDown = (this.thrustBase - this.thrustMin) / thrustScale;
+
   this.pidVX.pid.outputLimit = rpLimit * rpLimitOverhead;
   this.pidVY.pid.outputLimit = rpLimit * rpLimitOverhead;
-  // Set the output limit to the maximum thrust range
-  this.pidVZ.pid.outputLimit = (UINT16_MAX / 2 / thrustScale);
-  //this.pidVZ.pid.outputLimit = (this.thrustBase - this.thrustMin) / thrustScale;
+  // Keep the PID output within the remaining thrust headroom around thrustBase.
+  this.pidVZ.pid.outputLimit = fminf(maxThrustDeltaUp, maxThrustDeltaDown);
 
   // Roll and Pitch
   float rollRaw  = runPid(state->velocity.x, &this.pidVX, setpoint->velocity.x, DT);
@@ -236,11 +238,7 @@ void velocityController(float* thrust, attitude_t *attitude, setpoint_t *setpoin
   // Thrust
   float thrustRaw = runPid(state->velocity.z, &this.pidVZ, setpoint->velocity.z, DT);
   // Scale the thrust and add feed forward term
-  *thrust = thrustRaw*thrustScale + this.thrustBase;
-  // Check for minimum thrust
-  if (*thrust < this.thrustMin) {
-    *thrust = this.thrustMin;
-  }
+  *thrust = constrain(thrustRaw * thrustScale + this.thrustBase, this.thrustMin, UINT16_MAX);
 }
 
 void positionControllerResetAllPID()
