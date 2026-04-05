@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+D:/UAV/esp drone/diy-drone/software/firmware/build/CMakeFiles/bootloader
+D:/UAV/esp drone/diy-drone/software/firmware/build/CMakeFiles/bootloader.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/CMakeFiles/bootloader-complete.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

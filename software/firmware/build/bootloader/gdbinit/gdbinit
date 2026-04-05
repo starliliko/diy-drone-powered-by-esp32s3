@@ -1,0 +1,2 @@
+source D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader/gdbinit/symbols
+source D:/UAV/esp drone/diy-drone/software/firmware/build/bootloader/gdbinit/connect
