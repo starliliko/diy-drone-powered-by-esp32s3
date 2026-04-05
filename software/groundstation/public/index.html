@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP Drone 地面站</title>
+    <link rel="stylesheet" href="css/style.css?v=8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+</head>
+
+<body>
+    <div class="toolbar">
+        <div class="brand">
+            <span>Q</span>GroundControl <span>Lite</span>
+        </div>
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="switchPage('flight')">📊 飞行监控</button>
+            <button class="tab-btn" onclick="switchPage('motor')">⚙️ 电机测试</button>
+            <button class="tab-btn" onclick="switchPage('pid')">🎛️ PID调参</button>
+        </div>
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="indicator-dot" id="comm-dot"></div>
+                <span id="comm-status">未连接</span>
+            </div>
+            <div class="status-item" title="遥控器连接状态">
+                <span>🎮</span>
+                <div class="indicator-dot" id="rc-dot"></div>
+                <span id="rc-status">RC</span>
+            </div>
+            <div class="status-item" title="地面站连接状态">
+                <span>🖥️</span>
+                <div class="indicator-dot" id="gcs-dot"></div>
+                <span id="gcs-status">GCS</span>
+            </div>
+            <div class="status-item">
+                <span>电池电压</span>
+                <div class="batt-container">
+                    <div class="batt-fill" id="batt-bar" style="width:0%"></div>
+                </div>
+                <span id="batt-val">--%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flight Monitoring Page -->
+    <div class="page active" id="page-flight">
+        <div class="workspace">
+            <!-- LEFT: Telemetry -->
+            <div class="sidebar-left">
+                <div class="panel-header">传感器数据</div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-row">
+                        <span class="t-label">横滚角 (Roll)</span>
+                        <span class="t-value" id="roll-txt">0.0°</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">俯仰角 (Pitch)</span>
+                        <span class="t-value" id="pitch-txt">0.0°</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">航向角 (Yaw)</span>
+                        <span class="t-value" id="yaw-txt">0.0°</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">电池电压</span>
+                        <span class="t-value" id="volt-txt">0.00 V</span>
+                    </div>
+                </div>
+
+                <div class="panel-header">实时电机输出</div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-row">
+                        <span class="t-label">电机 M1 (前右)</span>
+                        <span class="t-value" id="motor-m1-display">0%</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">电机 M2 (前左)</span>
+                        <span class="t-value" id="motor-m2-display">0%</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">电机 M3 (后左)</span>
+                        <span class="t-value" id="motor-m3-display">0%</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="t-label">电机 M4 (后右)</span>
+                        <span class="t-value" id="motor-m4-display">0%</span>
+                    </div>
+                </div>
+
+                <div class="panel-header">失控保护状态</div>
+                <div class="telemetry-grid protection-panel">
+                    <div class="telemetry-row">
+                        <span class="t-label">保护状态</span>
+                        <span class="t-value protection-state normal" id="protection-state-txt">正常</span>
+                    </div>
+                    <div class="protection-detail">
+                        <div class="protection-line">
+                            <span class="protection-k">原因：</span>
+                            <span class="protection-v" id="protection-reason-txt">无</span>
+                        </div>
+                        <div class="protection-line">
+                            <span class="protection-k">措施：</span>
+                            <span class="protection-v" id="protection-action-txt">监控中</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER: 3D View -->
+            <div class="center-view">
+                <div id="model-container"></div>
+
+                <div class="hud-overlay">
+                    <div class="flight-mode-badge" id="hud-mode">等待连接</div>
+                    <div class="flight-message" id="hud-msg">警告</div>
+                </div>
+
+                <!-- 实时飞行数据面板 (V3.2) -->
+                <div class="flight-data-panel">
+                    <div class="fd-row">
+                        <div class="fd-item">
+                            <span class="fd-label">估计高度</span>
+                            <span class="fd-value" id="est-alt-txt">0.00 m</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">气压高度</span>
+                            <span class="fd-value" id="baro-alt-txt">0.00 m</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">ToF距离</span>
+                            <span class="fd-value" id="tof-alt-txt">0.00 m</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">X速度(世界)</span>
+                            <span class="fd-value" id="vel-x-txt">0.00 m/s</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">Y速度(世界)</span>
+                            <span class="fd-value" id="vel-y-txt">0.00 m/s</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">Z速度</span>
+                            <span class="fd-value" id="vel-z-txt">0.00 m/s</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">X速度(机体)</span>
+                            <span class="fd-value" id="body-vel-x-txt">0.00 m/s</span>
+                        </div>
+                        <div class="fd-item">
+                            <span class="fd-label">Y速度(机体)</span>
+                            <span class="fd-value" id="body-vel-y-txt">0.00 m/s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Actions -->
+            <div class="sidebar-right">
+                <div class="panel-header">操作面板</div>
+                <div class="action-pad">
+                    <div class="slide-btn btn-arm" onclick="sendAction('ARM')">解锁 (Arm)</div>
+                    <div class="slide-btn btn-disarm" onclick="sendAction('DISARM')">上锁 (Disarm)</div>
+                    <div style="height: 20px;"></div>
+                    <div class="slide-btn btn-action" onclick="sendAction('TAKEOFF')">起飞 (Takeoff)</div>
+                    <div class="slide-btn btn-action" onclick="sendAction('LAND')">降落 (Land)</div>
+                    <div class="slide-btn btn-action" onclick="sendAction('RTL')">返航 (Return)</div>
+                    <div class="slide-btn btn-action" onclick="sendAction('HOVER')">悬停 (Hold)</div>
+                </div>
+
+                <!-- 远程控制模式设置 -->
+                <div class="panel-header" style="margin-top: 15px;">远程控制模式</div>
+                <div class="action-pad">
+                    <div class="ctrl-mode-indicator" id="ctrl-mode-status">
+                        <span class="ctrl-mode-icon">⚙️</span>
+                        <span class="ctrl-mode-text" id="ctrl-mode-text">启用</span>
+                    </div>
+
+                    <div class="segmented-control">
+                        <input type="radio" name="ctrl-mode" id="mode-disabled" value="0"
+                            onclick="setRemoteControlMode(0)">
+                        <label for="mode-disabled" class="seg-item" title="禁用服务器控制">禁用</label>
+
+                        <input type="radio" name="ctrl-mode" id="mode-enabled" value="1"
+                            onclick="setRemoteControlMode(1)">
+                        <label for="mode-enabled" class="seg-item" title="启用服务器控制">启用</label>
+
+                        <input type="radio" name="ctrl-mode" id="mode-shared" value="2"
+                            onclick="setRemoteControlMode(2)">
+                        <label for="mode-shared" class="seg-item" title="协同控制 (RC+服务器)">协同</label>
+
+                        <div class="seg-glider"></div>
+                    </div>
+
+                    <div style="height: 50px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Motor Test Page -->
+    <div class="page" id="page-motor">
+        <div class="motor-test-container">
+            <h2 style="color: var(--qgc-blue); margin-bottom: 20px;">⚙️ 电机测试系统</h2>
+
+            <!-- Motor Output Display -->
+            <div class="motor-grid">
+                <div class="motor-card">
+                    <div class="motor-header">
+                        <span class="motor-title">电机 M1 (前右)</span>
+                        <span class="motor-value" id="m1-output">0%</span>
+                    </div>
+                    <div class="motor-slider-container">
+                        <input type="range" min="0" max="65535" value="0" class="motor-slider" id="slider-m1"
+                            oninput="updateMotor(0, this.value)">
+                        <div class="motor-info">
+                            <span>0%</span>
+                            <span id="m1-raw">0</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="motor-card">
+                    <div class="motor-header">
+                        <span class="motor-title">电机 M2 (前左)</span>
+                        <span class="motor-value" id="m2-output">0%</span>
+                    </div>
+                    <div class="motor-slider-container">
+                        <input type="range" min="0" max="65535" value="0" class="motor-slider" id="slider-m2"
+                            oninput="updateMotor(1, this.value)">
+                        <div class="motor-info">
+                            <span>0%</span>
+                            <span id="m2-raw">0</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="motor-card">
+                    <div class="motor-header">
+                        <span class="motor-title">电机 M3 (后左)</span>
+                        <span class="motor-value" id="m3-output">0%</span>
+                    </div>
+                    <div class="motor-slider-container">
+                        <input type="range" min="0" max="65535" value="0" class="motor-slider" id="slider-m3"
+                            oninput="updateMotor(2, this.value)">
+                        <div class="motor-info">
+                            <span>0%</span>
+                            <span id="m3-raw">0</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="motor-card">
+                    <div class="motor-header">
+                        <span class="motor-title">电机 M4 (后右)</span>
+                        <span class="motor-value" id="m4-output">0%</span>
+                    </div>
+                    <div class="motor-slider-container">
+                        <input type="range" min="0" max="65535" value="0" class="motor-slider" id="slider-m4"
+                            oninput="updateMotor(3, this.value)">
+                        <div class="motor-info">
+                            <span>0%</span>
+                            <span id="m4-raw">0</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Controls -->
+            <div class="test-controls">
+                <h3 style="color: var(--qgc-text-main); margin-bottom: 15px;">测试控制</h3>
+                <div class="test-btn-group">
+                    <button class="test-btn test-btn-primary" onclick="sequentialTest()">顺序测试</button>
+                    <button class="test-btn test-btn-warning" onclick="testAllMotors()">全部测试</button>
+                    <button class="test-btn test-btn-danger" onclick="stopAllMotors()">急停</button>
+                    <button class="test-btn test-btn-success" onclick="setAllMotors(6554)">设置10%</button>
+                    <button class="test-btn test-btn-success" onclick="setAllMotors(13107)">设置20%</button>
+                    <button class="test-btn test-btn-danger" onclick="triggerEscFirstCalibration()">ESC 首次行程校准</button>
+                </div>
+                <div
+                    style="margin-top: 15px; padding: 15px; background: rgba(255,152,0,0.1); border-left: 3px solid var(--qgc-orange); border-radius: 4px;">
+                    <p style="margin: 0; font-size: 0.9rem;">
+                        ⚠️ <strong>安全提示：</strong><br>
+                        • 请务必卸下螺旋桨后再进行测试<br>
+                        • 建议从小推力（5-10%）开始逐步增加<br>
+                        • 使用急停按钮可立即停止所有电机<br>
+                        • ESC 首次行程校准会触发飞控重启并输出最大→最小油门，请务必断桨<br>
+                        • 测试时请确保飞行器固定稳定
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- vofa+ Configuration Panel -->
+    <div id="vofa-panel" style="display:none;">
+        <div class="vofa-header">
+            <h3>🎯 vofa+ 实时转发</h3>
+            <button onclick="toggleVofaPanel()" class="vofa-close-btn">✕</button>
+        </div>
+        <div class="vofa-content">
+            <div class="vofa-section">
+                <div class="vofa-enable-wrapper">
+                    <input type="checkbox" id="vofa-enable" onchange="toggleVofa(this.checked)" class="vofa-checkbox" checked>
+                    <label class="vofa-label">启用 FireWater 转发</label>
+                </div>
+                <div class="vofa-status" id="vofa-status">✓ 就绪</div>
+            </div>
+            <div class="vofa-section">
+                <label class="vofa-label">添加 vofa+ 客户端</label>
+                <div class="vofa-hint">填写 vofa+ 软件中的 <b>本地端口</b>，服务器会发送数据到该端口</div>
+                <div class="vofa-input-group">
+                    <input type="text" id="vofa-client-ip" placeholder="IP 地址" value="127.0.0.1" class="vofa-input" style="flex:2">
+                    <input type="number" id="vofa-client-port" placeholder="端口" value="1347" class="vofa-input" style="flex:1; max-width: 70px;">
+                    <button onclick="addVofaClient()" class="vofa-btn-add">添加</button>
+                </div>
+                <div class="vofa-client-list" id="vofa-clients">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PID Tuning Page -->
+    <div class="page" id="page-pid">
+        <!-- 工具栏 -->
+        <div id="pid-page-toolbar" style="display: flex; justify-content: flex-end;">
+            <button onclick="toggleVofaPanel()" class="pid-toolbar-btn">🎯 vofa+ 配置</button>
+        </div>
+        <div class="pid-page-layout">
+            <!-- 左侧: 实时曲线 (主区域) -->
+            <div class="pid-chart-panel">
+                <!-- 图表工具栏 -->
+                <div class="pid-chart-toolbar">
+                    <div class="pid-chart-toolbar-left">
+                        <span class="pid-chart-title">📈 实时曲线</span>
+                        <div class="pid-conn-status">
+                            <div class="indicator-dot red" id="pid-conn-dot"></div>
+                            <span id="pid-conn-text">飞控未连接</span>
+                        </div>
+                    </div>
+                    <div class="pid-chart-toggles" id="pid-chart-toggles"></div>
+                </div>
+                <!-- 多通道图表区 -->
+                <div class="pid-charts-area" id="pid-charts-area">
+                    <!-- canvas 由 JS 动态创建 -->
+                </div>
+            </div>
+
+            <!-- 右侧: 参数面板 -->
+            <div class="pid-param-panel">
+                <div class="pid-toolbar">
+                    <div class="pid-toolbar-left">
+                        <h2 class="pid-title">🎛️ 调参</h2>
+                    </div>
+                    <div class="pid-toolbar-right">
+                        <span class="pid-pending-badge" id="pid-pending-count" style="display:none">0</span>
+                        <button class="pid-action-btn pid-btn-sync" id="pid-sync-btn" onclick="syncToFC()" disabled>✅ 已同步</button>
+                    </div>
+                </div>
+
+                <!-- 参数组选项卡 -->
+                <div class="pid-group-tabs" id="pid-group-tabs"></div>
+
+                <!-- 参数卡片区 -->
+                <div class="pid-params-scroll">
+                    <div class="pid-params-container" id="pid-params-container"></div>
+                </div>
+
+                <!-- 底部操作栏 -->
+                <div class="pid-bottom-bar">
+                    <div class="pid-action-group">
+                        <button class="pid-action-btn pid-btn-save" onclick="saveToStorage()" title="保存到浏览器本地存储">💾 保存</button>
+                        <button class="pid-action-btn pid-btn-default" onclick="resetToDefaults()" title="恢复固件编译时的默认值">🔄 默认</button>
+                        <button class="pid-action-btn pid-btn-export" onclick="exportParams()" title="导出为 JSON 文件">📤</button>
+                        <button class="pid-action-btn pid-btn-import" onclick="importParams()" title="从 JSON 文件导入">📥</button>
+                    </div>
+                </div>
+
+                <!-- 日志 -->
+                <div class="pid-log-section">
+                    <div class="pid-log-header">操作日志</div>
+                    <div class="pid-log" id="pid-log">
+                        <div class="pid-log-entry pid-log-info">[系统] PID 调参模块已加载</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM: Console -->
+    <div class="bottom-console">
+        <div class="console-header" onclick="toggleConsole(this)">
+            系统日志 (点击收起/展开)
+        </div>
+        <div class="console-logs" id="console-logs">
+            <div class="log-entry log-info">[SYSTEM] QGroundControl Lite 地面站已启动</div>
+        </div>
+    </div>
+
+    <script src="js/motorTest.js?v=8"></script>
+    <script src="js/pidTuner.js?v=9"></script>
+    <script src="js/vofa-client.js?v=1"></script>
+    <script type="module" src="js/app.js?v=8"></script>
+</body>
+
+</html>
