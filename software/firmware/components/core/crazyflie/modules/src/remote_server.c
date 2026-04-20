@@ -1208,6 +1208,8 @@ static void remoteServerTelemetryTask(void *param)
     static logVarId_t baroHeightId, tofDistanceId;
     // V3.3 新增：机体坐标系速度
     static logVarId_t bodyVxId, bodyVyId;
+    // V3.4 新增：磁力计
+    static logVarId_t magXId, magYId, magZId, magHeadingId;
     static uint32_t lastMotorPrintTick = 0;
 
     // 等待一段时间让日志系统初始�?
@@ -1270,6 +1272,12 @@ static void remoteServerTelemetryTask(void *param)
             // 从kalman滤波器内部状态获�?(单位: m/s)
             bodyVxId = logGetVarId("kalman", "statePX");
             bodyVyId = logGetVarId("kalman", "statePY");
+
+            // V3.4 新增：磁力计数据
+            magXId = logGetVarId("mag", "x");
+            magYId = logGetVarId("mag", "y");
+            magZId = logGetVarId("mag", "z");
+            magHeadingId = logGetVarId("mag", "heading");
 
             logIdsInit = true;
             DEBUG_PRINT("Telemetry log IDs initialized\n");
@@ -1523,6 +1531,12 @@ static void remoteServerTelemetryTask(void *param)
         {
             telemetry.bodyVelY = 0;
         }
+
+        // 磁力计数据 (V3.4新增)
+        telemetry.magX = LOG_VARID_IS_VALID(magXId) ? (int16_t)(logGetFloat(magXId) * 1000.0f) : 0;
+        telemetry.magY = LOG_VARID_IS_VALID(magYId) ? (int16_t)(logGetFloat(magYId) * 1000.0f) : 0;
+        telemetry.magZ = LOG_VARID_IS_VALID(magZId) ? (int16_t)(logGetFloat(magZId) * 1000.0f) : 0;
+        telemetry.magHeading = LOG_VARID_IS_VALID(magHeadingId) ? (int16_t)(logGetFloat(magHeadingId) * 100.0f) : 0;
 
         // 发送遥测数�?
         // 优先�?UDP（高频、低延迟），UDP 不可用时回退 TCP

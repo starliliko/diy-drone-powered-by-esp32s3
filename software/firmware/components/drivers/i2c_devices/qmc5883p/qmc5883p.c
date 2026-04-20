@@ -11,6 +11,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#define DEBUG_MODULE "QMC5883P"
+#include "debug_cf.h"
+
 static bool qmc5883pWriteByte(qmc5883p_dev_t *dev, uint8_t reg, uint8_t value);
 static bool qmc5883pReadBytes(qmc5883p_dev_t *dev, uint8_t reg, uint8_t len, uint8_t *buffer);
 
@@ -38,6 +41,7 @@ bool qmc5883pInit(qmc5883p_dev_t *dev, I2C_Dev *i2cPort)
 {
     if (!dev || !i2cPort)
     {
+        DEBUG_PRINTW("init: NULL dev or i2cPort\n");
         return false;
     }
 
@@ -49,9 +53,28 @@ bool qmc5883pInit(qmc5883p_dev_t *dev, I2C_Dev *i2cPort)
 
     i2cdevInit(dev->I2Cx);
 
+    /* Try reading chip ID with retries — sensor may need time after power-up */
     uint8_t chipId = 0;
-    if (!qmc5883pReadId(dev, &chipId) || chipId != QMC5883P_CHIP_ID)
+    bool idOk = false;
+    for (int retry = 0; retry < 3; retry++)
     {
+        if (retry > 0)
+        {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        bool readOk = qmc5883pReadId(dev, &chipId);
+        DEBUG_PRINTI("addr 0x%02X read chipId: ok=%d, id=0x%02X (retry %d)\n",
+                     dev->devAddr, readOk, chipId, retry);
+        if (readOk && chipId == QMC5883P_CHIP_ID)
+        {
+            idOk = true;
+            break;
+        }
+    }
+    if (!idOk)
+    {
+        DEBUG_PRINTW("chip ID mismatch or read fail (got 0x%02X, expect 0x%02X)\n",
+                     chipId, QMC5883P_CHIP_ID);
         return false;
     }
 

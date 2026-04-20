@@ -1476,3 +1476,267 @@ body {
     background: rgba(44, 158, 221, 0.2);
     border-color: rgba(44, 158, 221, 0.6);
 }
+
+/* ========== 磁力计校准页面 ========== */
+.mag-page-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 16px;
+    height: 100%;
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+}
+
+.mag-3d-panel {
+    display: flex;
+    flex-direction: column;
+    background: #12121e;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #2a2a44;
+    min-width: 0;
+    min-height: 0;
+}
+
+.mag-3d-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    background: #1a1a2e;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ccc;
+    border-bottom: 1px solid #2a2a44;
+}
+
+.mag-3d-container {
+    flex: 1;
+    min-height: 0;
+}
+
+.mag-3d-container canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.mag-3d-info {
+    display: flex;
+    gap: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: #888;
+    background: #1a1a2e;
+    border-top: 1px solid #2a2a44;
+}
+
+.mag-control-panel {
+    width: auto;
+    min-width: 320px;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+@media (max-width: 1100px) {
+    .mag-page-layout {
+        grid-template-columns: minmax(0, 1fr) 320px;
+    }
+}
+
+@media (max-width: 900px) {
+    .mag-page-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .mag-3d-panel {
+        min-height: 360px;
+    }
+
+    .mag-control-panel {
+        min-width: 0;
+        max-width: none;
+    }
+}
+
+.mag-card {
+    background: #16162a;
+    border: 1px solid #2a2a44;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.mag-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #8888aa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.mag-data-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.mag-data-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px;
+    background: #1a1a32;
+    border-radius: 4px;
+}
+
+.mag-label {
+    font-size: 10px;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.mag-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e0e0e0;
+    font-family: 'Consolas', monospace;
+}
+
+.mag-btn-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.mag-btn {
+    padding: 6px 14px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #222240;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.mag-btn:hover {
+    background: #2a2a50;
+}
+
+.mag-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.mag-btn-start {
+    border-color: #2a8;
+    color: #2fa;
+}
+
+.mag-btn-start:hover:not(:disabled) {
+    background: rgba(34, 170, 136, 0.2);
+}
+
+.mag-btn-stop {
+    border-color: #c44;
+    color: #f66;
+}
+
+.mag-btn-stop:hover:not(:disabled) {
+    background: rgba(200, 60, 60, 0.2);
+}
+
+.mag-btn-clear {
+    border-color: #888;
+    color: #aaa;
+}
+
+.mag-btn-apply {
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px;
+    border-color: #2c9edd;
+    color: #2c9edd;
+    font-weight: 600;
+}
+
+.mag-btn-apply:hover {
+    background: rgba(44, 158, 221, 0.2);
+}
+
+.mag-btn-sm {
+    padding: 3px 10px;
+    font-size: 11px;
+}
+
+.mag-hint {
+    font-size: 11px;
+    color: #666;
+    margin: 8px 0 0 0;
+    line-height: 1.5;
+}
+
+.mag-result-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+}
+
+.mag-result-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #222244;
+    color: #bbb;
+    font-family: 'Consolas', monospace;
+}
+
+.mag-result-table td:nth-child(odd) {
+    color: #888;
+    font-family: inherit;
+    width: 55px;
+}
+
+.mag-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: #bbb;
+}
+
+.mag-setting-row input[type="number"] {
+    background: #1a1a32;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: #eee;
+    font-size: 12px;
+}
+
+.mag-setting-row input[type="checkbox"] {
+    accent-color: #2c9edd;
+}
+
+.mag-status {
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 10px;
+}
+
+.mag-status.active {
+    background: rgba(34, 170, 136, 0.2);
+    color: #2fa;
+}
+
+.mag-status.idle {
+    background: rgba(100, 100, 120, 0.2);
+    color: #888;
+}

@@ -7,6 +7,7 @@
     <title>ESP Drone 地面站</title>
     <link rel="stylesheet" href="css/style.css?v=8">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
 </head>
@@ -20,6 +21,7 @@
             <button class="tab-btn active" onclick="switchPage('flight')">📊 飞行监控</button>
             <button class="tab-btn" onclick="switchPage('motor')">⚙️ 电机测试</button>
             <button class="tab-btn" onclick="switchPage('pid')">🎛️ PID调参</button>
+            <button class="tab-btn" onclick="switchPage('mag')">🧭 磁力计校准</button>
         </div>
         <div class="status-bar">
             <div class="status-item">
@@ -394,6 +396,85 @@
         </div>
     </div>
 
+    <!-- ============ PAGE 4: 磁力计校准 ============ -->
+    <div class="page" id="page-mag">
+        <div class="mag-page-layout">
+            <!-- 左面板: 3D点云 -->
+            <div class="mag-3d-panel">
+                <div class="mag-3d-header">
+                    <span>3D 磁场点云</span>
+                    <span id="mag-calib-status" class="mag-status idle">⏹ 已停止</span>
+                </div>
+                <div id="mag-3d-container" class="mag-3d-container"></div>
+                <div class="mag-3d-info">
+                    <span>采集点数: <strong id="mag-point-count">0</strong></span>
+                    <span>航向: <strong id="mag-live-heading">-</strong></span>
+                </div>
+            </div>
+            <!-- 右面板: 控制与数据 -->
+            <div class="mag-control-panel">
+                <!-- 实时数据 -->
+                <div class="mag-card">
+                    <div class="mag-card-title">实时磁场 (gauss)</div>
+                    <div class="mag-data-grid">
+                        <div class="mag-data-item"><span class="mag-label">X</span><span id="mag-live-x" class="mag-value">0</span></div>
+                        <div class="mag-data-item"><span class="mag-label">Y</span><span id="mag-live-y" class="mag-value">0</span></div>
+                        <div class="mag-data-item"><span class="mag-label">Z</span><span id="mag-live-z" class="mag-value">0</span></div>
+                    </div>
+                </div>
+                <!-- 范围统计 -->
+                <div class="mag-card">
+                    <div class="mag-card-title">采集范围</div>
+                    <div class="mag-data-grid">
+                        <div class="mag-data-item"><span class="mag-label">ΔX</span><span id="mag-range-x" class="mag-value">-</span></div>
+                        <div class="mag-data-item"><span class="mag-label">ΔY</span><span id="mag-range-y" class="mag-value">-</span></div>
+                        <div class="mag-data-item"><span class="mag-label">ΔZ</span><span id="mag-range-z" class="mag-value">-</span></div>
+                    </div>
+                    <div class="mag-data-grid" style="margin-top:6px">
+                        <div class="mag-data-item"><span class="mag-label">偏移X</span><span id="mag-offset-x" class="mag-value">-</span></div>
+                        <div class="mag-data-item"><span class="mag-label">偏移Y</span><span id="mag-offset-y" class="mag-value">-</span></div>
+                        <div class="mag-data-item"><span class="mag-label">偏移Z</span><span id="mag-offset-z" class="mag-value">-</span></div>
+                    </div>
+                </div>
+                <!-- 校准操作 -->
+                <div class="mag-card">
+                    <div class="mag-card-title">校准操作</div>
+                    <div class="mag-btn-row">
+                        <button id="mag-btn-start" class="mag-btn mag-btn-start" onclick="magCalib.startCalibration()">▶ 开始校准</button>
+                        <button id="mag-btn-stop" class="mag-btn mag-btn-stop" onclick="magCalib.stopCalibration()" disabled>⏹ 结束校准</button>
+                        <button class="mag-btn mag-btn-clear" onclick="magCalib.clearPoints()">✕ 清除点云</button>
+                    </div>
+                    <p class="mag-hint">开始后请缓慢旋转飞机 (覆盖全姿态)，结束后自动计算校准参数。</p>
+                </div>
+                <!-- 校准结果 -->
+                <div class="mag-card">
+                    <div class="mag-card-title">校准结果</div>
+                    <table class="mag-result-table">
+                        <tr><td>offX</td><td id="mag-result-offX">-</td><td>scaleX</td><td id="mag-result-scaleX">-</td></tr>
+                        <tr><td>offY</td><td id="mag-result-offY">-</td><td>scaleY</td><td id="mag-result-scaleY">-</td></tr>
+                        <tr><td>offZ</td><td id="mag-result-offZ">-</td><td>scaleZ</td><td id="mag-result-scaleZ">-</td></tr>
+                        <tr><td>采样数</td><td id="mag-result-samples" colspan="3">-</td></tr>
+                    </table>
+                    <button class="mag-btn mag-btn-apply" onclick="magCalib.applyCalibResult()">📤 写入飞控</button>
+                </div>
+                <!-- 高级设置 -->
+                <div class="mag-card">
+                    <div class="mag-card-title">高级设置</div>
+                    <div class="mag-setting-row">
+                        <label>磁偏角 (°):</label>
+                        <input type="number" id="mag-declination-input" value="0" step="0.1" style="width:70px">
+                        <button class="mag-btn mag-btn-sm" onclick="magCalib.setDeclination()">设置</button>
+                    </div>
+                    <div class="mag-setting-row">
+                        <label>偏航融合:</label>
+                        <input type="checkbox" id="mag-yaw-enable" checked onchange="magCalib.toggleYawFusion()">
+                        <span>启用</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- BOTTOM: Console -->
     <div class="bottom-console">
         <div class="console-header" onclick="toggleConsole(this)">
@@ -404,6 +485,7 @@
         </div>
     </div>
 
+    <script src="js/magCalib.js?v=1"></script>
     <script src="js/motorTest.js?v=8"></script>
     <script src="js/pidTuner.js?v=9"></script>
     <script src="js/vofa-client.js?v=1"></script>

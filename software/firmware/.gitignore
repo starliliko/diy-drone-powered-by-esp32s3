@@ -57,6 +57,9 @@ build/
 sdkconfig
 sdkconfig.old
 
+.
+
+
 # ESP-IDF managed components cache
 managed_components/
 

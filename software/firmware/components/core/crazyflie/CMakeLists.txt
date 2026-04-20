@@ -3,7 +3,7 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./hal/src/ledseq.c" 
                 "./hal/src/flow_mtf01.c"
                 "./hal/src/pm_esplane.c" 
-                "./hal/src/sensors_bmi088_spi_ms5611.c"
+                "./hal/src/sensors_bmi088_spi_ms5611_qmc5883p.c"
                 "./hal/src/sensors.c" 
                 "./hal/src/usec_time.c" 
                 "./hal/src/wifilink.c"
@@ -78,7 +78,7 @@ idf_component_register(SRCS "./hal/src/buzzer.c"
                 "./utils/src/rateSupervisor.c"
                 INCLUDE_DIRS "./hal/interface" "./modules/interface" "./utils/interface"
                 REQUIRES i2c_bus bmi088 ms5611 platform config led eeprom sbus mtf
-                dsp_lib motors wifi adc esp_timer)
+                dsp_lib motors wifi adc esp_timer qmc5883p)
 
 idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
 target_include_directories(${COMPONENT_TARGET} PUBLIC

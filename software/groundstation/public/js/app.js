@@ -41,6 +41,10 @@ function updateDroneConnectionState() {
     if (window.pidTuner) {
         window.pidTuner.setConnected(droneConnected);
     }
+
+    if (window.magCalib) {
+        window.magCalib.setConnected(droneConnected);
+    }
 }
 
 // 页面切换
@@ -51,8 +55,13 @@ function switchPage(pageName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
 
-    const nameMap = { flight: '飞行监控', motor: '电机测试', pid: 'PID调参' };
+    const nameMap = { flight: '飞行监控', motor: '电机测试', pid: 'PID调参', mag: '磁力计校准' };
     log('切换到: ' + (nameMap[pageName] || pageName), 'info');
+
+    // 磁力计页面需要在可见后初始化/重算Three.js场景尺寸
+    if (pageName === 'mag' && window.magCalib) {
+        window.magCalib.onPageShown();
+    }
 }
 
 // 控制台折叠
@@ -93,6 +102,11 @@ function onTelemetryUpdate(data) {
     if (window.pidTuner) {
         window.pidTuner.updateTelemetry(data);
     }
+
+    // 更新磁力计校准模块
+    if (window.magCalib) {
+        window.magCalib.updateTelemetry(data);
+    }
 }
 
 // 暴露到全局作用域（供HTML onclick使用）
@@ -112,6 +126,7 @@ window.triggerEscFirstCalibration = () => window.motorTest?.triggerEscFirstCalib
 // 初始化
 window.addEventListener('load', () => {
     initThreeJS();
+    if (window.magCalib) window.magCalib.init();
     setTelemetryCallback(onTelemetryUpdate);
     setConnectionChangeCallback(onConnectionChange);
     connectWS();

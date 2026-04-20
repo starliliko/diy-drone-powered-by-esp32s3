@@ -56,7 +56,7 @@
 #endif
 
 #ifdef SENSOR_INCLUDED_BMI088_SPI_MS5611
-#include "sensors_bmi088_spi_ms5611.h"
+#include "sensors_bmi088_spi_ms5611_qmc5883p.h"
 #endif
 
 typedef struct

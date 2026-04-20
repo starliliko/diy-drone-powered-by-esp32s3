@@ -665,6 +665,50 @@ class DroneServer {
             }
         });
 
+        // ========== 磁力计校准 API ==========
+        // 开始校准（mag.calibrate = 1）
+        app.post('/api/mag/calibrate/start', (req, res) => {
+            try {
+                this.sendParamSetToAllClients('mag', 'calibrate', PARAM_UINT8, 1, 1);
+                console.log('[API] Mag calibration started');
+                res.json({ success: true, action: 'mag_calibrate_start' });
+            } catch (err) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+
+        // 结束校准（mag.calibrate = 0）
+        app.post('/api/mag/calibrate/stop', (req, res) => {
+            try {
+                this.sendParamSetToAllClients('mag', 'calibrate', PARAM_UINT8, 0, 1);
+                console.log('[API] Mag calibration stopped');
+                res.json({ success: true, action: 'mag_calibrate_stop' });
+            } catch (err) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+
+        // 写入磁力计参数（offX/Y/Z, scaleX/Y/Z, declination, yawStdDev, yawEn）
+        app.post('/api/mag/param', (req, res) => {
+            const { name, value, type } = req.body || {};
+            const allowedNames = ['offX', 'offY', 'offZ', 'scaleX', 'scaleY', 'scaleZ',
+                                  'declination', 'yawStdDev', 'yawEn'];
+            if (!allowedNames.includes(name)) {
+                return res.status(400).json({ error: `Invalid param name: ${name}. Allowed: ${allowedNames.join(', ')}` });
+            }
+            try {
+                if (name === 'yawEn') {
+                    this.sendParamSetToAllClients('mag', name, PARAM_UINT8, value ? 1 : 0, 1);
+                } else {
+                    this.sendParamSetToAllClients('mag', name, PARAM_FLOAT, parseFloat(value), 4);
+                }
+                console.log(`[API] Mag param set: mag.${name} = ${value}`);
+                res.json({ success: true, param: name, value });
+            } catch (err) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+
         // ========== vofa+ 配置 API ==========
         app.post('/api/vofa/enable', (req, res) => {
             const { enabled } = req.body || {};
