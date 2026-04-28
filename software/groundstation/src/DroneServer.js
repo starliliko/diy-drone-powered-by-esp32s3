@@ -18,12 +18,6 @@ const { DISCOVERY_MAGIC, UDP_TELEMETRY_MAGIC, UDP_TELEMETRY_HEADER_SIZE, Control
 const { parseTelemetry } = require('./parser');
 const DroneClient = require('./DroneClient');
 
-// CRTP 参数写入常量（按名称写参数）
-const CRTP_PORT_PARAM = 0x02;
-const CRTP_CH_MISC = 0x03;
-const CRTP_HEADER_PARAM_MISC = (CRTP_PORT_PARAM << 4) | CRTP_CH_MISC;
-const MISC_SETBYNAME = 0x00;
-
 // Param 类型常量，需与 param.h 保持一致
 const PARAM_UINT8 = 0x08;  // PARAM_1BYTE | PARAM_TYPE_INT | PARAM_UNSIGNED
 const PARAM_UINT16 = 0x09; // PARAM_2BYTES | PARAM_TYPE_INT | PARAM_UNSIGNED
@@ -51,52 +45,6 @@ class DroneServer {
         this.vofaClients = new Map();      // vofa+ 客户端 Map<key, {ip, port}>
         this.lastWebTelemetryAt = new Map(); // key: addr, value: last websocket telemetry timestamp
         this.loadPidProfile();
-    }
-
-    buildParamSetByNamePacket(group, name, type, value, valueSize) {
-        const groupBuf = Buffer.from(group, 'utf8');
-        const nameBuf = Buffer.from(name, 'utf8');
-
-        const totalLen = 1 + 1 + groupBuf.length + 1 + nameBuf.length + 1 + 1 + valueSize;
-        if (totalLen > 31) {
-            throw new Error('CRTP param packet too long');
-        }
-
-        const buf = Buffer.alloc(totalLen);
-        let offset = 0;
-
-        // CRTP header
-        buf[offset++] = CRTP_HEADER_PARAM_MISC;
-        // MISC_SETBYNAME
-        buf[offset++] = MISC_SETBYNAME;
-
-        // group\0
-        groupBuf.copy(buf, offset);
-        offset += groupBuf.length;
-        buf[offset++] = 0x00;
-
-        // name\0
-        nameBuf.copy(buf, offset);
-        offset += nameBuf.length;
-        buf[offset++] = 0x00;
-
-        // type
-        buf[offset++] = type;
-
-        // value (little-endian)
-        if (valueSize === 1) {
-            buf.writeUInt8(value & 0xFF, offset);
-        } else if (valueSize === 2) {
-            buf.writeUInt16LE(value & 0xFFFF, offset);
-        } else if (valueSize === 4 && type === PARAM_FLOAT) {
-            buf.writeFloatLE(value, offset);
-        } else if (valueSize === 4) {
-            buf.writeUInt32LE(value & 0xFFFFFFFF, offset);
-        } else {
-            throw new Error('Unsupported param size');
-        }
-
-        return buf;
     }
 
     normalizePidParam(group, name, value) {
@@ -193,8 +141,7 @@ class DroneServer {
         let applied = 0;
         for (const p of entries) {
             try {
-                const pkt = this.buildParamSetByNamePacket(p.group, p.name, PARAM_FLOAT, p.value, 4);
-                client.sendCRTP(pkt);
+                client.sendParamSet(p.group, p.name, PARAM_FLOAT, p.value);
                 applied++;
             } catch (err) {
                 console.error(`[PID] Apply failed (${p.group}.${p.name}): ${err.message}`);
@@ -225,26 +172,16 @@ class DroneServer {
     }
 
     sendParamSetToAllClients(group, name, type, value, valueSize, beforeSend = null) {
-        const packet = this.buildParamSetByNamePacket(group, name, type, value, valueSize);
-
         this.forEachDroneClient((client) => {
             if (beforeSend) {
                 beforeSend(client);
             }
-
-            client.sendCRTP(packet);
+            client.sendParamSet(group, name, type, value);
         });
     }
 
     applyPidParamToClient(client, param) {
-        const pkt = this.buildParamSetByNamePacket(
-            param.group,
-            param.name,
-            PARAM_FLOAT,
-            param.value,
-            4
-        );
-        client.sendCRTP(pkt);
+        client.sendParamSet(param.group, param.name, PARAM_FLOAT, param.value);
     }
 
     applyPidParamToAllClients(param) {

@@ -7,7 +7,7 @@ module.exports = {
     // - legacy: 仅使用当前自定义协议
     // - mavlink: 仅使用 MAVLink
     // - dual: 同时兼容两种协议（迁移推荐）
-    PROTOCOL_MODE: 'dual',
+    PROTOCOL_MODE: 'mavlink',
     TCP_PORT: 8080,
     HTTP_PORT: 3000,
     DISCOVERY_PORT: 8081,

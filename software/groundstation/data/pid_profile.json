@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-11T14:41:12.688Z",
+  "updatedAt": "2026-04-20T10:04:17.447Z",
   "params": {
-    "pid_rate.roll_kp": 350,
+    "pid_rate.roll_kp": 340,
     "pid_rate.roll_ki": 50,
     "pid_rate.roll_kd": 35,
     "pid_rate.pitch_kp": 350,

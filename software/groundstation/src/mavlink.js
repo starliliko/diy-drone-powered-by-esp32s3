@@ -26,7 +26,9 @@ const MAV_RESULT = {
 const EXTRA_CRC = {
     0: 50,    // HEARTBEAT
     1: 124,   // SYS_STATUS
+    23: 168,  // PARAM_SET
     30: 39,   // ATTITUDE
+    36: 222,  // SERVO_OUTPUT_RAW
     32: 185,  // LOCAL_POSITION_NED
     69: 243,  // MANUAL_CONTROL
     76: 152,  // COMMAND_LONG
@@ -193,6 +195,19 @@ function encodeCommandLong(seq, sysId, compId, targetSystem, targetComponent, co
     return encodeMavlinkV2Packet(76, payload, seq, sysId, compId);
 }
 
+function encodeParamSet(seq, sysId, compId, targetSystem, targetComponent, paramId, paramValue, paramType) {
+    const payload = Buffer.alloc(23, 0);
+    payload.writeFloatLE(Number(paramValue), 0);
+    payload.writeUInt8(targetSystem & 0xff, 4);
+    payload.writeUInt8(targetComponent & 0xff, 5);
+
+    const idBuf = Buffer.from(String(paramId), 'ascii');
+    idBuf.copy(payload, 6, 0, Math.min(16, idBuf.length));
+    payload.writeUInt8(paramType & 0xff, 22);
+
+    return encodeMavlinkV2Packet(23, payload, seq, sysId, compId);
+}
+
 function decodeHeartbeat(payload) {
     if (payload.length < 9) return null;
     return {
@@ -239,6 +254,22 @@ function decodeLocalPositionNed(payload) {
     };
 }
 
+function decodeServoOutputRaw(payload) {
+    if (payload.length < 21) return null;
+    return {
+        timeUsec: payload.readUInt32LE(0),
+        port: payload.readUInt8(4),
+        servo1Raw: payload.readUInt16LE(5),
+        servo2Raw: payload.readUInt16LE(7),
+        servo3Raw: payload.readUInt16LE(9),
+        servo4Raw: payload.readUInt16LE(11),
+        servo5Raw: payload.readUInt16LE(13),
+        servo6Raw: payload.readUInt16LE(15),
+        servo7Raw: payload.readUInt16LE(17),
+        servo8Raw: payload.readUInt16LE(19)
+    };
+}
+
 function decodeHighresImu(payload) {
     if (payload.length < 62) return null;
     return {
@@ -271,10 +302,12 @@ module.exports = {
     parsePackets,
     encodeManualControl,
     encodeCommandLong,
+    encodeParamSet,
     decodeHeartbeat,
     decodeSysStatus,
     decodeAttitude,
     decodeLocalPositionNed,
+    decodeServoOutputRaw,
     decodeHighresImu,
     decodeCommandAck
 };

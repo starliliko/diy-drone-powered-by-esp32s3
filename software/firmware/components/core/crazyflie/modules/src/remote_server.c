@@ -16,6 +16,8 @@
 
 #include <string.h>
 #include <sys/param.h>
+#include <stdlib.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -110,6 +112,109 @@
 #define REMOTE_SIGN_ROLL (-1.0f)
 
 /*===========================================================================
+ * MAVLink v2 协议
+ *===========================================================================*/
+
+#define MAVLINK_STX_V1 0xFE
+#define MAVLINK_STX_V2 0xFD
+
+#define MAVLINK_MSG_ID_HEARTBEAT 0
+#define MAVLINK_MSG_ID_SYS_STATUS 1
+#define MAVLINK_MSG_ID_PARAM_SET 23
+#define MAVLINK_MSG_ID_ATTITUDE 30
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW 36
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED 32
+#define MAVLINK_MSG_ID_MANUAL_CONTROL 69
+#define MAVLINK_MSG_ID_COMMAND_LONG 76
+#define MAVLINK_MSG_ID_COMMAND_ACK 77
+#define MAVLINK_MSG_ID_HIGHRES_IMU 105
+
+#define MAVLINK_MSG_ID_HEARTBEAT_CRC 50
+#define MAVLINK_MSG_ID_SYS_STATUS_CRC 124
+#define MAVLINK_MSG_ID_PARAM_SET_CRC 168
+#define MAVLINK_MSG_ID_ATTITUDE_CRC 39
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_CRC 222
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_CRC 185
+#define MAVLINK_MSG_ID_MANUAL_CONTROL_CRC 243
+#define MAVLINK_MSG_ID_COMMAND_LONG_CRC 152
+#define MAVLINK_MSG_ID_COMMAND_ACK_CRC 143
+#define MAVLINK_MSG_ID_HIGHRES_IMU_CRC 93
+
+#define MAV_COMP_ID_AUTOPILOT1 1
+#define MAV_TYPE_QUADROTOR 2
+#define MAV_AUTOPILOT_GENERIC 0
+
+#define MAV_MODE_FLAG_CUSTOM_MODE_ENABLED 0x01
+#define MAV_MODE_FLAG_SAFETY_ARMED 0x80
+
+#define MAV_STATE_UNINIT 0
+#define MAV_STATE_STANDBY 3
+#define MAV_STATE_ACTIVE 4
+#define MAV_STATE_CRITICAL 5
+
+#define MAV_CMD_NAV_LAND 21
+#define MAV_CMD_COMPONENT_ARM_DISARM 400
+
+#define MAV_RESULT_ACCEPTED 0
+#define MAV_RESULT_UNSUPPORTED 3
+#define MAV_RESULT_FAILED 4
+
+typedef struct __attribute__((packed))
+{
+    uint8_t stx;
+    uint8_t len;
+    uint8_t incompatFlags;
+    uint8_t compatFlags;
+    uint8_t seq;
+    uint8_t sysId;
+    uint8_t compId;
+    uint8_t msgid0;
+    uint8_t msgid1;
+    uint8_t msgid2;
+} MavlinkV2Header;
+
+typedef struct __attribute__((packed))
+{
+    int16_t x;
+    int16_t y;
+    int16_t z;
+    int16_t r;
+    uint16_t buttons;
+    uint8_t target;
+} MavlinkManualControl;
+
+typedef struct __attribute__((packed))
+{
+    float param1;
+    float param2;
+    float param3;
+    float param4;
+    float param5;
+    float param6;
+    float param7;
+    uint16_t command;
+    uint8_t targetSystem;
+    uint8_t targetComponent;
+    uint8_t confirmation;
+} MavlinkCommandLong;
+
+typedef struct __attribute__((packed))
+{
+    float paramValue;
+    uint8_t targetSystem;
+    uint8_t targetComponent;
+    char paramId[16];
+    uint8_t paramType;
+} MavlinkParamSet;
+
+typedef struct
+{
+    const char *alias;
+    const char *group;
+    const char *name;
+} MavParamAlias;
+
+/*===========================================================================
  * 状态变�?
  *===========================================================================*/
 
@@ -146,6 +251,7 @@ static RemoteControlCallback controlCallback = NULL;
 
 // 序列�?
 static uint16_t txSeq = 0;
+static uint8_t mavlinkTxSeq = 0;
 
 // 发送队列项
 typedef struct
@@ -162,6 +268,73 @@ static uint16_t logRxRate = 0;
 
 // 远程控制模式（默认启用，当连接后且无其他控制源时接管�?
 static volatile RemoteControlMode remoteControlMode = REMOTE_CTRL_MODE_ENABLED;
+
+static uint8_t mavlinkGroundSysId = 255;
+static uint8_t mavlinkGroundCompId = 190;
+
+static const MavParamAlias kMavParamAliases[] = {
+    {"pa_r_kp", "pid_attitude", "roll_kp"},
+    {"pa_r_ki", "pid_attitude", "roll_ki"},
+    {"pa_r_kd", "pid_attitude", "roll_kd"},
+    {"pa_p_kp", "pid_attitude", "pitch_kp"},
+    {"pa_p_ki", "pid_attitude", "pitch_ki"},
+    {"pa_p_kd", "pid_attitude", "pitch_kd"},
+    {"pa_y_kp", "pid_attitude", "yaw_kp"},
+    {"pa_y_ki", "pid_attitude", "yaw_ki"},
+    {"pa_y_kd", "pid_attitude", "yaw_kd"},
+    {"pp_th_base", "posCtlPid", "thrustBase"},
+    {"pp_th_min", "posCtlPid", "thrustMin"},
+    {"pp_rp_lim", "posCtlPid", "rpLimit"},
+    {"pp_xy_vmax", "posCtlPid", "xyVelMax"},
+    {"pp_z_vmax", "posCtlPid", "zVelMax"},
+};
+
+static uint8_t mavlinkGetExtraCrc(uint32_t msgId)
+{
+    switch (msgId)
+    {
+    case MAVLINK_MSG_ID_HEARTBEAT:
+        return MAVLINK_MSG_ID_HEARTBEAT_CRC;
+    case MAVLINK_MSG_ID_SYS_STATUS:
+        return MAVLINK_MSG_ID_SYS_STATUS_CRC;
+    case MAVLINK_MSG_ID_PARAM_SET:
+        return MAVLINK_MSG_ID_PARAM_SET_CRC;
+    case MAVLINK_MSG_ID_ATTITUDE:
+        return MAVLINK_MSG_ID_ATTITUDE_CRC;
+    case MAVLINK_MSG_ID_SERVO_OUTPUT_RAW:
+        return MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_CRC;
+    case MAVLINK_MSG_ID_LOCAL_POSITION_NED:
+        return MAVLINK_MSG_ID_LOCAL_POSITION_NED_CRC;
+    case MAVLINK_MSG_ID_MANUAL_CONTROL:
+        return MAVLINK_MSG_ID_MANUAL_CONTROL_CRC;
+    case MAVLINK_MSG_ID_COMMAND_LONG:
+        return MAVLINK_MSG_ID_COMMAND_LONG_CRC;
+    case MAVLINK_MSG_ID_COMMAND_ACK:
+        return MAVLINK_MSG_ID_COMMAND_ACK_CRC;
+    case MAVLINK_MSG_ID_HIGHRES_IMU:
+        return MAVLINK_MSG_ID_HIGHRES_IMU_CRC;
+    default:
+        return 0;
+    }
+}
+
+static uint16_t mavlinkCrcAccumulate(uint8_t data, uint16_t crc)
+{
+    uint8_t tmp = data ^ (uint8_t)(crc & 0xFF);
+    tmp = (uint8_t)(tmp ^ (tmp << 4));
+    return (uint16_t)((crc >> 8) ^ ((uint16_t)tmp << 8) ^ ((uint16_t)tmp << 3) ^ ((uint16_t)tmp >> 4));
+}
+
+static uint16_t mavlinkCrcCalculate(const uint8_t *buffer, uint16_t len, uint8_t extra)
+{
+    uint16_t crc = 0xFFFF;
+    for (uint16_t i = 0; i < len; i++)
+    {
+        crc = mavlinkCrcAccumulate(buffer[i], crc);
+    }
+    crc = mavlinkCrcAccumulate(extra, crc);
+    return crc;
+}
 
 static int remoteServerGetSocketSnapshot(void)
 {
@@ -208,7 +381,12 @@ static void remoteServerTxTask(void *param);
 static void remoteServerTelemetryTask(void *param);
 static bool connectToServer(void);
 static void disconnectFromServer(void);
-static void processReceivedPacket(const RemotePacketHeader *header, const uint8_t *payload);
+static bool sendMavlinkMessage(uint32_t msgId, const void *payload, uint8_t payloadLen);
+static bool sendMavlinkCommandAck(uint16_t command, uint8_t result);
+static void processMavlinkMessage(uint32_t msgId, const uint8_t *payload, uint8_t payloadLen, uint8_t sysId, uint8_t compId);
+static void handleMavlinkManualControl(const uint8_t *payload, uint8_t payloadLen);
+static void handleMavlinkCommandLong(const uint8_t *payload, uint8_t payloadLen);
+static void handleMavlinkParamSet(const uint8_t *payload, uint8_t payloadLen);
 static void handleControlPacket(const uint8_t *data, uint16_t size);
 static void handleCRTPPacket(const uint8_t *data, uint16_t size);
 static bool sendPacketInternal(RemotePacketType type, const uint8_t *data, uint16_t size);
@@ -725,6 +903,277 @@ static void disconnectFromServer(void)
  * 发送任�?
  *===========================================================================*/
 
+static bool sendMavlinkMessage(uint32_t msgId, const void *payload, uint8_t payloadLen)
+{
+    if (connectionState != REMOTE_STATE_CONNECTED)
+    {
+        return false;
+    }
+
+    uint8_t extra = mavlinkGetExtraCrc(msgId);
+    if (extra == 0)
+    {
+        return false;
+    }
+
+    uint8_t packet[10 + 255 + 2];
+    const uint16_t packetLen = (uint16_t)(10 + payloadLen + 2);
+
+    packet[0] = MAVLINK_STX_V2;
+    packet[1] = payloadLen;
+    packet[2] = 0;
+    packet[3] = 0;
+    packet[4] = mavlinkTxSeq++;
+    packet[5] = 1;
+    packet[6] = MAV_COMP_ID_AUTOPILOT1;
+    packet[7] = (uint8_t)(msgId & 0xFF);
+    packet[8] = (uint8_t)((msgId >> 8) & 0xFF);
+    packet[9] = (uint8_t)((msgId >> 16) & 0xFF);
+
+    if (payloadLen > 0 && payload)
+    {
+        memcpy(&packet[10], payload, payloadLen);
+    }
+
+    uint16_t crc = mavlinkCrcCalculate(&packet[1], (uint16_t)(9 + payloadLen), extra);
+    packet[10 + payloadLen] = (uint8_t)(crc & 0xFF);
+    packet[10 + payloadLen + 1] = (uint8_t)((crc >> 8) & 0xFF);
+
+    bool success = false;
+    if (xSemaphoreTake(sockMutex, M2T(100)) == pdTRUE)
+    {
+        int currentSock = sock;
+        if (currentSock >= 0)
+        {
+            int sent = send(currentSock, packet, packetLen, 0);
+            success = (sent == packetLen);
+            if (success)
+            {
+                txPacketCount++;
+            }
+        }
+        xSemaphoreGive(sockMutex);
+    }
+
+    return success;
+}
+
+static bool sendMavlinkCommandAck(uint16_t command, uint8_t result)
+{
+    uint8_t payload[3];
+    payload[0] = (uint8_t)(command & 0xFF);
+    payload[1] = (uint8_t)((command >> 8) & 0xFF);
+    payload[2] = result;
+    return sendMavlinkMessage(MAVLINK_MSG_ID_COMMAND_ACK, payload, sizeof(payload));
+}
+
+static paramVarId_t resolveMavlinkParamVarId(const char *paramId)
+{
+    paramVarId_t invalid = {.id = 0xffffu, .ptr = 0xffffu};
+
+    if (!paramId || !paramId[0])
+    {
+        return invalid;
+    }
+
+    const char *dot = strchr(paramId, '.');
+    if (dot)
+    {
+        const size_t groupLen = (size_t)(dot - paramId);
+        const size_t nameLen = strlen(dot + 1);
+        if (groupLen == 0 || nameLen == 0 || groupLen >= 32 || nameLen >= 32)
+        {
+            return invalid;
+        }
+
+        char group[32] = {0};
+        char name[32] = {0};
+        memcpy(group, paramId, groupLen);
+        memcpy(name, dot + 1, nameLen);
+        return paramGetVarId(group, name);
+    }
+
+    for (size_t i = 0; i < (sizeof(kMavParamAliases) / sizeof(kMavParamAliases[0])); i++)
+    {
+        if (strcmp(paramId, kMavParamAliases[i].alias) == 0)
+        {
+            return paramGetVarId((char *)kMavParamAliases[i].group, (char *)kMavParamAliases[i].name);
+        }
+    }
+
+    return invalid;
+}
+
+static void handleMavlinkParamSet(const uint8_t *payload, uint8_t payloadLen)
+{
+    if (payloadLen < sizeof(MavlinkParamSet))
+    {
+        return;
+    }
+
+    const MavlinkParamSet *ps = (const MavlinkParamSet *)payload;
+
+    if ((ps->targetSystem != 0) && (ps->targetSystem != 1))
+    {
+        return;
+    }
+
+    if ((ps->targetComponent != 0) && (ps->targetComponent != MAV_COMP_ID_AUTOPILOT1))
+    {
+        return;
+    }
+
+    char paramId[17] = {0};
+    memcpy(paramId, ps->paramId, 16);
+
+    paramVarId_t varid = resolveMavlinkParamVarId(paramId);
+    if (!PARAM_VARID_IS_VALID(varid))
+    {
+        ESP_LOGW("REMOTE", "Unknown MAVLink param id: '%s'", paramId);
+        return;
+    }
+
+    const int paramType = paramGetType(varid);
+    if (paramType & PARAM_RONLY)
+    {
+        ESP_LOGW("REMOTE", "Reject write to readonly param id='%s'", paramId);
+        return;
+    }
+
+    const int rawType = (paramType & (~PARAM_RONLY));
+    if (rawType == PARAM_FLOAT)
+    {
+        paramSetFloat(varid, ps->paramValue);
+    }
+    else
+    {
+        paramSetInt(varid, (int)lrintf(ps->paramValue));
+    }
+}
+
+static void handleMavlinkManualControl(const uint8_t *payload, uint8_t payloadLen)
+{
+    if (payloadLen < sizeof(MavlinkManualControl))
+    {
+        return;
+    }
+
+    const MavlinkManualControl *mc = (const MavlinkManualControl *)payload;
+    setpoint_t setpoint = {0};
+
+    setpoint.mode.roll = modeAbs;
+    setpoint.mode.pitch = modeAbs;
+    setpoint.mode.yaw = modeVelocity;
+
+    if (!remoteRollSignWarned)
+    {
+        DEBUG_PRINT("WARNING: remote roll command uses sign compensation to match SBUS/CRTP manual roll convention\n");
+        remoteRollSignWarned = true;
+    }
+
+    setpoint.attitude.roll = REMOTE_SIGN_ROLL * ((float)CLAMP(mc->y, -1000, 1000) / 100.0f);
+    setpoint.attitude.pitch = ((float)CLAMP(mc->x, -1000, 1000) / 100.0f);
+    setpoint.attitudeRate.yaw = ((float)CLAMP(mc->r, -1000, 1000) / 10.0f);
+
+    uint16_t z = (uint16_t)CLAMP(mc->z, 0, 1000);
+    setpoint.thrust = (uint16_t)((z * 65535UL) / 1000UL);
+
+    commanderApplyFlightMode(&setpoint);
+    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
+}
+
+static void handleMavlinkCommandLong(const uint8_t *payload, uint8_t payloadLen)
+{
+    if (payloadLen < sizeof(MavlinkCommandLong))
+    {
+        return;
+    }
+
+    const MavlinkCommandLong *cmd = (const MavlinkCommandLong *)payload;
+
+    switch (cmd->command)
+    {
+    case MAV_CMD_COMPONENT_ARM_DISARM:
+    {
+        if (cmd->param1 > 0.5f)
+        {
+            if (vehicleArm(false))
+            {
+                sendMavlinkCommandAck(MAV_CMD_COMPONENT_ARM_DISARM, MAV_RESULT_ACCEPTED);
+            }
+            else
+            {
+                sendMavlinkCommandAck(MAV_CMD_COMPONENT_ARM_DISARM, MAV_RESULT_FAILED);
+            }
+        }
+        else
+        {
+            const bool force = (cmd->param2 > 10000.0f);
+            if (force)
+            {
+                vehicleEmergencyStop();
+            }
+            else
+            {
+                vehicleDisarm(false);
+            }
+
+            setpoint_t stopSetpoint = {0};
+            stopSetpoint.thrust = 0;
+            stopSetpoint.mode.roll = modeDisable;
+            stopSetpoint.mode.pitch = modeDisable;
+            stopSetpoint.mode.yaw = modeDisable;
+            commanderSetSetpoint(&stopSetpoint, COMMANDER_PRIORITY_REMOTE);
+
+            sendMavlinkCommandAck(MAV_CMD_COMPONENT_ARM_DISARM, MAV_RESULT_ACCEPTED);
+        }
+        break;
+    }
+
+    case MAV_CMD_NAV_LAND:
+    {
+        vehicleSetFlightMode(FLIGHT_MODE_LAND);
+        setpoint_t setpoint = {0};
+        setpoint.mode.z = modeVelocity;
+        setpoint.velocity.z = -0.3f;
+        commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_REMOTE);
+        sendMavlinkCommandAck(MAV_CMD_NAV_LAND, MAV_RESULT_ACCEPTED);
+        break;
+    }
+
+    default:
+        sendMavlinkCommandAck(cmd->command, MAV_RESULT_UNSUPPORTED);
+        break;
+    }
+}
+
+static void processMavlinkMessage(uint32_t msgId, const uint8_t *payload, uint8_t payloadLen, uint8_t sysId, uint8_t compId)
+{
+    mavlinkGroundSysId = sysId;
+    mavlinkGroundCompId = compId;
+
+    switch (msgId)
+    {
+    case MAVLINK_MSG_ID_MANUAL_CONTROL:
+        handleMavlinkManualControl(payload, payloadLen);
+        break;
+
+    case MAVLINK_MSG_ID_COMMAND_LONG:
+        handleMavlinkCommandLong(payload, payloadLen);
+        break;
+
+    case MAVLINK_MSG_ID_PARAM_SET:
+        handleMavlinkParamSet(payload, payloadLen);
+        break;
+
+    case MAVLINK_MSG_ID_HEARTBEAT:
+        break;
+
+    default:
+        break;
+    }
+}
+
 static bool sendPacketInternal(RemotePacketType type, const uint8_t *data, uint16_t size)
 {
     if (connectionState != REMOTE_STATE_CONNECTED)
@@ -863,8 +1312,20 @@ static void remoteServerTxTask(void *param)
         TickType_t now = xTaskGetTickCount();
         if ((now - lastHeartbeat) >= M2T(HEARTBEAT_INTERVAL_MS))
         {
-            uint32_t timestamp = now;
-            if (!sendPacketInternal(REMOTE_PKT_HEARTBEAT, (uint8_t *)&timestamp, sizeof(timestamp)))
+            uint8_t hb[9] = {0};
+            VehicleState vstate = vehicleStateGet();
+            uint8_t baseMode = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
+            if (vstate.isArmed)
+            {
+                baseMode |= MAV_MODE_FLAG_SAFETY_ARMED;
+            }
+            hb[4] = MAV_TYPE_QUADROTOR;
+            hb[5] = MAV_AUTOPILOT_GENERIC;
+            hb[6] = baseMode;
+            hb[7] = vstate.isEmergency ? MAV_STATE_CRITICAL : (vstate.isArmed ? MAV_STATE_ACTIVE : MAV_STATE_STANDBY);
+            hb[8] = 3;
+
+            if (!sendMavlinkMessage(MAVLINK_MSG_ID_HEARTBEAT, hb, sizeof(hb)))
             {
                 xEventGroupSetBits(eventGroup, EVT_DISCONNECTED);
             }
@@ -921,34 +1382,82 @@ static void remoteServerRxTask(void *param)
 
         rxLen += len;
 
-        // 解析接收到的数据�?
+        // 解析接收到的 MAVLink 数据
         parsePos = 0;
-        while (parsePos + sizeof(RemotePacketHeader) <= rxLen)
+        while (parsePos < rxLen)
         {
-            RemotePacketHeader *header = (RemotePacketHeader *)(rxBuffer + parsePos);
+            uint8_t stx = rxBuffer[parsePos];
+            bool isV2 = (stx == MAVLINK_STX_V2);
+            bool isV1 = (stx == MAVLINK_STX_V1);
 
-            // 验证魔数
-            if (header->magic[0] != REMOTE_MAGIC_0 || header->magic[1] != REMOTE_MAGIC_1)
+            if (!isV2 && !isV1)
             {
-                // 同步丢失，跳过一个字�?
                 parsePos++;
                 continue;
             }
 
-            // 检查是否有完整的包
-            int totalLen = sizeof(RemotePacketHeader) + header->length;
-            if (parsePos + totalLen > rxLen)
+            int headerLen = isV2 ? 10 : 6;
+            if (parsePos + headerLen > rxLen)
             {
-                // 数据不完整，等待更多
                 break;
             }
 
-            // 处理�?
-            uint8_t *payload = rxBuffer + parsePos + sizeof(RemotePacketHeader);
-            processReceivedPacket(header, payload);
-            rxPacketCount++;
+            uint8_t payloadLen = rxBuffer[parsePos + 1];
+            uint8_t incompatFlags = isV2 ? rxBuffer[parsePos + 2] : 0;
+            bool hasSignature = isV2 && ((incompatFlags & 0x01) != 0);
+            int signatureLen = hasSignature ? 13 : 0;
+            int frameLen = headerLen + payloadLen + 2 + signatureLen;
 
-            parsePos += totalLen;
+            if (parsePos + frameLen > rxLen)
+            {
+                break;
+            }
+
+            uint32_t msgId = 0;
+            uint8_t sysId = 0;
+            uint8_t compId = 0;
+            uint8_t *payload = NULL;
+            uint16_t computed = 0;
+            uint16_t received = 0;
+            uint8_t extra = 0;
+
+            if (isV2)
+            {
+                msgId = (uint32_t)rxBuffer[parsePos + 7] |
+                        ((uint32_t)rxBuffer[parsePos + 8] << 8) |
+                        ((uint32_t)rxBuffer[parsePos + 9] << 16);
+                sysId = rxBuffer[parsePos + 5];
+                compId = rxBuffer[parsePos + 6];
+                payload = &rxBuffer[parsePos + 10];
+                extra = mavlinkGetExtraCrc(msgId);
+                computed = mavlinkCrcCalculate(&rxBuffer[parsePos + 1], (uint16_t)(9 + payloadLen), extra);
+            }
+            else
+            {
+                msgId = rxBuffer[parsePos + 5];
+                sysId = rxBuffer[parsePos + 3];
+                compId = rxBuffer[parsePos + 4];
+                payload = &rxBuffer[parsePos + 6];
+                extra = mavlinkGetExtraCrc(msgId);
+                computed = mavlinkCrcCalculate(&rxBuffer[parsePos + 1], (uint16_t)(5 + payloadLen), extra);
+            }
+
+            if (extra == 0)
+            {
+                parsePos += frameLen;
+                continue;
+            }
+
+            received = (uint16_t)payload[payloadLen] | ((uint16_t)payload[payloadLen + 1] << 8);
+            if (computed != received)
+            {
+                parsePos++;
+                continue;
+            }
+
+            processMavlinkMessage(msgId, payload, payloadLen, sysId, compId);
+            rxPacketCount++;
+            parsePos += frameLen;
         }
 
         // 移动剩余数据到缓冲区开�?
@@ -961,37 +1470,6 @@ static void remoteServerRxTask(void *param)
         {
             rxLen = 0;
         }
-    }
-}
-
-static void processReceivedPacket(const RemotePacketHeader *header, const uint8_t *payload)
-{
-    switch (header->type)
-    {
-    case REMOTE_PKT_HEARTBEAT:
-        // 服务器心跳响应，可用�?RTT 计算
-        break;
-
-    case REMOTE_PKT_CONTROL:
-        handleControlPacket(payload, header->length);
-        break;
-
-    case REMOTE_PKT_CRTP:
-        handleCRTPPacket(payload, header->length);
-        break;
-
-    case REMOTE_PKT_ACK:
-        // 确认�?
-        break;
-
-    case REMOTE_PKT_CONFIG:
-        // 配置包，可用于运行时参数调整
-        DEBUG_PRINT("Received config packet\n");
-        break;
-
-    default:
-        DEBUG_PRINT("Unknown packet type: %d\n", header->type);
-        break;
     }
 }
 
@@ -1538,23 +2016,134 @@ static void remoteServerTelemetryTask(void *param)
         telemetry.magZ = LOG_VARID_IS_VALID(magZId) ? (int16_t)(logGetFloat(magZId) * 1000.0f) : 0;
         telemetry.magHeading = LOG_VARID_IS_VALID(magHeadingId) ? (int16_t)(logGetFloat(magHeadingId) * 100.0f) : 0;
 
-        // 发送遥测数�?
-        // 优先�?UDP（高频、低延迟），UDP 不可用时回退 TCP
-        if (udpSock >= 0 && udpTelemetryPort > 0)
+        // 通过 MAVLink v2 上报标准遥测消息
+
+        // ATTITUDE (id=30)
         {
-            bool udpOk = sendUDPTelemetry((uint8_t *)&telemetry, sizeof(telemetry));
-            if (!udpOk)
-            {
-                ESP_LOGW("REMOTE", "UDP telemetry send failed, fallback to TCP");
-                remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
-                                       (uint8_t *)&telemetry, sizeof(telemetry));
-            }
+            uint8_t payload[28] = {0};
+            uint32_t timeBootMs = telemetry.timestamp;
+            float rollRad = ((float)telemetry.roll / 100.0f) * ((float)M_PI / 180.0f);
+            float pitchRad = ((float)telemetry.pitch / 100.0f) * ((float)M_PI / 180.0f);
+            float yawRad = ((float)telemetry.yaw / 100.0f) * ((float)M_PI / 180.0f);
+            float rollRateRad = ((float)telemetry.gyroX / 10.0f) * ((float)M_PI / 180.0f);
+            float pitchRateRad = ((float)telemetry.gyroY / 10.0f) * ((float)M_PI / 180.0f);
+            float yawRateRad = ((float)telemetry.gyroZ / 10.0f) * ((float)M_PI / 180.0f);
+
+            memcpy(&payload[0], &timeBootMs, sizeof(timeBootMs));
+            memcpy(&payload[4], &rollRad, sizeof(float));
+            memcpy(&payload[8], &pitchRad, sizeof(float));
+            memcpy(&payload[12], &yawRad, sizeof(float));
+            memcpy(&payload[16], &rollRateRad, sizeof(float));
+            memcpy(&payload[20], &pitchRateRad, sizeof(float));
+            memcpy(&payload[24], &yawRateRad, sizeof(float));
+
+            sendMavlinkMessage(MAVLINK_MSG_ID_ATTITUDE, payload, sizeof(payload));
         }
-        else
+
+        // LOCAL_POSITION_NED (id=32)
         {
-            // 旧服务器�?UDP 不可用，使用 TCP
-            remoteServerSendPacket(REMOTE_PKT_TELEMETRY,
-                                   (uint8_t *)&telemetry, sizeof(telemetry));
+            uint8_t payload[28] = {0};
+            uint32_t timeBootMs = telemetry.timestamp;
+            float x = 0.0f;
+            float y = 0.0f;
+            float z = -((float)telemetry.estAltitude / 1000.0f);
+            float vx = (float)telemetry.estVelX / 1000.0f;
+            float vy = (float)telemetry.estVelY / 1000.0f;
+            float vz = (float)telemetry.estVelZ / 1000.0f;
+
+            memcpy(&payload[0], &timeBootMs, sizeof(timeBootMs));
+            memcpy(&payload[4], &x, sizeof(float));
+            memcpy(&payload[8], &y, sizeof(float));
+            memcpy(&payload[12], &z, sizeof(float));
+            memcpy(&payload[16], &vx, sizeof(float));
+            memcpy(&payload[20], &vy, sizeof(float));
+            memcpy(&payload[24], &vz, sizeof(float));
+
+            sendMavlinkMessage(MAVLINK_MSG_ID_LOCAL_POSITION_NED, payload, sizeof(payload));
+        }
+
+        // SERVO_OUTPUT_RAW (id=36)
+        // 这里复用 servo1-4 字段承载四电机当前输出，便于地面站显示。
+        {
+            uint8_t payload[21] = {0};
+            uint32_t timeUsec = telemetry.timestamp * 1000UL;
+            uint8_t port = 0;
+            uint16_t s1 = telemetry.motorPower[0];
+            uint16_t s2 = telemetry.motorPower[1];
+            uint16_t s3 = telemetry.motorPower[2];
+            uint16_t s4 = telemetry.motorPower[3];
+            uint16_t s5 = 0;
+            uint16_t s6 = 0;
+            uint16_t s7 = 0;
+            uint16_t s8 = 0;
+            uint8_t rssi = 255;
+
+            memcpy(&payload[0], &timeUsec, sizeof(timeUsec));
+            memcpy(&payload[4], &port, sizeof(port));
+            memcpy(&payload[5], &s1, sizeof(s1));
+            memcpy(&payload[7], &s2, sizeof(s2));
+            memcpy(&payload[9], &s3, sizeof(s3));
+            memcpy(&payload[11], &s4, sizeof(s4));
+            memcpy(&payload[13], &s5, sizeof(s5));
+            memcpy(&payload[15], &s6, sizeof(s6));
+            memcpy(&payload[17], &s7, sizeof(s7));
+            memcpy(&payload[19], &s8, sizeof(s8));
+            memcpy(&payload[20], &rssi, sizeof(rssi));
+
+            sendMavlinkMessage(MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, payload, sizeof(payload));
+        }
+
+        // HIGHRES_IMU (id=105)
+        {
+            uint8_t payload[62] = {0};
+            uint64_t timeUsec = (uint64_t)telemetry.timestamp * 1000ULL;
+            float xacc = ((float)telemetry.accX / 1000.0f) * 9.80665f;
+            float yacc = ((float)telemetry.accY / 1000.0f) * 9.80665f;
+            float zacc = ((float)telemetry.accZ / 1000.0f) * 9.80665f;
+            float xgyro = ((float)telemetry.gyroX / 10.0f) * ((float)M_PI / 180.0f);
+            float ygyro = ((float)telemetry.gyroY / 10.0f) * ((float)M_PI / 180.0f);
+            float zgyro = ((float)telemetry.gyroZ / 10.0f) * ((float)M_PI / 180.0f);
+            float xmag = (float)telemetry.magX / 1000.0f;
+            float ymag = (float)telemetry.magY / 1000.0f;
+            float zmag = (float)telemetry.magZ / 1000.0f;
+            float absPress = 0.0f;
+            float diffPress = 0.0f;
+            float pressAlt = (float)telemetry.baroAltitude / 1000.0f;
+            float temperature = 0.0f;
+            uint16_t fieldsUpdated = 0x01FF;
+
+            memcpy(&payload[0], &timeUsec, sizeof(timeUsec));
+            memcpy(&payload[8], &xacc, sizeof(float));
+            memcpy(&payload[12], &yacc, sizeof(float));
+            memcpy(&payload[16], &zacc, sizeof(float));
+            memcpy(&payload[20], &xgyro, sizeof(float));
+            memcpy(&payload[24], &ygyro, sizeof(float));
+            memcpy(&payload[28], &zgyro, sizeof(float));
+            memcpy(&payload[32], &xmag, sizeof(float));
+            memcpy(&payload[36], &ymag, sizeof(float));
+            memcpy(&payload[40], &zmag, sizeof(float));
+            memcpy(&payload[44], &absPress, sizeof(float));
+            memcpy(&payload[48], &diffPress, sizeof(float));
+            memcpy(&payload[52], &pressAlt, sizeof(float));
+            memcpy(&payload[56], &temperature, sizeof(float));
+            memcpy(&payload[60], &fieldsUpdated, sizeof(fieldsUpdated));
+
+            sendMavlinkMessage(MAVLINK_MSG_ID_HIGHRES_IMU, payload, sizeof(payload));
+        }
+
+        // SYS_STATUS (id=1) 低频上报
+        static uint32_t lastSysStatusTick = 0;
+        if ((telemetry.timestamp - lastSysStatusTick) >= 500)
+        {
+            uint8_t payload[31] = {0};
+            uint16_t voltageMv = telemetry.battVoltage;
+            int8_t battRemain = (int8_t)telemetry.battPercent;
+
+            memcpy(&payload[14], &voltageMv, sizeof(voltageMv));
+            memcpy(&payload[30], &battRemain, sizeof(battRemain));
+
+            sendMavlinkMessage(MAVLINK_MSG_ID_SYS_STATUS, payload, sizeof(payload));
+            lastSysStatusTick = telemetry.timestamp;
         }
     }
 }

@@ -1,8 +1,8 @@
 {
   "name": "esp-drone-gcs",
-  "version": "2.0.0",
-  "description": "ESP-Drone QGroundControl Lite 地面站 - 模块化架构",
-  "license": "ISC",
+  "version": "2.1.0",
+  "description": "ESP-Drone QGroundControl Lite 地面站 - MAVLink/CRTP 双栈",
+  "license": "GPL-3.0",
   "author": "",
   "type": "commonjs",
   "main": "server.js",
